@@ -51,6 +51,21 @@ namespace VoxelEngine.WorldGen
             _columnTop.Clear(); _specStamp++;
         }
 
+        /// Tests and reports (task 180b's on / off): spec.matRulesOn for the chunks
+        /// generated from now on (bakes the shore field the first time). Not
+        /// thread-safe: call between Generate calls.
+        public void SetMatRules(bool on)
+        {
+            var t = Spec; t.matRulesOn = on ? (byte)1 : (byte)0; Spec = t;
+            if (on)
+            {
+                Map.EnsureShoreField();
+                if (_shore.IsCreated) _shore.Dispose();
+                _shore = new NativeArray<ushort>(Map.ShoreField, Allocator.Persistent);
+            }
+            _columnTop.Clear(); _specStamp++;
+        }
+
         /// The gathered trees of one footprint (a chunk column or a shell chunk).
         internal sealed class TreeScratch : IDisposable
         {

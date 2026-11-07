@@ -46,6 +46,9 @@ namespace TerrainGen
         /// Task 180: the tree density plane (TreeTable.DensityPlane, one byte per
         /// cell). OPTIONAL: null = no trees, whatever TerrainSpec.Trees says.
         public byte* trees;
+        /// Task 180b: the baked shore field (GroundRules.BakeShore, one ushort
+        /// per cell). OPTIONAL: null = GroundRules scans the cells itself (same answer).
+        public ushort* shore;
         public int cells;
         public float cellVoxels;
     }
@@ -88,7 +91,20 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh;
+        /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
+        public ushort[] ShoreField { get; private set; }
+
+        /// Task 180b: bake the shore field (one pass; ~a second) if it is not yet.
+        /// Derived from Water only: adding it never changes any other output.
+        public void EnsureShoreField()
+        {
+            if (ShoreField != null) return;
+            var v = View;
+            var f = GroundRules.BakeShore(in v);
+            _hSh = GCHandle.Alloc(f, GCHandleType.Pinned);
+            ShoreField = f;
+        }
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -114,6 +130,7 @@ namespace TerrainGen
             waterClass = (byte*)_hC.AddrOfPinnedObject(),
             flowDir = _hF.IsAllocated ? (ushort*)_hF.AddrOfPinnedObject() : null,
             route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
+            shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -153,6 +170,7 @@ namespace TerrainGen
             if (_hC.IsAllocated) _hC.Free();
             if (_hF.IsAllocated) _hF.Free();
             if (_hRt.IsAllocated) _hRt.Free();
+            if (_hSh.IsAllocated) _hSh.Free();
         }
 
         /// Task 178b: set once by the build (FromCore) with the record; derives

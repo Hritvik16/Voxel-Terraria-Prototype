@@ -203,7 +203,7 @@ namespace VoxelEngine.WorldGen
                 output.trees.Ensure(maxTrees);
                 new ShellColumnJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, ore = _ore, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, ore = _ore, spec = Spec, o = O,
                     origin = origin, shift = shell, half = half,
                     colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
                     treePlane = _treePlane, gatherTrees = maxTrees > 0,
@@ -284,6 +284,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
+            [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -307,6 +308,7 @@ namespace VoxelEngine.WorldGen
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
+                    shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };

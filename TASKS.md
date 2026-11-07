@@ -1138,3 +1138,25 @@ water / badlands rules, reach; 30 trees per family + 30 steep-foot trees voxelis
 `Screenshots/180/sheet_<seed>_<biome>.png`, `Logs/TerrainGen/trees180/rules.txt`), `Cost_OnVsOff` (dense bricks + gen time, LOD 0 and
 shells 1-5, `cost.txt`), `Poses_DensestSpots` (Explicit: `-wsfixed` poses at the densest spots, `poses.txt`). Shots: `-lookreview
 -worldsurvey 1 -wsposes fixed,range -wsfixed "$(cat Logs/overnight/180_poses.txt)" -trees 1|0`; `python3 -I tools/trees180.py`. Result: HANDOFF 180.
+
+**Task 180b -- simple material rules, flag-off prototype (`-matrules 1`, default OFF).** Owner 2026-11-06 (memory simple-material-rules):
+BIOME PAINTS EVERYTHING -- one palette row per biome (skin, soil, subsoil, stone, deep stone, cavern rock + flat / steep / hollow / high /
+shore / rubble entries and their patch variants), the inputs only choose WHICH entry goes WHERE. `Assets/TerrainGen/GroundRules.cs` (header =
+the rule list, first match wins: shore -> water bed -> steep (bare on a crest or the sunny side) -> wet bank (fresh water within 12 m, ground
+<= 1 m over it) -> high (snow line, lower in shade) -> scree (ground > 40 deg within 20 m upslope; a route keeps its surface) -> dip -> crest
+-> flat). Per column once (`GroundRules.Column`, last in `ShapeField.Sample`): 6 m slope / curvature, height over sea, sun side (+Z), the
+map-baked shore field (`WorldMap.EnsureShoreField`, one pass per map), steepest ground upslope, route flag, one 300 m 2-D noise per biome;
+per voxel only the depth below the GENERATED top (`Band`: skin 0.3 m, soil, subsoil, stone to 11-19 m, deep stone; cavern rock / underworld
+stay absolute). Border: skin from the rock border warp in 25 m plan patches (a mud bank becomes a sand bank over ~60 m), stone from rockA.
+Non-water fluids own their shore (`FluidShore`: lava -> magma crust, oil -> shale, ...), lining the caldera bed and every sealed pocket's
+wall. Badlands: one red stone, no stripes. No LAYER_ROCKS / partner mix / rock A-B on this path (they stay for OFF). Ore hook for 181 noted
+in the header. Edits never feed the rules (pit = original surface's bands; regeneration = seed + edit log). Runtime regrowth (grass over
+exposed dirt, a new wet bank behind a dam) is out of scope: it would be one deterministic tick re-applying `ChooseSlot`'s skin to exposed soil.
+Far band (`FarField` FillTg2Job), shells, `PointVoxel` and `UniformSamples` (brick skip) follow the same rules when on. `-matrules 1` ->
+`TerrainSpec.matRulesOn` (`MatRules` = v4 && on); `TerrainGenChunkSource.SetMatRules` for tests. OFF = bit-identical (whole suite + goldens).
+Tests: `MaterialRuleTests` (palette is data, conflict pairs, OFF untouched / ON keeps the ground, near == far slots to texel 22, depth
+bands + pit, pocket lining, Slow `FourSeeds_AdversarialCases_AndTheTable` -> `Screenshots/180b/table180b.txt`), `MaterialRuleChunkTests`
+(Slow: chunks deterministic + air/fluid unchanged + dig never changes beneath, `Shells_And_SnowCliff_AirAndFluidUnchanged`, `Cost_OnVsOff`
+-> `cost180b.txt`, `CutAway_Pits` -> `Screenshots/180b/pit_*.png`; Explicit `Poses` -> `Logs/TerrainGen/180b/poses.txt`),
+`BrickSkipTests.*_MatRules`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed -wsfixed "$(cat Logs/overnight/180b_poses.txt)" -matrules 1|0`;
+`python3 -I tools/matrules180b.py Screenshots/180b <ON dir> <OFF dir>` -> `Screenshots/180b/viewer.html`. Result: HANDOFF 180b.

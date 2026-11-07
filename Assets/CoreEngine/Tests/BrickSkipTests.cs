@@ -131,10 +131,21 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
-    public void Chunks_SkipOnAndOff_ByteIdentical()
+    public void Chunks_SkipOnAndOff_ByteIdentical() => RunChunks("brick_skip_identical.txt");
+
+    /// Task 180b: the same proof with the material rules on (UniformSamples' MatRules branches).
+    [Test, Category("Slow")]
+    public void Chunks_SkipOnAndOff_ByteIdentical_MatRules()
+    {
+        _src.SetMatRules(true);
+        try { RunChunks("brick_skip_identical_matrules.txt"); }
+        finally { _src.SetMatRules(false); }
+    }
+
+    private static void RunChunks(string file)
     {
         var sites = Sites(_src);
-        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}: {sites.Count} sites" };
+        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}, matrules {_src.Spec.MatRules}: {sites.Count} sites" };
         byte[] oreEng = new byte[5];
         for (int i = 0; i < 5; i++) oreEng[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)(TerrainGen.Ores.Copper + i));
         int chunks = 0, dense = 0, deepDense = 0, oreVoxels = 0, deepAir = 0;
@@ -178,7 +189,7 @@ public class BrickSkipTests
         finally { _src.BrickSkip = true; pass.Dispose(); pa.Dispose(); pb.Dispose(); }
         lines.Add($"{chunks} chunks byte-identical; {dense} dense bricks ({deepDense} in deep layers), {oreVoxels} ore voxels, {deepAir} cave-air voxels in deep dense bricks");
         lines.Add(Share(s0, Snap(), 0) + "  (skip-on arm and off arm together; only the on arm proves)");
-        Write("brick_skip_identical.txt", lines);
+        Write(file, lines);
         Assert.Greater(chunks, 200, "a few hundred chunks");
         Assert.Greater(oreVoxels, 0, "the set must include ores");
         Assert.Greater(deepAir, 0, "the set must include caves");
@@ -186,7 +197,18 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
-    public void Shells_SkipOnAndOff_ByteIdentical()
+    public void Shells_SkipOnAndOff_ByteIdentical() => RunShells("brick_skip_shells_identical.txt");
+
+    /// Task 180b: the same with the material rules on.
+    [Test, Category("Slow")]
+    public void Shells_SkipOnAndOff_ByteIdentical_MatRules()
+    {
+        _src.SetMatRules(true);
+        try { RunShells("brick_skip_shells_identical_matrules.txt"); }
+        finally { _src.SetMatRules(false); }
+    }
+
+    private static void RunShells(string file)
     {
         var sites = Sites(_src);
         var pick = new List<Site>();
@@ -227,7 +249,7 @@ public class BrickSkipTests
         }
         lines.Add($"{total} shell chunks byte-identical");
         lines.Add(Share(s0, Snap(), 4) + "  (both arms counted)");
-        Write("brick_skip_shells_identical.txt", lines);
+        Write(file, lines);
         Assert.Greater(total, 100);
     }
 

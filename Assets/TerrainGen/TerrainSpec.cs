@@ -126,6 +126,13 @@ namespace TerrainGen
         /// carrying the tree plane. Read it through Trees, never directly. `-trees 1`
         /// sets it. Columns only: the map, the record and the far band ignore it.
         public byte treesOn;
+        /// Task 180b (owner-approved flag-off prototype): 1 = the simple material
+        /// rules (GroundRules.cs: one palette row per biome paints skin, soil,
+        /// subsoil and stone; a short slot list over local inputs). 0 (the default)
+        /// = the 177-179 cover + layered rock, byte for byte. Columns and the far
+        /// band's colours only: the map and the record ignore it. Read it through
+        /// MatRules, never directly. `-matrules 1` sets it.
+        public byte matRulesOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -191,6 +198,9 @@ namespace TerrainGen
 
         /// Task 180's generated trees in force (see treesOn): v4 only, opt-in.
         public bool Trees => mapVersion >= 4 && treesOn != 0;
+
+        /// Task 180b's material rules in force (see matRulesOn): v4 only, opt-in.
+        public bool MatRules => mapVersion >= 4 && matRulesOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

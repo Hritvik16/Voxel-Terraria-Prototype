@@ -88,6 +88,7 @@ namespace VoxelEngine.WorldGen
         private NativeArray<byte> _cls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _flow; // v4 river flow bits (task 76; length 1 = none)
         private NativeArray<byte> _route; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
+        private NativeArray<ushort> _shore; // task 180b: GroundRules' shore field (WorldMap.ShoreField; length 1 = none)
         private NativeArray<byte> _ore;   // per map cell ore multiplier (gameplay step 3; zeros on v3)
         private NativeArray<byte> _toEngine;
 
@@ -177,6 +178,17 @@ namespace VoxelEngine.WorldGen
         /// -rivershape 0 (task 179): spec.riverShapeOff = 1, the pre-179 rivers (the
         /// straight D8 channel, water over the bed held by raised banks). Absent =
         /// the version's default. Last match wins. Changes the map, not only columns.
+        /// -matrules 1 (task 180b): spec.matRulesOn = 1, the simple material rules
+        /// (TerrainGen.GroundRules). Absent or 0 = the 177-179 path. Last match wins.
+        public static bool MatRulesArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-matrules" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
         public static bool RiverShapeOffArg()
         {
             string[] a = Environment.GetCommandLineArgs();
@@ -205,6 +217,7 @@ namespace VoxelEngine.WorldGen
             if (RockMixOffArg()) spec.rockMixOff = 1;
             if (RiverShapeOffArg()) spec.riverShapeOff = 1;
             if (TreesArg()) spec.treesOn = 1;   // task 180
+            if (MatRulesArg()) spec.matRulesOn = 1;   // task 180b
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -214,6 +227,8 @@ namespace VoxelEngine.WorldGen
             _cls = new NativeArray<byte>(Map.WaterClass, Allocator.Persistent);
             _flow = new NativeArray<ushort>(Map.FlowDir ?? new ushort[1], Allocator.Persistent);
             _route = new NativeArray<byte>(Map.RouteMask ?? new byte[1], Allocator.Persistent);
+            if (Spec.MatRules) Map.EnsureShoreField();   // task 180b (without it the rules scan: same bytes, slower)
+            _shore = new NativeArray<ushort>(Map.ShoreField ?? new ushort[1], Allocator.Persistent);
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
@@ -245,6 +260,7 @@ namespace VoxelEngine.WorldGen
             if (_cls.IsCreated) _cls.Dispose();
             if (_flow.IsCreated) _flow.Dispose();
             if (_route.IsCreated) _route.Dispose();
+            if (_shore.IsCreated) _shore.Dispose();
             if (_ore.IsCreated) _ore.Dispose();
             if (_treePlane.IsCreated) _treePlane.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
@@ -389,7 +405,7 @@ namespace VoxelEngine.WorldGen
                     cp.valid = false;
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, ore = _ore, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
                         treePlane = _treePlane, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
                     }.Run();
@@ -464,6 +480,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
+            [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -485,6 +502,7 @@ namespace VoxelEngine.WorldGen
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
+                    shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };

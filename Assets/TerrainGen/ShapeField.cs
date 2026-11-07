@@ -83,6 +83,11 @@ namespace TerrainGen
         /// and its patch variant (bit 3), from the column's shape (Cover.Choose).
         /// 0 (flat) when TerrainSpec.CoverSlots is off or only the height was asked for.
         public byte cover;
+        /// Task 180b (TerrainSpec.MatRules only; 0 otherwise): the rule slot
+        /// (GroundRules.Flat .. Bare, bits 0-2), its variant (bit 3), a non-water
+        /// fluid bed (bit 4); the depths (voxels below the generated top) where the
+        /// soil and subsoil bands end and the deep stone begins (GroundRules.Band).
+        public byte mrSlot, mrSoil, mrSub, mrDeep;
     }
 
     public static class ShapeField
@@ -189,7 +194,9 @@ namespace TerrainGen
                 c.carvesTop = false; c.stamp3D = false;
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
-            if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
+            if (surfaceBiome && spec.MatRules)   // task 180b: the material rules replace the cover slots
+                GroundRules.Column(in spec, in map, in o, p, macro, rough, scree, coverTexel, ref c);
+            else if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
             {
                 c.cover = Cover.Choose(in spec, in map, in o, p, macro, rough, c.height, c.water, c.regional, coverTexel);
                 // Task 178: scree is steep ground (the palette's steep cell), wherever the

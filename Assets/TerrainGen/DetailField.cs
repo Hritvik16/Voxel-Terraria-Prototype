@@ -525,6 +525,11 @@ namespace TerrainGen
                 {
                     byte pocket = Pocket(in spec, in o, x, y, z, out inShell);
                     if (pocket != 255) return pocket;
+                    if (inShell && spec.MatRules)   // task 180b: the fluid's own lining
+                    {
+                        byte lf = PocketLiningFluid(in spec, in o, x, y, z);
+                        if (lf != 0) return GroundRules.PocketLining(lf, c.surfBiome);
+                    }
                 }
                 if (!inShell)
                 {
@@ -566,10 +571,19 @@ namespace TerrainGen
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
                 }
+                if (spec.MatRules)   // task 180b: the band by the voxel's depth, the deep structure by the brick
+                    return GroundRules.RockAt(in spec, in c, GroundRules.Band(in c, stepAtTop, depth, y), gy, gCavern, gUnder);
                 return LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
             }
 
-            if (spec.CoverSlots)
+            int mrBand = 0;
+            if (spec.MatRules)
+            {
+                // Task 180b: skin / soil / subsoil by depth below the generated top.
+                mrBand = GroundRules.Band(in c, stepAtTop, depth, y);
+                if (mrBand <= 2 && y >= spec.CavernTopY) return GroundRules.NearMaterial(in c, stepAtTop, mrBand);
+            }
+            else if (spec.CoverSlots)
             {
                 // Task 177: the slot's palette material as a SURFACE_THICKNESS skin
                 // (none where it is BARE or the voxel's step is sheer), soil under
@@ -592,6 +606,7 @@ namespace TerrainGen
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
             }
+            if (spec.MatRules) return GroundRules.RockAt(in spec, in c, mrBand, y, cd.cavernOffset, cd.underOffset);   // task 180b
             return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
         }
 
@@ -660,9 +675,9 @@ namespace TerrainGen
             int bgd = spec.brickGeologyDepth;
             if (bgd > 0 && hg - yLo > bgd)
             {
-                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
+                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, stepAtTop, hg, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 int nGeo = (hg - bgd - 1 - yLo) / yStep + 1;   // the samples with y < hg - bgd
-                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
+                byte deep = GeologyRock(in spec, in c, in cd, stepAtTop, hg, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 if (deep == 255) return 255;
                 return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo + nGeo * yStep, yStep, count - nGeo, hg) == deep ? deep : (byte)255;
             }
@@ -671,7 +686,7 @@ namespace TerrainGen
 
         /// UniformSamples' tail where every sample is deeper than brickGeologyDepth:
         /// ore, then LayerRock at the sample's fine-brick centre height.
-        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, int x, int z,
+        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop, int hg, int x, int z,
                                         int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder, float geoLayer)
         {
             int yHi = yLo + yStep * (count - 1);
@@ -694,6 +709,12 @@ namespace TerrainGen
             if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
+            if (spec.MatRules)   // task 180b: Material's brick zone (band by depth, Band is monotone)
+            {
+                int bLo = GroundRules.Band(in c, stepAtTop, hg - yHi, yHi), bHi = GroundRules.Band(in c, stepAtTop, hg - yLo, yLo);
+                if (bLo != bHi) return 255;
+                return GroundRules.RockRange(in spec, in c, bLo, gyLo, gyHi, cLo, cHi, uLo, uHi);
+            }
             return LayerRockRange(in spec, RockA(in c), RockB(in c), gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi, x, z, yLo, yStep, count);
         }
 
@@ -704,7 +725,21 @@ namespace TerrainGen
         {
             int yHi = yLo + yStep * (count - 1);
             int depthLo = hg - yHi, depthHi = hg - yLo;
-            if (spec.CoverSlots)
+            int mrBand = 0;
+            if (spec.MatRules)
+            {
+                // Task 180b: Material's branch. Band is non-decreasing in depth, so equal
+                // ends prove every sample; the CavernTopY guard must hold for all or none.
+                int bLo = GroundRules.Band(in c, stepAtTop, depthLo, yHi), bHi = GroundRules.Band(in c, stepAtTop, depthHi, yLo);
+                if (bLo != bHi) return 255;
+                mrBand = bLo;
+                if (mrBand <= 2 && yHi >= spec.CavernTopY)
+                {
+                    if (yLo < spec.CavernTopY) return 255;
+                    return GroundRules.NearMaterial(in c, stepAtTop, mrBand);
+                }
+            }
+            else if (spec.CoverSlots)
             {
                 byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // Material's task 177 branch
                 if (cm != Cover.BARE && !(stepAtTop > SHEER_STEP) && yHi >= spec.CavernTopY)
@@ -724,6 +759,7 @@ namespace TerrainGen
             if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
+            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, mrBand, yLo, yHi, cv, cv, u, u);   // task 180b
             return LayerRockRange(in spec, RockA(in c), RockB(in c), yLo, yHi, d, d, cv, cv, u, u, l, l, x, z, yLo, yStep, count);
         }
 
@@ -836,6 +872,7 @@ namespace TerrainGen
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
             if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
+            if (spec.MatRules) return GroundRules.Top(in c, stepAtTop);   // task 180b (Material at depth 0)
             if (spec.CoverSlots)
             {
                 byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // task 177 (Material at depth 0)
@@ -1097,6 +1134,9 @@ namespace TerrainGen
 
         /// The shared underworld (every biome): ash in its top 30 m, magma crust
         /// in the 20 m above the lava sea, obsidian between.
+        /// Task 180b: the shared underworld rock for GroundRules (the same function).
+        internal static byte UnderworldRockAt(in TerrainSpec spec, float g) => UnderworldRock(in spec, g);
+
         private static byte UnderworldRock(in TerrainSpec spec, float g)
         {
             if (g < spec.worldBottomY + LAVA_ABOVE_FLOOR + 200) return GenMat.MagmaCrust;
@@ -1153,6 +1193,17 @@ namespace TerrainGen
         }
 
         /// Returns 255 outside every pocket; inShell = inside the no-carve shell.
+        /// Task 180b (MatRules): the fluid of the pocket whose inner wall lining
+        /// (d^2 in [1, GroundRules.POCKET_LINING)) holds (x, y, z), else 0.
+        public static byte PocketLiningFluid(in TerrainSpec spec, in Offsets o, int x, int y, int z)
+        {
+            int cx = x >> POCKET_CELL_SHIFT, cy = y >> POCKET_CELL_SHIFT, cz = z >> POCKET_CELL_SHIFT;
+            if (!TryGetPocket(in spec, in o, cx, cy, cz, out PocketInfo pk)) return 0;
+            float3 q = (new float3(x, y, z) + 0.5f - pk.centre) / pk.radii;
+            float d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+            return d2 >= 1f && d2 < GroundRules.POCKET_LINING ? pk.fluid : (byte)0;
+        }
+
         public static byte Pocket(in TerrainSpec spec, in Offsets o, int x, int y, int z, out bool inShell)
         {
             inShell = false;
