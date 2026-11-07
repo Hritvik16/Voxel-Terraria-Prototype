@@ -1,54 +1,54 @@
-STOP_FOR_OWNER: "Keep trees on by default?" My recommendation is **not yet**. They look right and pass every correctness check. But in dense forest they overflow the shell 1-2 brick pools (FULL), and they roughly double shell-chunk generation time. Decide after a pool/cost follow-up, or say "on" and accept missing far chunks in forests for now.
+STOP_FOR_OWNER: "Keep the new material rules as the default?" My recommendation: **not yet.** Banks, oasis, beach and one-stone cliffs look right. But two defects need one fix task first:
+(1) On tall faces the deep-stone band (snow: dark blue slate) shows as brick-stepped black/blue boxes.
+(2) In the shells, far hillsides show a brick-sized mosaic of soil, subsoil and deep-stone colours.
+Say "fix then default", "default now" or "drop it".
 
-# 180-placement-voxel-trees-first-test: DONE behind `-trees 1` (default OFF). Commit cd7e342.
+# 180b-worldgen-material-rules-prototype: DONE behind `-matrules 1` (default OFF). Commit 34df5fc.
+(A previous run of this task hit the usage limit after writing the code and tests. This session ran the shots, the whole suite and one new test, then committed.)
 
 ## What changed
-- `Assets/TerrainGen/Trees.cs`:
-  - At most one tree per 6.4 m cell. Its position and numbers come from an integer hash of the cell.
-  - Density = the world record's landform x movement band (0 on sea, route, feature and Sheer cells) x a per-biome rule x the cover slot. A patch variant = a clearing.
-  - No tree in water, on a stamp, ledge or lip, on a foot steeper than 45 deg, or where the slope would reach into the crown.
-  - 3 shapes per biome family: forest oak / poplar / bushy, jungle buttressed emergent / palm / dense, savanna acacia / baobab / two-tier acacia, snow spruce / pine / fir, desert saguaro / column / barrel. Badlands get none.
-- New materials: leaves 55-58 (from each biome's flat cover colour in shade), woods 76-79, cactus 93. `GenMat.IsTreeTrunk` / `IsTreeLeaf` support "cut any trunk voxel -> remove the whole tree".
-- Where it lives (`TerrainGenChunkSource.Trees.cs`):
-  - The column passes gather the trees round the footprint. Their crowns raise the column top, so the air fast paths stay exact.
-  - The voxel passes overlay them. Trees overwrite AIR only: trunks first, then leaves, in cell order.
-  - `PointVoxel` (FarQuery) uses the same rule.
-  - Shells up to 5 have trees (3.2 m voxels, out to 2.2 km on High). Shells 6-7 and the far band have none.
-- Palette: `tools/palette_defs.py` -> `gen-tg2-materials.py --write`. Items and Tools entries added. TASKS.md has the paragraph.
+- `Assets/TerrainGen/GroundRules.cs` (new). The header holds the rule list, first match wins:
+  shore -> water bed -> steep (bare on a crest or the sunny side) -> wet bank -> high (snow line) -> scree -> dip -> crest -> flat.
+  - One palette row per biome: skin, soil, subsoil, stone, deep stone, cavern + slot entries. The biome paints everything.
+  - Per-fluid shore table (lava -> magma crust, oil -> shale, ...). Badlands: one red stone, no stripes.
+  - Ore hook noted for 181.
+- Wired into `ShapeField.Sample`, `DetailField.Material` / `UniformSamples`, chunks, shells, `PointVoxel` and the far band (`FarField`). The shore field is baked once per map (`WorldMap.EnsureShoreField`).
+- `-matrules 1` -> `TerrainSpec.matRulesOn`. OFF is bit-identical. TASKS.md has the paragraph.
+- `tools/matrules180b.py` builds the ON|OFF viewer.
 
 ## Evidence
-- **Whole suite PASS 1075 FAIL 0 SKIP 34** (`Logs/overnight/180_all.out`).
-- `TreeTests.Chunks_...` (`Screenshots/180/chunks180.txt`):
-  - Seed 42 forest tree across a chunk border: 101k + 244k tree voxels on the two sides.
-  - Two ON runs give identical bytes. ON vs OFF differs only where OFF was air.
-  - 94k FarQuery points equal the chunk bytes. Shell 0 = Generate.
-  - Shells 1-3: every tree voxel equals the 0.1 m voxel at its sample point.
-- `FourSeeds_Rules_Sheets` (`rules180.txt`), seeds 42 / 7 / 2026 / 31337:
-  - 0 rule breaks.
-  - **0 of 714 trees rejected.** That is 30 per family plus 30 on steep feet per seed. Checks: no voxel floating, trunk on the ground, at most 2 % of the crown in rock, no trunk in rock above its foot.
-  - Forest has 5,600-7,100 trees/km², jungle 3,400-9,000, snow 870-2,100, savanna 590-780, desert 36-680.
-  - The first version left 1-6-voxel leaf crumbs. Fixed with star-shaped edge noise.
-- Cost, from this task's own runs (no timing arms):
-  - LOD 0, 9 chunk columns, forest: dense bricks 8,218 -> 17,483 (+113 %, +4.5 MB bodies, CPU + GPU each). Jungle +111 %, snow +28 %, savanna +31 %. Editor gen time +14 / +13 / +3 / +2 % (`cost180.txt`).
-  - Shells 1 / 2 / 3 / 4 / 5 in forest: dense +264 / +185 / +75 / +35 / +5 %.
-  - Player (same build): shell chunks took **55-74 ms (OFF) -> 89-156 ms (ON) each on a worker**. Logs: `.../LookReview/2026-11-06_205547_high` (OFF) and `_203623_high` (ON).
-  - **At the forest pose, shells 1 and 2 hit FULL** (pool cap). The jungle, savanna and snow poses did not.
-  - Resident memory was NOT measured directly: these launches print no RSS. The pool caps are fixed at start-up, so the cost shows up as FULL / missing chunks rather than extra MB.
-  - Worst case if the whole shell-0 window were forest: about +113 MB CPU and about +270 MB GPU of brick bodies (from the counts above).
+- **Whole suite PASS 1087 FAIL 0 SKIP 35** (`Logs/overnight/180b_all.out`). The new `Shells_And_SnowCliff_AirAndFluidUnchanged` was added after that run. It passed on its own (`Logs/overnight/180b_air.out`).
+- **ON changes paint only.** 0 air/fluid voxels differ ON vs OFF over 81 shell chunks (shells 1-3, 9 sites) and 27 LOD-0 chunks round the snow cliff (`Logs/TerrainGen/180b/air_on_off.txt`). Also on the 18 site chunks (`chunks.txt`).
+- **Dig test.** A dug pit never changes what regenerates. The pit shows the original surface's bands (`Logs/TerrainGen/180b/pits.txt`).
+- **Per-biome table.** `Screenshots/180b/table180b.txt`, 4 seeds, share by slot and by depth.
+  - Forest top: grass 44 %, bare granite 24 %. At 2 m: ochre clay 64 %. At 6 m: granite 93 %. At 22 m: slate 92 %.
+  - Desert at 6 m: orange sandstone 95 %. Snow at 6 m: silver schist 97 %.
+- **Adversarial cases** (same file): 778 banks in border zones (404 on side A, 374 on side B), 268 desert oasis banks, 4,355 cliffs over 60 deg, 480 canyon floors, 4,499 lake-outlet bank columns.
+- **Rough cost** (`Screenshots/180b/cost180b.txt`, Editor, the test's own calls):
+  - LOD-0 dense bricks +23 % (+7.7 MB of bodies over 243 chunks). Snow +42 %, scree +54 %, desert +7 %.
+  - Gen time per chunk +1 %. Shell chunks 1-3 generate 5-20 % faster, with dense bricks -0 to -6 %.
+- Player launches (`-lookreview -worldsurvey`, High, 45 s waits): ON `.../LookReview/2026-11-07_005119_high`, OFF `.../2026-11-07_011653_high`.
+  - **The two arms are not a fair comparison past ~200 m.** ON had shells 1-2 mostly full. OFF had s2 109-1049 of 2,170 and s3 0. Near terrain is fine to compare.
 
-## Unfinished / for the owner
-- **Black undersides and shadows.** Crown undersides and tree shadows render pure black: the lighting has no sky fill under overhangs. That is a lighting look issue, not a tree issue.
-- **Far view.** The pose shows no difference. Shells 3+ were still unloaded after the 45 s wait in both arms (`[shells]` s3 0/2001).
-- **Owner checks.**
-  - Leaf colours are my pick. Snow's needles are an exception (dark blue-green), because the snow palette row has no green.
-  - Route cells get no trees across the whole 8 m cell, not only on the centre line.
-- **Not committed.** `Assets/Scenes/Playground.unity` was rewritten by the scene builder during the build. Not mine, left as it was.
+## Defects seen (all shots looked at)
+1. **Deep stone on faces.** Depth is measured from each column's top. So the lower part of a tall face is "deep" and gets deep stone. Below 20 m that goes per 0.8 m brick, which makes blocky steps. Snow's blue slate is dark, and in shade it reads as black boxes (scree, cliff_snow).
+   - Candidate fixes: deep stone closer in tone to stone, or the deep band only by absolute height.
+2. **Shell mosaic.** Coarse shell voxels sample below the 0.3 m skin. On slopes they expose soil, subsoil and deep stone, giving a red / yellow / blue brick mosaic on far hills (beach shot, left).
+   - Candidate fix: a shell voxel with an exposed top uses band 0.
+- Not tested: whether `StampTests.NoNeedles` changes ON. The rules never change shape (proven above), so it can't.
+
+## Next
+- Owner decision above. If "fix then default": one task for defects 1 and 2, re-shoot the same 8 poses (`Logs/overnight/180b_poses.txt`).
+- 181 is queued and does not need this.
 
 ## For the doc
-- Placement rules hold on 4 seeds. **0 of 714 checked trees float or sit in rock.** LOD 0 / shells 1-3 / point query agree byte for byte (`Screenshots/180/rules180.txt`, `chunks180.txt`).
-- LOD-0 dense bricks in dense forest / jungle: **+113 % / +111 %**. Snow / savanna: +28 % / +31 % (`cost180.txt`).
-- Shell chunk generation in the player: **55-74 -> 89-156 ms**. Shells 1-2 hit **FULL** at the forest pose.
-- Images: `Screenshots/180/viewer.html` (Space flips OFF/ON, arrows change pose; full size).
-  - `Screenshots/180/fixed_snow_compare.png`: OFF on top, ON below. Bare snow plain becomes a spruce / pine / fir forest. Look at the black undersides of the cone tiers and the black shadows.
-  - `Screenshots/180/fixed_savanna_2_after.png`: the densest savanna spot. Flat umbrella acacias and fat baobabs; again black shadows.
-  - `Screenshots/180/sheet_42_forest.png`: 30 forest trees side by side (oak, poplar, bushy). Look for trunks on the ground and no stray leaves. Sheets for every seed and biome are in the same folder; rejected trees would be framed red (none are).
+- Generator: **0 air/fluid voxels differ ON vs OFF** (108 chunks). ON only repaints solid voxels (`Logs/TerrainGen/180b/air_on_off.txt`).
+- LOD-0 dense bricks **+23 %** (+7.7 MB / 243 chunks). Gen **+1 %** per chunk; shells **5-20 % faster** (`Screenshots/180b/cost180b.txt`).
+- Forest columns at 6 m depth: **granite 93 %** (one stone per biome, no layer stripes). Desert sandstone 95 %, snow schist 97 % (`Screenshots/180b/table180b.txt`).
+- Whole suite **PASS 1087 FAIL 0** (`Logs/overnight/180b_all.out`).
+- `Screenshots/180b/viewer.html`: Space flips ON/OFF, arrows change pose, full size. 8 player poses + 9 cut-away pits, each with a caption.
+- Key images:
+  - `Screenshots/180b/cliff_desert_compare.png`: ON left, OFF right. The face is all orange sandstone ON; OFF's red lower half and tan stripes are gone.
+  - `Screenshots/180b/oasis_or_swamp_compare.png`: ON left grows a green grass + mud collar along the desert river; OFF right is sand to the water.
+  - `Screenshots/180b/scree_compare.png`: ON left shows the gravel apron at the cliff foot, centre. Also look at the dark-blue / black brick-stepped boxes on the face above (defect 1).
+  - `Screenshots/180b/pit_cliff_forest.png`: generator cut-away, ON left / OFF right. ON is granite over slate in one contact line; OFF is striped layer rock.
