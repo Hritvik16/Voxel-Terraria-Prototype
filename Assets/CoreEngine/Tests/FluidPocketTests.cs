@@ -569,10 +569,25 @@ public unsafe class FluidPocketTests
             finally { p.Dispose(); res.Dispose(); }
         }
 
-        // shell 0 = Generate; shells 1-2 agree wherever either is pocket fluid or lining
+        // shell 0 = Generate; shells 1-2 agree wherever either is pocket fluid or the voxel
+        // is a LINING POSITION. Task 186: the lining is told by position, not by material --
+        // the material rules (the default) paint the same materials beside a fluid (sludge's
+        // shore is mud, quicksand's packed sand, a wet bank mud), and that paint is not the
+        // pocket. The lining range is the column's own (FluidPockets.Apply works on the
+        // integer column and its fine neighbours), so it is the same in shells and chunks.
         byte lining = cs.deep ? FluidPockets.DeepLining(cs.deepFluid) : FluidPockets.Lining(cs.site.fluid);
         byte fluidE = VoxelEngine.Rendering.FarField.GenToEngine(cs.deep ? cs.deepFluid : cs.site.fluid);
-        byte liningE = lining != 0 ? VoxelEngine.Rendering.FarField.GenToEngine(lining) : (byte)255;
+        var specL = src.Spec; var viewL = src.Map.View;
+        var linCol = new Dictionary<long, TerrainGen.ColumnSample>();
+        bool LiningAt(int3 v)
+        {
+            if (lining == 0) return false;
+            long key = ((long)v.x << 32) ^ (uint)v.z;
+            if (!linCol.TryGetValue(key, out var lc))
+                linCol[key] = lc = ShapeField.Sample(in specL, in viewL, in o, v.x + 0.5f, v.z + 0.5f, 1, false);
+            if (!cs.deep) return lc.pkLining != 0 && v.y >= lc.pkLineLo && v.y <= lc.pkLineHi;
+            return lc.pkCtx != 0 && FluidPockets.DeepPocket(in specL, in o, lc.pkCtx, v.x, v.y, v.z, out _) == lining;
+        }
         int shellCmp = 0;
         using (var sc = new TerrainGenChunkSource.ShellChunk())
         {
@@ -605,7 +620,7 @@ public unsafe class FluidPocketTests
                             int3 fw = y == ((gh - origin.y - half) >> k) ? new int3(f.x, gh, f.z) : f;
                             byte want1 = on.At(fw.x, fw.y, fw.z);
                             byte got = sc.Get(x, y, z);
-                            if (want1 != fluidE && want1 != liningE && got != fluidE && got != liningE) continue;
+                            if (want1 != fluidE && got != fluidE && !LiningAt(fw)) continue;
                             shellCmp++;
                             if (want1 != got) { Fail($"shell {k} sample {f}: {got} != 0.1 m voxel {want1}"); goto nextK; }
                         }

@@ -134,14 +134,15 @@ public class BrickSkipTests
     [Category("Nightly")]   // task 184b: test-suite tier
     public void Chunks_SkipOnAndOff_ByteIdentical() => RunChunks("brick_skip_identical.txt");
 
-    /// Task 180b: the same proof with the material rules on (UniformSamples' MatRules branches).
+    /// Task 180b / 186: the same proof on the OTHER paint path. The rules are the default since
+    /// task 186, so the plain test covers UniformSamples' MatRules branches; this one covers -matrules 0.
     [Test, Category("Slow")]
     [Category("Nightly")]   // task 184b: test-suite tier
-    public void Chunks_SkipOnAndOff_ByteIdentical_MatRules()
+    public void Chunks_SkipOnAndOff_ByteIdentical_MatRulesOff()
     {
-        _src.SetMatRules(true);
-        try { RunChunks("brick_skip_identical_matrules.txt"); }
-        finally { _src.SetMatRules(false); }
+        _src.SetMatRules(false);
+        try { RunChunks("brick_skip_identical_matrulesoff.txt"); }
+        finally { _src.SetMatRules(true); }
     }
 
     private static void RunChunks(string file)
@@ -202,14 +203,15 @@ public class BrickSkipTests
     [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells_SkipOnAndOff_ByteIdentical() => RunShells("brick_skip_shells_identical.txt");
 
-    /// Task 180b: the same with the material rules on.
+    /// Task 180b / 186: the same proof on the OTHER paint path. The rules are the default since
+    /// task 186, so the plain test covers UniformSamples' MatRules branches; this one covers -matrules 0.
     [Test, Category("Slow")]
     [Category("Nightly")]   // task 184b: test-suite tier
-    public void Shells_SkipOnAndOff_ByteIdentical_MatRules()
+    public void Shells_SkipOnAndOff_ByteIdentical_MatRulesOff()
     {
-        _src.SetMatRules(true);
-        try { RunShells("brick_skip_shells_identical_matrules.txt"); }
-        finally { _src.SetMatRules(false); }
+        _src.SetMatRules(false);
+        try { RunShells("brick_skip_shells_identical_matrulesoff.txt"); }
+        finally { _src.SetMatRules(true); }
     }
 
     /// Task 181: the same proofs with the rule ores on (OreMay's rule chance, VeinColumn).

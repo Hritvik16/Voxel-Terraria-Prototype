@@ -1,9 +1,9 @@
 // Assets/TerrainGen/GroundRules.cs
 //
 // Task 180b (owner, 2026-11-06: "the layered rock tables are too complicated and
-// the world looks off"; memory simple-material-rules). A FLAG-OFF PROTOTYPE,
-// `-matrules 1` (TerrainSpec.matRulesOn, default 0 = the 177-179 path, byte for
-// byte). With it on, a biome's ground is a SHORT LIST OF RULES over a few local
+// the world looks off"; memory simple-material-rules). THE DEFAULT since task 186
+// (owner 2026-11-07, Q-M (a)); `-matrules 0` (TerrainSpec.matRulesOff = 1) is the
+// 177-179 path, byte for byte. With it on, a biome's ground is a SHORT LIST OF RULES over a few local
 // inputs, and THE BIOME PAINTS EVERYTHING: skin, soil, subsoil AND stone come
 // from one palette row per biome; the inputs only choose WHICH of the row's
 // materials goes WHERE. No 3-D noise, no per-voxel search, no LAYER_ROCKS, no

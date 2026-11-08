@@ -1259,3 +1259,18 @@ Tests `StampFitTests` (Slow: caves 4 seeds + a forced downhill trench site; ledg
 DETAIL_AMP_SUM) and `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` (tile (190,545) OFF = negative control). Reports
 `Logs/TerrainGen/stampfit185/`. Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed,cave_in -wsarms native -wsfixed
 $(cat Logs/overnight/185_wsfixed.txt) -stampfit 1|0" ./run-look-review.sh`. Result: HANDOFF 185.
+
+**Task 186 -- the simple material rules are the DEFAULT (owner 2026-11-07, Q-M (a)).** `TerrainSpec.matRulesOn` became `matRulesOff`
+(the `riverShapeOff` pattern): 0 = `GroundRules` (tasks 180b + 182), so every v4 spec -- play, rigs, capture runs, tests -- paints by the
+rules; `-matrules 0` (`TerrainGenChunkSource.MatRulesArg` now defaults to true; chunk source + `FarField`) sets 1 = the 177-179 cover +
+layered rock, byte for byte. No SerializeField / scene-builder copy exists. Effective value in the player log:
+`[StreamManager] tg2 chunk source: map v4, material rules ON (default)` and the `[FarField] tg2 ...` line's `material rules ON`.
+Tests pinned to the path they describe (assertions unchanged): `CoverTests` and `BiomeBlendTests` (task 177 cover / task 122 surface)
+set `matRulesOff = 1`, taking the default spec's shared map (the rules never change the map, no extra build); `MaterialRuleTests` /
+`MaterialRuleChunkTests` arms use `matRulesOff`; `BrickSkipTests.*_MatRules` became `*_MatRulesOff` (the plain proofs now cover the rules).
+`FluidPocketTests.Sites_AtRest_PathsAgree_Adversarial` (183, `-fluidpockets 1`) told the lining by MATERIAL id; the rules paint the same
+ids beside a fluid (sludge shore = mud, quicksand = packed sand, wet bank = mud), so shells 1-2 vs the 0.1 m voxel failed at 3 sites on rule
+paint, not on the pocket. It now tells the lining by POSITION (the column's pkLineLo..pkLineHi, or DeepPocket's shell) -- stricter at every
+lining voxel; fluid voxels compared as before.
+Shots: `Logs/overnight/186_shots.sh` (3 of 180b's poses: `oasis_or_swamp` desert river, `cliff_snow`, `beach`; default vs `-matrules 0`).
+Result: HANDOFF 186.

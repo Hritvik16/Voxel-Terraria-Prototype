@@ -178,12 +178,13 @@ namespace VoxelEngine.WorldGen
         /// -rivershape 0 (task 179): spec.riverShapeOff = 1, the pre-179 rivers (the
         /// straight D8 channel, water over the bed held by raised banks). Absent =
         /// the version's default. Last match wins. Changes the map, not only columns.
-        /// -matrules 1 (task 180b): spec.matRulesOn = 1, the simple material rules
-        /// (TerrainGen.GroundRules). Absent or 0 = the 177-179 path. Last match wins.
+        /// -matrules 0 (task 180b; default flipped by task 186): spec.matRulesOff = 1,
+        /// the 177-179 cover + layered rock. Absent or 1 = the simple material rules
+        /// (TerrainGen.GroundRules), the default. Last match wins.
         public static bool MatRulesArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-matrules" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;
@@ -228,7 +229,7 @@ namespace VoxelEngine.WorldGen
             if (RockMixOffArg()) spec.rockMixOff = 1;
             if (RiverShapeOffArg()) spec.riverShapeOff = 1;
             if (TreesArg()) spec.treesOn = 1;   // task 180
-            if (MatRulesArg()) spec.matRulesOn = 1;   // task 180b
+            if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
             if (StampFitArg()) spec.stampFitOn = 1;   // task 185

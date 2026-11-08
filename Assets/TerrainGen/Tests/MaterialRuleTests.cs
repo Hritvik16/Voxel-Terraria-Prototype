@@ -47,9 +47,10 @@ namespace TerrainGen.Tests
         private static World Get(uint seed)
         {
             var w = new World { off = TerrainSpec.SizeClass2(seed) };
+            w.map = SharedMaps.Get(w.off);   // the default spec's map: the rules never change it
+            w.off.matRulesOff = 1;   // task 186: the rules are the default; OFF = -matrules 0
             w.o = Offsets.For(in w.off);
-            w.map = SharedMaps.Get(w.off);   // the rules never change the map
-            w.on = w.off; w.on.matRulesOn = 1;
+            w.on = w.off; w.on.matRulesOff = 0;
             return w;
         }
 

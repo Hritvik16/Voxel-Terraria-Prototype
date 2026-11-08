@@ -53,7 +53,7 @@ public class MaterialRuleChunkTests
     private static List<Site> Sites()
     {
         if (_sites != null) return _sites;
-        var on = _src.Spec; on.matRulesOn = 1;
+        var on = _src.Spec; on.matRulesOff = 0;
         var view = _src.Map.View; var o = _src.O;
         var found = new Dictionary<string, Site>();
         string[] want = { "cliff_forest", "cliff_desert", "cliff_snow", "bank", "border_bank", "beach", "oasis_or_swamp", "scree", "flat" };
@@ -420,7 +420,7 @@ public class MaterialRuleChunkTests
             for (int i = 0; i < px.Length; i++) px[i] = new UnityEngine.Color32(255, 255, 255, 255);
             for (int arm = 0; arm < 2; arm++)
             {
-                var spec = _src.Spec; spec.matRulesOn = arm == 0 ? (byte)1 : (byte)0;   // left ON, right OFF
+                var spec = _src.Spec; spec.matRulesOff = arm == 0 ? (byte)0 : (byte)1;   // left ON, right OFF
                 int ox = arm * (W + GAP);
                 for (int i = 0; i < W; i++)
                 {

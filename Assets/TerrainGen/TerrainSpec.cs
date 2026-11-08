@@ -126,13 +126,13 @@ namespace TerrainGen
         /// carrying the tree plane. Read it through Trees, never directly. `-trees 1`
         /// sets it. Columns only: the map, the record and the far band ignore it.
         public byte treesOn;
-        /// Task 180b (owner-approved flag-off prototype): 1 = the simple material
-        /// rules (GroundRules.cs: one palette row per biome paints skin, soil,
-        /// subsoil and stone; a short slot list over local inputs). 0 (the default)
-        /// = the 177-179 cover + layered rock, byte for byte. Columns and the far
-        /// band's colours only: the map and the record ignore it. Read it through
-        /// MatRules, never directly. `-matrules 1` sets it.
-        public byte matRulesOn;
+        /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
+        /// = the simple material rules (GroundRules.cs: one palette row per biome
+        /// paints skin, soil, subsoil and stone; a short slot list over local
+        /// inputs). 1 = the 177-179 cover + layered rock, byte for byte (the old
+        /// path, `-matrules 0`). Columns and the far band's colours only: the map
+        /// and the record ignore it. Read it through MatRules, never directly.
+        public byte matRulesOff;
         /// Task 181 (placement, resource deposits): 1 = OreRules.cs (harshness-scaled
         /// deposits, wall veins, rich features, the hidden start, latent cobalt and
         /// emberstone twins). 0 (the default) = step 3's Ores.cs placement, byte for
@@ -219,8 +219,9 @@ namespace TerrainGen
         /// Task 180's generated trees in force (see treesOn): v4 only, opt-in.
         public bool Trees => mapVersion >= 4 && treesOn != 0;
 
-        /// Task 180b's material rules in force (see matRulesOn): v4 only, opt-in.
-        public bool MatRules => mapVersion >= 4 && matRulesOn != 0;
+        /// Task 180b's material rules in force (see matRulesOff): v4 only, ON by
+        /// default since task 186.
+        public bool MatRules => mapVersion >= 4 && matRulesOff == 0;
 
         /// Task 181's rule ores in force (see oresOn): v4 only, opt-in.
         public bool Ores2 => mapVersion >= 4 && oresOn != 0;

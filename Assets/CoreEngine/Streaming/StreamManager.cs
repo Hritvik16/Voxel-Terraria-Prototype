@@ -562,7 +562,11 @@ namespace VoxelEngine.Streaming
             _clipmap = clipmap; _cascades = cascades;
             _meta = meta; _deltaDir = deltaDirectory;
             _samplerState = ColumnSampler.CreateState(meta);
-            if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS) _tgSource = new TerrainGenChunkSource(meta.seed);
+            if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS)
+            {
+                _tgSource = new TerrainGenChunkSource(meta.seed);
+                Debug.Log($"[StreamManager] tg2 chunk source: map v{_tgSource.Spec.mapVersion}, material rules {(_tgSource.Spec.MatRules ? "ON (default)" : "OFF (-matrules 0)")}");   // task 186
+            }
 
             _windowDims = store.WindowDims;
             if (VerticalStreaming)

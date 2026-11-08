@@ -51,12 +51,12 @@ namespace VoxelEngine.WorldGen
             _columnTop.Clear(); _specStamp++;
         }
 
-        /// Tests and reports (task 180b's on / off): spec.matRulesOn for the chunks
+        /// Tests and reports (task 180b's on / off): spec.MatRules (matRulesOff = !on) for the chunks
         /// generated from now on (bakes the shore field the first time). Not
         /// thread-safe: call between Generate calls.
         public void SetMatRules(bool on)
         {
-            var t = Spec; t.matRulesOn = on ? (byte)1 : (byte)0; Spec = t;
+            var t = Spec; t.matRulesOff = on ? (byte)0 : (byte)1; Spec = t;
             if (on)
             {
                 Map.EnsureShoreField();
