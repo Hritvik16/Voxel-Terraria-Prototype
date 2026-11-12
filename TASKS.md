@@ -1304,3 +1304,20 @@ value in the player log: `[StreamManager] tg2 chunk source: map v4, material rul
 as ON and pin OFF with `stampFitOff = 1` (assertions unchanged; the map ignores the flag, so they take the default spec's shared map);
 no other test encoded the old stamp shape. Site planner (187) unaffected by construction (map + record only) and its tests stay green.
 Shots: `Logs/overnight/187a_shots.sh` (185's cave42_over, wetland_basin ledge, river geyser basin; default vs `-stampfit 0`). Result: HANDOFF 187a.
+
+**Task 188 -- the shell pools no longer overflow with trees: COMPACT 2-value shell bricks (owner 2026-11-07 Q-T (a); trees stay `-trees 1`, default OFF).**
+CAUSE (`TreePoolTests.Pools_ForestPose` / `Pools_JunglePose`, Explicit: every chunk shells 1-5 store at 180's forest / jungle pose, seed 42 High,
+trees OFF / ON / ADVERSARIAL cover = `TerrainSpec.treesOn` 2 + biome, test-only, every tree cell passing the physical rules gets a tree;
+`Logs/TerrainGen/trees188/pools_<pose>.txt`): canopies are a second surface over the ground, so trees add dense bricks, and 92 % of those hold
+exactly two values (leaf or wood + air) yet took a full 512 B body. 180's FULL was at the JUNGLE pose (the `[shells]` line prints BEFORE its
+`WSPOSE` line): trees ON took shell 1 / 2 to 120 / 117 % of PoolCap. FIX (`Mirror/ShellBrickPack.cs`, an Appendix A addition, EXACT): a dense
+shell brick whose voxels take <= 2 values is stored as 17 uints (a | b << 8, then a 512-bit plane), 7 packed into one 128-uint body, handle
+bit 30 = COMPACT (low 30 bits = shell-local uint offset); full bricks unchanged. Decided per brick from its own voxels (terrain too), no cap or
+constant. `ShellStore.Store` classifies (Burst `ClassifyJob`) and stages (Burst `StageJob`, replaces the managed copy); the pool unit stays the
+body (`BricksUsed`, `PoolCap`, `UploadBytes`' `dense` = bodies; new overload returns full / compact bricks). Readers: `Raymarch.compute`
+`ShellBrickVoxel` (both shell lookups), `ShellRayReference.IView.VoxelOf` (default = plain body; shadow views use `ShellBrickPack.ShadowVoxel`),
+`ShellValidator.CompareShadow`. `-shellpack 0` (diagnostic) = every dense brick a full body, as before 188. Tests: `TreePoolTests.CompactBricks_
+StoreIsByteExact_PoolCountsBodies` (fast: 1-, 2-, 3+-value bricks byte-exact through a real store; refusal by bodies; redraw / alias / abort
+free them); `EditOpRedrawTests` replace test and `ShellSkyExitTests.Store_RaisesTheBound` now count bodies (the latter's refused chunk uses
+3-value bricks). Player: the capture `[pools]` line after each `[shells]` (bodies / pages used/peak/cap, refusals, pack ON/OFF). Shots:
+`Logs/overnight/188_shots.sh` (forest, jungle, forest_far, jungle_far; `-trees 1`, `-shellpack 0` vs default). Result: HANDOFF 188.

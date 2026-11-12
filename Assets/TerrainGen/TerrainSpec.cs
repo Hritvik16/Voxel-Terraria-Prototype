@@ -125,6 +125,9 @@ namespace TerrainGen
         /// OPT-IN: 0 (the default) = none. Needs a world record (v4) and a MapView
         /// carrying the tree plane. Read it through Trees, never directly. `-trees 1`
         /// sets it. Columns only: the map, the record and the far band ignore it.
+        /// Task 188 (TESTS ONLY, no flag): 2 + b = the ADVERSARIAL cover -- every
+        /// tree cell that passes the physical rules (land, dry, no stamp / ledge,
+        /// foot, clearance) gets a biome-b tree, density and the plane ignored.
         public byte treesOn;
         /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
         /// = the simple material rules (GroundRules.cs: one palette row per biome

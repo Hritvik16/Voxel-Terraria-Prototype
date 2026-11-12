@@ -51,6 +51,14 @@ namespace VoxelEngine.WorldGen
             _columnTop.Clear(); _specStamp++;
         }
 
+        /// Task 188 (tests only): spec.treesOn raw -- 0 off, 1 on, 2 + b the
+        /// adversarial cover of biome b (TerrainSpec.treesOn). Not thread-safe.
+        public void SetTreesMode(byte mode)
+        {
+            var t = Spec; t.treesOn = mode; Spec = t;
+            _columnTop.Clear(); _specStamp++;
+        }
+
         /// Tests and reports (task 180b's on / off): spec.MatRules (matRulesOff = !on) for the chunks
         /// generated from now on (bakes the shore field the first time). Not
         /// thread-safe: call between Generate calls.

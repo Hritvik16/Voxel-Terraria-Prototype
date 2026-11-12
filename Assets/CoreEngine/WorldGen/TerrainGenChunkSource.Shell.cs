@@ -102,6 +102,18 @@ namespace VoxelEngine.WorldGen
             internal NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             internal NativeArray<int> top;
             internal TreeScratch trees;   // task 180: the trees gathered with the column pass
+            /// Task 188 (reports): the trees the column pass gathered, and their fine y span
+            /// (min lo.y, max hi.y; (MaxValue, MinValue) when none).
+            public int TreeCount => trees.counts[0];
+            public int2 TreeSpanY
+            {
+                get
+                {
+                    int2 s = new int2(int.MaxValue, int.MinValue);
+                    for (int i = 0; i < trees.counts[0]; i++) s = new int2(math.min(s.x, trees.trees[i].lo.y), math.max(s.y, trees.trees[i].hi.y));
+                    return s;
+                }
+            }
 
             public ShellChunk(Allocator a = Allocator.Persistent)
             {

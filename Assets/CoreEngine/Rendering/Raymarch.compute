@@ -3228,6 +3228,21 @@ int ShellResolve(int kd, int3 voxel, out uint e, out bool whole)
     return -1;
 }
 
+/// TASK 188 (ShellBrickPack.cs): voxel vIdx ((vz << 6) | (vy << 3) | vx) of the dense shell
+/// brick with handle h. Bit 30 = COMPACT: h's low 30 bits are a shell-local uint offset of
+/// 17 uints, [0] = a | (b << 8), then 512 bits (set = b); else they are a 128-uint body index.
+uint ShellBrickVoxel(int k, uint h, uint vIdx)
+{
+    uint bb = (uint)_ShellHi[k].w * 128u;
+    if ((h & 0x40000000u) != 0u)
+    {
+        uint o = bb + (h & 0x3FFFFFFFu);
+        uint bit = (ShellBricks[o + 1u + (vIdx >> 5)] >> (vIdx & 31u)) & 1u;
+        return (ShellBricks[o] >> (bit * 8u)) & 0xFFu;
+    }
+    return (ShellBricks[bb + (h & 0x3FFFFFFFu) * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
 /// Material at `voxel` in shell k (entry e) and the log2 span of its uniform region.
 uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
 {
@@ -3237,10 +3252,8 @@ uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
     uint h = ShellPages[((uint)_ShellLo[k].w + page) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
     if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
     int3 s = (voxel >> k) & 7;
-    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
-    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
     spanShift = k;
-    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+    return ShellBrickVoxel(k, h, (uint)((s.z << 6) | (s.y << 3) | s.x));
 }
 
 /// TASK 93b4: ShellLookup with the brick handle `h` already read (paged chunks).
@@ -3248,10 +3261,8 @@ uint ShellLookupHandle(int k, uint h, int3 voxel, out int spanShift)
 {
     if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
     int3 s = (voxel >> k) & 7;
-    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
-    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
     spanShift = k;
-    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+    return ShellBrickVoxel(k, h, (uint)((s.z << 6) | (s.y << 3) | s.x));
 }
 
 /// Did the last step enter a new cell of shell k (through the face `normal`)?

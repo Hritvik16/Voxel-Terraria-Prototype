@@ -178,11 +178,12 @@ namespace TerrainGen
             int tx = (cx << CELL_SHIFT) + JITTER_MARGIN + Span(h0 & 0xFFFFu, JITTER_SPAN);
             int tz = (cz << CELL_SHIFT) + JITTER_MARGIN + Span(h0 >> 16, JITTER_SPAN);
             if (tx < 0 || tz < 0 || tx >= spec.worldSizeVoxels || tz >= spec.worldSizeVoxels) return false;
+            int forced = spec.treesOn - 2;   // task 188: >= 0 = the test-only ADVERSARIAL cover (TerrainSpec.treesOn)
             int plane = map.trees[Ores.CellIndex(tx, tz, spec.mapCells, spec.mapCellVoxels)];
-            if (plane == 0) return false;
+            if (plane == 0 && forced < 0) return false;
             int roll = (int)(((ulong)Ores.Hash(seed, cx, 1, cz) * 1000u * 256u) >> 32);   // [0, 256000): per mille x 256
             // the cheap reject before any sample: density can never exceed DENSITY_MAX x plane / 16
-            if (roll >= DENSITY_MAX * plane * 16) return false;
+            if (roll >= DENSITY_MAX * plane * 16 && forced < 0) return false;
 
             var c = ShapeField.Sample(in spec, in map, in o, tx + 0.5f, tz + 0.5f, 1);
             byte biome = c.surfBiome;
@@ -191,7 +192,8 @@ namespace TerrainGen
             if (Cover.IsVariant(c.cover)) mul = mul * VARIANT_MUL;
             else mul *= 16;
             // P = Density/1000 x plane/16 x mul/256; roll/256000 < P  <=>  roll x 16 < Density x plane x mul (integers)
-            if ((long)roll * 16 >= (long)Density(biome) * plane * mul) return false;
+            if (forced >= 0) biome = (byte)forced;   // every cell that passes the physical rules below gets this family
+            else if ((long)roll * 16 >= (long)Density(biome) * plane * mul) return false;
             if (c.height <= spec.seaLevelY) return false;
             if (c.water != ColumnSample.NO_WATER_Y && c.water >= c.height) return false;
             if (c.stampMat != 0 || c.stamp3D || c.carvesTop || c.lipLo != 0

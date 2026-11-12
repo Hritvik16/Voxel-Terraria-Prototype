@@ -64,6 +64,7 @@ public class ShellSkyExitTests
         public uint Dir(int k, int3 c) => St[k].Holds(c) ? St[k].DirectoryEntry(St[k].Slot(c)) : ShellStore.ABSENT;
         public uint Page(int k, int page, int lb) => St[k].ShadowPages[page * EngineConfig.BRICKS_PER_CHUNK + lb];
         public byte Voxel(int k, int body, int vIdx) => (byte)(St[k].ShadowBricks[body * 128 + (vIdx >> 2)] >> ((vIdx & 3) * 8));
+        public byte VoxelOf(int k, uint h, int vIdx) => ShellBrickPack.ShadowVoxel(St[k].ShadowBricks, h, vIdx);   // task 188
         public bool Tier0Missing(int3 voxel) => false;
         public bool Tier0Holds(int3 voxel) => false;
         public int TopY
@@ -377,10 +378,11 @@ public class ShellSkyExitTests
                 Air(new int3(3, 7, 3)); sc.IsUniformAir = true;
                 budget = int.MaxValue; Assert.AreEqual(ShellStore.StoreResult.Stored, st.Store(sc, ref budget));
                 Assert.AreEqual(((5 << 4) + 10) << 5, st.SolidTopY, "an air chunk adds nothing");
-                // A refused chunk (9 dense bricks, pool of 8) adds nothing either.
+                // A refused chunk (9 dense bricks, pool of 8) adds nothing either. Task 188: three
+                // values per brick, so each takes a full body (<= 2-value bricks pack 7 to a body).
                 Air(new int3(4, 7, 4));
                 for (int i = 0; i < 9; i++) sc.BrickUniform[(15 << 4) | i] = false;
-                for (int i = 0; i < sc.Mats.Length; i++) sc.Mats[i] = Materials.Stone;
+                for (int i = 0; i < sc.Mats.Length; i++) sc.Mats[i] = (byte)(Materials.Stone + i % 3);
                 budget = int.MaxValue; Assert.AreEqual(ShellStore.StoreResult.Refused, st.Store(sc, ref budget));
                 Assert.AreEqual(((5 << 4) + 10) << 5, st.SolidTopY, "refused: not raised");
                 // A uniform solid chunk at y = 6 raises it to that chunk's top.

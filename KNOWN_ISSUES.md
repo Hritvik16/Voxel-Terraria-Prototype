@@ -42,6 +42,11 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **TREES (`-trees 1`) OVERFLOWED THE SHELL 1-2 BRICK POOLS (task 180, 2026-11-06; FIXED task 188, 2026-11-12, compact 2-value shell bricks).**
+  - Cause: canopies add dense bricks (a second surface), 92 % of them two-valued (leaf/wood + air), each a full 512 B body. Jungle pose: shell 1 / 2 at 120 / 117 % of PoolCap (180's FULL; it was the jungle pose, not the forest one).
+  - Fix: `ShellBrickPack` (<= 2-value bricks = 17 uints, 7 per body, handle bit 30). Jungle ON 120 / 117 % -> 49 / 63 %; adversarial solid cover <= 94 % (shell 3) on both poses (`Logs/TerrainGen/trees188/`). `-shellpack 0` = the old storage.
+  - Still open: shell 3's PAGE table (PageCap 320) runs 69-84 % at these poses with or without trees; shell 3 ADV bodies 89-94 %. Trees stay default OFF (owner decides).
+
 - **THE GPU FLUID CA READS ITS TERRAIN FROM THE TIER-0 GPU MIRROR BOX (found task 93e, 2026-10-16; FIXED 2026-10-16 by the FLUID TERRAIN DIRECTORY, owner Q55 (b) -- see the last sub-bullet; the 16^3 box is now the default with `-shells 1`).**
   - `FluidCA.compute` `SampleVoxel` reads `ClipmapBuffer` / `BrickDataBuffer` and returns AIR outside the box. The fluid active radius is 128 m (`FLUID_ACTIVE_RADIUS_VOXELS`).
   - Today's tg2 box (32 x 8 x 32, +-192 m) covers that. Task 93e's 16^3 box (`-smallmirror 1`, opt-in) covers only >= 89.6 m.

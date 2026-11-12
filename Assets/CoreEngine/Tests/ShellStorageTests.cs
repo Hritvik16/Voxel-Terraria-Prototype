@@ -293,13 +293,8 @@ public class ShellStorageTests
                             uint h = stk.ShadowPages[page * 4096 + bi];
                             if ((h & ShellStore.DENSE) == 0) continue;
                             denseN++;
-                            int body = (int)(h & 0x3FFFFFFFu);
                             bool air = false;
-                            for (int u = 0; u < 128 && !air; u++)
-                            {
-                                uint w = stk.ShadowBricks[body * 128 + u];
-                                air = (w & 0xFF) == 0 || (w & 0xFF00) == 0 || (w & 0xFF0000) == 0 || (w & 0xFF000000) == 0;
-                            }
+                            for (int v = 0; v < 512 && !air; v++) air = ShellBrickPack.ShadowVoxel(stk.ShadowBricks, h, v) == 0;   // task 188
                             if (!air) noAir++;
                         }
                     }

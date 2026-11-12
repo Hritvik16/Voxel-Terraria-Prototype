@@ -344,6 +344,7 @@ public partial class PlaygroundCapture
                     yield return null;
                 }
                 L($"  [shells] waited {Time.realtimeSinceStartup - t0:F0} s (cap {wait:F0} s): {ShellCountsLine(sh)}");
+                L($"  [pools] {ShellPoolLine(sh)}");   // task 188
             }
             foreach (string arm in rowsLook ? rowArms : new[] { fsr, none, "native" })
             {
