@@ -19,3 +19,10 @@ Towns on the easy areas; villages / outposts on Walk cells near fresh water alon
 
 ## End
 Done; default stays OFF. HANDOFF names the next step (place BuildingKit on the sites behind `-towns 1`).
+
+## Resume (supervisor, 2026-11-12)
+The first run (2026-11-07) was cut off by the weekly usage limit, not by a problem in the work. Its uncommitted edits to tracked files
+are in `tools/overnight/blocked/187-worldgen-b7-site-planner.patch` (FarField.cs, TerrainGenChunkSource.cs, TerrainSpec.cs, WorldMap.cs,
+WorldRecord.cs); its new files `Assets/TerrainGen/Sites.cs` and `Assets/TerrainGen/Tests/SiteTests.cs` are still untracked in the tree.
+First `git apply --check` then `git apply` the patch, read both new files, decide what is finished, and carry on from there (rebuild/verify,
+do not trust it blindly). Ignore `blocked/187-*.HANDOFF.md`: it is a stale copy of task 186's handoff.
