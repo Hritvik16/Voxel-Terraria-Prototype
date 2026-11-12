@@ -33,8 +33,8 @@
 // Heights: MAP functions work in voxels relative to sea level (the map's
 // convention); S/D functions in absolute voxel Y.
 //
-// TASK 185 (WORLD_GEN_LOOK_PLAN C7, finding 7; `-stampfit 1` =
-// TerrainSpec.StampFit, DEFAULT OFF; off = every byte as before). Stamps that
+// TASK 185 (WORLD_GEN_LOOK_PLAN C7, finding 7; TerrainSpec.StampFit, THE
+// DEFAULT since task 187a; `-stampfit 0` = every byte as before). Stamps that
 // sit in the land, each an exact rule on the stamp's own footprint:
 //   cave mouth  placed only where its tube is UNDER COVER past a short mouth
 //               (FitCave): at stations along the tube, the lowest the column

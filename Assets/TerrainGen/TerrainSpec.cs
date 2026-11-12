@@ -145,14 +145,15 @@ namespace TerrainGen
         /// Needs a record (v4) and the site plane (MapView.pocket). Read it through
         /// Pockets, never directly. `-fluidpockets 1` sets it.
         public byte fluidPocketsOn;
-        /// Task 185 (WORLD_GEN_LOOK_PLAN C7, flag-off): 1 = stamps that sit in the
-        /// land (Stamps.cs "TASK 185"): a cave mouth only where its tube stays
-        /// covered, flat cap-rock ledges on a rock-layer boundary, the geyser
-        /// basin's terraces follow the ground, hoops only on a rise or in rugged
-        /// rock, and no stamp opening within SEA_KEEP_OUT of the sea. 0 (the
-        /// default) = every byte as before. Columns only: the map and the record
-        /// ignore it. Read it through StampFit, never directly. `-stampfit 1` sets it.
-        public byte stampFitOn;
+        /// Task 185 / 187a (WORLD_GEN_LOOK_PLAN C7): 0 (THE DEFAULT since task 187a,
+        /// owner 2026-11-12 Q-F (a)) = stamps that sit in the land (Stamps.cs
+        /// "TASK 185"): a cave mouth only where its tube stays covered, flat
+        /// cap-rock ledges on a rock-layer boundary, the geyser basin's terraces
+        /// follow the ground, hoops only on a rise or in rugged rock, and no stamp
+        /// opening within SEA_KEEP_OUT of the sea. 1 = the pre-185 stamps, byte for
+        /// byte (`-stampfit 0`). Columns only: the map and the record ignore it.
+        /// Read it through StampFit, never directly.
+        public byte stampFitOff;
         /// Task 187 (surface rebuild B7, flag-off): 1 = plan town / village /
         /// outpost / frontier sites (Sites.cs) into WorldRecord.SiteList and the
         /// record's site bytes (ids >= 16). Changes NO terrain (the flatten rule
@@ -235,8 +236,9 @@ namespace TerrainGen
         /// Task 183's fluid pockets in force (see fluidPocketsOn): v4 only, opt-in.
         public bool Pockets => mapVersion >= 4 && fluidPocketsOn != 0;
 
-        /// Task 185's stamp fit in force (see stampFitOn): v4 only, opt-in.
-        public bool StampFit => mapVersion >= 4 && stampFitOn != 0;
+        /// Task 185's stamp fit in force (see stampFitOff): v4 only, ON by default
+        /// since task 187a.
+        public bool StampFit => mapVersion >= 4 && stampFitOff == 0;
 
         /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
         public bool Sites => mapVersion >= 4 && sitesOn != 0;

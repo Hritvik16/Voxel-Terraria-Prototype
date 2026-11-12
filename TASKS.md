@@ -1244,8 +1244,8 @@ Assert...` -- same check, same message, no NUnit call when it passes): MaterialR
 OccupancyMask/AirMip 15-20 s -> 1.6-4.8 s (two AirMip tests back in fast), Tree Chunks 9.8 -> 6.3 s. The Editor already runs
 managed code in Release (EditorPrefs ScriptDebugInfoEnabled = 0): `-releaseCodeOptimization` measured no gain. Result: HANDOFF 184b.
 
-**Task 185 -- world gen C7, stamps that sit in the land (`-stampfit 1` = `TerrainSpec.stampFitOn` / `StampFit`, v4 only, DEFAULT OFF;
-off = every byte as before).** Rules in `Stamps.cs` (header "TASK 185") and `ShapeField.Ledge`, each exact on the stamp's own footprint:
+**Task 185 -- world gen C7, stamps that sit in the land (`TerrainSpec.StampFit`, v4 only; DEFAULT ON since task 187a,
+`-stampfit 0` = `stampFitOff` = every byte as before).** Rules in `Stamps.cs` (header "TASK 185") and `ShapeField.Ledge`, each exact on the stamp's own footprint:
 CAVE MOUTH placed only where its tube is under cover (`Stamps.FitCave`): stations every 5 m along the tube (axis and both sides), the
 lowest S can put the column (map - `DETAIL_AMP_SUM` 94.3 x rough - 1, minus `RELIEF_BAND_BOUND` on a face) stands `CAVE_ROOF` 2 m over the
 tube top from <= `CAVE_MOUTH_MAX` 40 m out to its end; the hashed axis first, then its 3 quarter turns (`ColumnSample.stampRot`, read by
@@ -1294,3 +1294,13 @@ edge is invisible on the 8 m map; it removed every terrace village). Each site r
 checker of every rule, `Logs/TerrainGen/sites187/table.txt`, `map_<seed>.png`, `sites_<seed>.txt`, `poses.txt`). Labels:
 `python3 tools/sites187.py` -> `Screenshots/187/sites_<seed>.png`, `sites_sheet.png`. Shots: `Logs/overnight/187_shots.sh` (seed 42 town /
 village / frontier, eye level, `-sites 1`). Next: BuildingKit on the sites behind `-towns 1`. Result: HANDOFF 187.
+
+**Task 187a -- stamps that sit in the land are the DEFAULT (owner 2026-11-12, Q-F (a); task 186's pattern).** `TerrainSpec.stampFitOn`
+became `stampFitOff`: 0 = task 185's fitted stamps (cave mouth under cover, cap-rock ledges, terraced geyser basin, hoops on a rise, sea
+keep-out), so every v4 spec -- play, rigs, capture runs, tests -- fits; `-stampfit 0` (`TerrainGenChunkSource.StampFitArg` now defaults
+to true; chunk source + `FarField`) sets 1 = the pre-185 stamps, byte for byte. No SerializeField / scene-builder copy exists. Effective
+value in the player log: `[StreamManager] tg2 chunk source: map v4, material rules ON (default), stamp fit ON (default)` and the
+`[FarField] tg2 ...` line's `stamp fit ON`. Tests: `StampFitTests` / `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` take the default spec
+as ON and pin OFF with `stampFitOff = 1` (assertions unchanged; the map ignores the flag, so they take the default spec's shared map);
+no other test encoded the old stamp shape. Site planner (187) unaffected by construction (map + record only) and its tests stay green.
+Shots: `Logs/overnight/187a_shots.sh` (185's cave42_over, wetland_basin ledge, river geyser basin; default vs `-stampfit 0`). Result: HANDOFF 187a.

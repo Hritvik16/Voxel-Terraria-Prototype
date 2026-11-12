@@ -1,6 +1,6 @@
 // Assets/TerrainGen/Tests/StampFitTests.cs
 //
-// Task 185 (WORLD_GEN_LOOK_PLAN C7, `-stampfit 1` = TerrainSpec.StampFit):
+// Task 185 (WORLD_GEN_LOOK_PLAN C7, TerrainSpec.StampFit, the default since task 187a; `-stampfit 0` = off):
 // one test per rule, each on the stamp's own footprint / column heights, on
 // the four test seeds (42, 7, 2026, 31337; map v4) plus one adversarial case.
 //   Cave     a kept cave's tube breaks the surface only within its mouth
@@ -47,10 +47,10 @@ namespace TerrainGen.Tests
 
         private static W World(uint seed)
         {
-            var off = TerrainSpec.SizeClass2(seed, 4);
-            var on = off; on.stampFitOn = 1;
+            var on = TerrainSpec.SizeClass2(seed, 4);   // task 187a: the fit is the default
+            var off = on; off.stampFitOff = 1;              // the pre-185 stamps (-stampfit 0)
             Assert.IsTrue(on.StampFit && !off.StampFit);
-            return new W { on = on, off = off, o = Offsets.For(in off), map = SharedMaps.Get(off) };   // the map ignores the flag
+            return new W { on = on, off = off, o = Offsets.For(in off), map = SharedMaps.Get(on) };   // the map ignores the flag; the default spec's shared map
         }
 
         private static string Dir()

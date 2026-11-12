@@ -227,10 +227,10 @@ namespace TerrainGen.Tests
         [Test]
         public void Sea_AtRest_StampFit_Seed2026()
         {
-            var off = TerrainSpec.SizeClass2(2026u, 4);
-            var on = off; on.stampFitOn = 1;
+            var on = TerrainSpec.SizeClass2(2026u, 4);   // task 187a: the fit is the default
+            var off = on; off.stampFitOff = 1;            // the pre-185 stamps (-stampfit 0), the negative control
             var o = Offsets.For(in off);
-            var map = SharedMaps.Get(off);   // the map ignores the flag
+            var map = SharedMaps.Get(on);   // the map ignores the flag; the default spec's shared map
             var one = new NativeList<int2>(Allocator.TempJob); one.Add(new int2(190, 545));
             var t0 = RunTiles(off, o, map, one, "seed 2026 tile (190,545), stampfit OFF", "stampfit185_sea_off_2026.txt");
             Assert.Greater(t0[SEA * K + 2], 0, "negative control: the known tile's sea is at rest with stampfit OFF");

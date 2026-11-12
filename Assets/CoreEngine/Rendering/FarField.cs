@@ -315,7 +315,7 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CliffsOffArg()) { var ts = Tg2Spec; ts.cliffsOff = 1; Tg2Spec = ts; }   // task 178
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.RiverShapeOffArg()) { var ts = Tg2Spec; ts.riverShapeOff = 1; Tg2Spec = ts; }   // task 179
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOff = 1; Tg2Spec = ts; }   // task 180b / 186: ON unless -matrules 0
-                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOn = 1; Tg2Spec = ts; }   // task 185
+                if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOff = 1; Tg2Spec = ts; }   // task 185 / 187a: ON unless -stampfit 0
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.SitesArg()) { var ts = Tg2Spec; ts.sitesOn = 1; Tg2Spec = ts; }   // task 187 (records only)
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
@@ -352,7 +352,7 @@ namespace VoxelEngine.Rendering
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
                 Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
-                          $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}, material rules {(Tg2Spec.MatRules ? "ON" : "OFF (-matrules 0)")}");   // task 186
+                          $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}, material rules {(Tg2Spec.MatRules ? "ON" : "OFF (-matrules 0)")}, stamp fit {(Tg2Spec.StampFit ? "ON" : "OFF (-stampfit 0)")}");   // task 186 / 187a
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _surfaceByBiome[i] = Materials.Stone;
