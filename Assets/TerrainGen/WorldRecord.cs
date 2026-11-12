@@ -30,10 +30,12 @@
 //              bit 2 FLAG_ROUTE (B8: inside a route's corridor, Routes.cs; may
 //              sit on easy or feature cells); bits 3-7 zero
 //   site       B5: on a FLAG_FEATURE cell, the feature's index in FeatureList
-//              + 1 (ids 1-15 are features); 0 elsewhere. B7-B8 take ids >= 16.
+//              + 1 (ids 1-15 are features); 0 elsewhere. B7 (task 187,
+//              `-sites 1` only) writes its site ids >= 16 (SiteList index + 16)
+//              on the cells of each site's disc.
 //
 // LISTS beside the cells (each carries MapVersion): EasyAreaList (B4),
-// FeatureList (B5), RouteList (B8).
+// FeatureList (B5), RouteList (B8), SiteList (B7, `-sites 1`).
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
@@ -89,6 +91,10 @@ namespace TerrainGen
         /// it. EMPTY today: no town / village sites exist yet (B7 not built).
         /// The record is never saved, so filling it is no save-format change.
         public BuildingFootprint[] BuildingList = new BuildingFootprint[0];
+        /// Task 187 (B7, `-sites 1`): the planned town / village / outpost /
+        /// frontier sites (Sites.cs), ids FIRST_ID (16) + index, the same ids in
+        /// the site byte of their disc cells. EMPTY unless WorldMap.EnsureSites ran.
+        public Site[] SiteList = new Site[0];
 
         public readonly int Cells;                  // per edge
         public readonly int CellVoxels;

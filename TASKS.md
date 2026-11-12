@@ -1274,3 +1274,23 @@ paint, not on the pocket. It now tells the lining by POSITION (the column's pkLi
 lining voxel; fluid voxels compared as before.
 Shots: `Logs/overnight/186_shots.sh` (3 of 180b's poses: `oasis_or_swamp` desert river, `cliff_snow`, `beach`; default vs `-matrules 0`).
 Result: HANDOFF 186.
+
+**Task 187 -- world gen B7, the town / village SITE PLANNER (`-sites 1` = `TerrainSpec.sitesOn` / `Sites`, v4 only, DEFAULT OFF; owner
+Q-S (a) 2026-11-07).** `Assets/TerrainGen/Sites.cs`: integer rules on the map + record (no seed constant, no place constant), records only --
+NO terrain change (the flatten rule is stored, not applied), so ON and OFF worlds are byte-identical and only `WorldRecord.SiteList` + the
+record's site bytes (ids >= 16 = SiteList index + 16, on each disc's cells) differ. `WorldMap.EnsureSites()` runs it once (chunk source,
+`[Sites] plan .. ms` + one `[Sites] #id` line per site in the player log); tests call `Sites.Plan(Sites.FromMap(map))` (never on a shared
+map). Every site is a disc (town R 64 m range <= 8 m, frontier 48 m / 8 m with <= 1/4 Scramble, village 32 m / 3 m, outpost 16 m / 2 m):
+all land, dry, >= 16 m from lake / river, 32 m clear of sea and signature features, not in the start zone (128 m round both PlayStart
+columns), not on a stamp keep-out disc, not on another site + 32 m; Walk band only. Towns: one per easy area, best disc; target land /
+90 k cells (3 on the medium island). Frontier: hard ground (Volcanic landform or Snow biome) within 256 m of its edge, higher danger scores
+better; 1 + towns / 4. Villages (fresh water <= 6 steps ~100 m, danger <= 3) and outposts (the rest, <= 16 steps) within 2 km of a route,
+route distance a score term; land / 27 k cells together (~10), villages up to 6 in 10. GROUND CHECK on the real columns (ShapeField, 2 m
+grid): range <= max + 3 m and THE STEP RULE (no 2 m neighbour step steeper than Scramble 30 deg, `StepTooSteep`: a canyon terrace's cliff
+edge is invisible on the 8 m map; it removed every terrace village). Each site records its biome x landform pair, nearest route + join point
++ spur length (no route re-searched: `RouteList` unchanged), pad level (median map height) / blend R/2 / cut / fill. Tests `SiteTests`
+(fast: `Adversarial_FewFlatCells_OnlyTheFlatPatches` -- a 4 km Climb island with four flat patches, no-flat and Scramble negative controls;
+`GroundCheck_StepRule_WallInDisc_NoVillage` -- a 3 m wall the map cannot see; Slow: `FourSeeds_EveryRule_CountsTable` -- an independent
+checker of every rule, `Logs/TerrainGen/sites187/table.txt`, `map_<seed>.png`, `sites_<seed>.txt`, `poses.txt`). Labels:
+`python3 tools/sites187.py` -> `Screenshots/187/sites_<seed>.png`, `sites_sheet.png`. Shots: `Logs/overnight/187_shots.sh` (seed 42 town /
+village / frontier, eye level, `-sites 1`). Next: BuildingKit on the sites behind `-towns 1`. Result: HANDOFF 187.

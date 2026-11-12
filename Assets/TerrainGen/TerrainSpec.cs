@@ -153,6 +153,12 @@ namespace TerrainGen
         /// default) = every byte as before. Columns only: the map and the record
         /// ignore it. Read it through StampFit, never directly. `-stampfit 1` sets it.
         public byte stampFitOn;
+        /// Task 187 (surface rebuild B7, flag-off): 1 = plan town / village /
+        /// outpost / frontier sites (Sites.cs) into WorldRecord.SiteList and the
+        /// record's site bytes (ids >= 16). Changes NO terrain (the flatten rule
+        /// is stored, not applied): the map, the columns and every voxel ignore
+        /// it. Read it through Sites, never directly. `-sites 1` sets it.
+        public byte sitesOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -231,6 +237,9 @@ namespace TerrainGen
 
         /// Task 185's stamp fit in force (see stampFitOn): v4 only, opt-in.
         public bool StampFit => mapVersion >= 4 && stampFitOn != 0;
+
+        /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
+        public bool Sites => mapVersion >= 4 && sitesOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

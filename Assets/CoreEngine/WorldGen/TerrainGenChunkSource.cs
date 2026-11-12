@@ -190,6 +190,18 @@ namespace VoxelEngine.WorldGen
             return on;
         }
 
+        /// -sites 1 (task 187): spec.sitesOn = 1, the B7 site planner fills the
+        /// world record's SiteList (TerrainGen.Sites). No terrain change. Absent or
+        /// 0 = no sites. Last match wins.
+        public static bool SitesArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-sites" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
         /// -stampfit 1 (task 185): spec.stampFitOn = 1, stamps that sit in the land
         /// (TerrainGen.Stamps "TASK 185"). Absent or 0 = as before. Last match wins.
         public static bool StampFitArg()
@@ -233,6 +245,7 @@ namespace VoxelEngine.WorldGen
             if (OresArg()) spec.oresOn = 1;   // task 181
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
             if (StampFitArg()) spec.stampFitOn = 1;   // task 185
+            if (SitesArg()) spec.sitesOn = 1;   // task 187
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -248,6 +261,14 @@ namespace VoxelEngine.WorldGen
             _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
+            if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Map.EnsureSites();
+                UnityEngine.Debug.Log($"[Sites] plan {sw.ElapsedMilliseconds} ms: {Map.Record.SiteList.Length} sites; {Map.SiteStats.Line()}");
+                foreach (var st in Map.Record.SiteList)
+                    UnityEngine.Debug.Log($"[Sites]   #{st.id} {TerrainGen.Site.KindName(st.kind)} at ({st.centre.x}, {st.centre.y}) r {st.radius} pad y {st.padLevelY} range {st.rangeVox} route {st.route} spur {st.joinDistance}");
+            }
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 

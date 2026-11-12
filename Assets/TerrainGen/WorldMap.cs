@@ -114,6 +114,23 @@ namespace TerrainGen
             PocketStats = st;
             PocketPlane = f;
         }
+        /// Task 187: the site planner's stats, once EnsureSites ran.
+        public Sites.Stats SiteStats { get; private set; }
+        private bool _sitesPlanned;
+
+        /// Task 187 (B7): plan the sites into Record.SiteList and the record's
+        /// site bytes (once; well under a second). Only while TerrainSpec.Sites
+        /// is on; changes no terrain. Never call it on a shared test map (it
+        /// writes the record): tests call Sites.Plan(Sites.FromMap(map)).
+        public void EnsureSites()
+        {
+            if (_sitesPlanned || Record == null || !Spec.Sites) return;
+            var list = TerrainGen.Sites.Plan(TerrainGen.Sites.FromMap(this), out var st);
+            TerrainGen.Sites.Mark(Record, list);
+            Record.SiteList = list;
+            SiteStats = st;
+            _sitesPlanned = true;
+        }
         /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
         public ushort[] ShoreField { get; private set; }
 
