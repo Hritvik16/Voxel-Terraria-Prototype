@@ -17,5 +17,7 @@ task 184's kit (`2aacfba`, `Assets/TerrainGen/BuildingKit.cs`, BuildingFootprint
 - Pictures (look at each yourself, midday sun behind camera, full size, captions say what to notice): the 4 island maps with sites + buildings marked; per seed one eye-level shot
   of a town and one of a village; one shot from ~150 m away showing a town in its landscape; seed 7 before/after spacing map.
 
+- Also explain the grey box on the horizon in `Screenshots/187/eye_frontier.png` (left of centre, seed 42 frontier #19): what is it (far-field shape, stamp, LOD artifact)? If it is a defect, say so in the HANDOFF; do not fix it here unless trivial.
+
 ## End
 Done; default stays OFF; the owner decides the default from pictures. HANDOFF with counts table (towns/villages/outposts/buildings per seed, min town distance before -> after) and image paths.
