@@ -1438,3 +1438,23 @@ arm passes the physical rules; `Logs/TerrainGen/trees192/look.txt`, sheets `Scre
 `Logs/overnight/192_shots.sh` (180's five poses + `under_crown`, four launches) and `192_jungle_retake.sh` (180's jungle eye sits INSIDE
 the taller new jungle crowns = black frames; `jungle_high` = same target, eye 20 m higher, all four arms), `Screenshots/192/viewer.html`.
 `Cost_OnVsOff` now runs both looks on the same patches (`trees192/cost.txt`). Result: HANDOFF 192.
+
+**Task 193 (look, lighting; owner 2026-11-12 "Yeah"; SOFT_SKY_PLAN S2 + a ground-bounce half; OFF by default): SKY FILL, `-skyfill 1|2`.**
+CAUSE (Raymarch.compute AMBIENT SKY VISIBILITY): one ray STRAIGHT UP per tier-0 hit, skyVis 0/1; skyOpen = lerp(floor 0.02 (High), 1,
+skyVis) scales the ambient AND the sun-shadow floor, so any face blocked straight up (ground and trunks under a crown, a leaning tube wall,
+every down face: its own voxel blocks it) and out of the sun drew at 2 % = black. FIX (`RaymarchFeature.SkyFill`, `_SkyFill`): the same
+call site traces ONE cosine-weighted direction per pixel per frame over the face's hemisphere (SkyVisReference's R2 sequence, seeded by the
+surface cell's key, so a voxel face converges to its own stratified mean while the camera moves). S = open share of the SKY half (a side
+face's lobe folded up: open side face = 1, not 0.5); mode 2 adds B = share of the GROUND half landing on SUNLIT ground (the ray to its first
+solid voxel, entry face re-derived from t (`ShadowEntryNormal`), then one sun ray from there; `ShadowHit.hitV/hitT` new). Side faces in mode
+2 alternate halves per frame. Per-pixel history `SkyHistR/W` (uint2: S 12b | B 12b | counts 4b+4b, key; ping-pong, reprojected like the sun
+history; 1/n for 16 samples then 1/16; mode change / resize drops it; OFF frees it; 2 x W x H x 8 B on). skyVis = S (mode 1; down faces 0 as
+before) or S and B mixed by the lumas of FarShadeSky(n) and CubeBounceLight(n, sun) (mode 2). Shells / far keep 1 (plan Q5 (a)); a sky ray
+leaving the window sideways counts open (plan S3, not done). CPU twin `SkyFillReference` (+ `EntryNormal`, `FirstSolid`); tests
+`SkyFillReferenceTests` (7): sealed 2 m room + 0.1 m shell room exactly 0 every face/frame both modes; 1-voxel crack through a 1.1 m roof
+(floor under it 1.2 %, 2 m aside exactly 0); open ground + pillar side over sunlit ground exactly 1; S(side) = 2 x SkyVisReference;
+3 m ledge (underside B 0.42, wall S 0.56) + running mean vs quadrature (rms <= 0.07); 1 m x 6 m trench (wall S 0.29 / 0.047 / 0.012 at
+0.9 / 2.9 / 5.8 m down -- darker than today's 1.0 there: physical); lattice canopy (ground S 0.50, trunk 0.52, crown underside B 0.54);
+GPU contracts (fold, halves, record, entry face = DDA's on 1,765 rays). Capture: WorldSurvey arm suffix `_sfN` (`-wsarms
+native_sf0,native_sf1,native_sf2`), each arm's 60 settle frames logged as `[frame]` mean/p50. Shots: `Logs/overnight/193_shots.sh`,
+`193_trench.sh`; `Screenshots/193/viewer.html`, `black193.txt`. Result: HANDOFF 193.

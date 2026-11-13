@@ -1,0 +1,17 @@
+<html><body style="background:#111;color:#ddd;font-family:sans-serif"><h3>Task 193 sky fill (noon, native 1080p, High): Space = next arm (OFF today / -skyfill 1 sky / -skyfill 2 sky + ground bounce), arrows = pose, Z = full size</h3><div id=t style="font-size:18px;margin:6px 0"></div><img id=i style="max-width:100%"><script>
+var poses=['forest','under_crown','jungle_high','cave_in','cavern','open_slope'];
+var notes={'forest':'180 forest pose, -trees 1: look at the trunks, crown undersides and the ground under the crowns (black OFF)',
+'under_crown':'192 under_crown pose: the forest floor in shade and the trunks (black OFF)',
+'jungle_high':'192 jungle_high pose: trunks and undersides; the orange/white boxes are 191\'s near-pool pits (in every arm)',
+'cave_in':'the survey\'s cave_in: now an ENCLOSED tube (not 173\'s trench): walls lift only near its openings, the deep tube stays dark',
+'cavern':'a TRUE cave 200 m below sea: must stay black in every arm (it does: 100 % black)',
+'open_slope':'173\'s trench spot (the trench is gone after later generator changes): open slopes, a control -- almost no change'};
+var arms=['sf0','sf1','sf2'],names={'sf0':'OFF (today: vertical sky probe)','sf1':'-skyfill 1 (sky only)','sf2':'-skyfill 2 (sky + ground bounce)'};
+var k=0,a=0,z=0;
+function s(){var im=document.getElementById('i'),t=document.getElementById('t');
+ im.src=poses[k]+'_'+arms[a]+'.png';t.textContent=poses[k]+' -- '+names[arms[a]]+' -- '+notes[poses[k]];
+ im.style.maxWidth=z?'none':'100%';}
+document.onkeydown=function(e){var n=poses.length;
+ if(e.key==' '){a=(a+1)%arms.length;}else if(e.key=='ArrowRight'){k=(k+1)%n;}else if(e.key=='ArrowLeft'){k=(k+n-1)%n;}
+ else if(e.key=='z'||e.key=='Z'){z=1-z;}s();e.preventDefault();};s();
+</script></body></html>

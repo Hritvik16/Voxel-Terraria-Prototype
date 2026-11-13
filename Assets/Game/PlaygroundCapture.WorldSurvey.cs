@@ -382,7 +382,7 @@ public partial class PlaygroundCapture
             float t0 = Time.realtimeSinceStartup;
             Phase4Bootstrapper.DebugStreamCentre = p.eye;
             cam.transform.SetPositionAndRotation(p.eye, Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up));
-            ApplyCompareArm(arms[arms.Length - 1]);
+            { string a0 = arms[arms.Length - 1]; int sfi = a0.LastIndexOf("_sf"); ApplyCompareArm(sfi >= 0 ? a0.Substring(0, sfi) : a0); }   // task 193
             cam.ResetProjectionMatrix();
             yield return NearSettle(far, sm);
             if (p.scan != 0)
@@ -413,12 +413,24 @@ public partial class PlaygroundCapture
                 bool lit = arm == "native_lit";
                 float floor0 = LightingConfig.Active.undergroundAmbientFloor;
                 if (lit) LightingConfig.Active.undergroundAmbientFloor = ArgFloat("-wsfloor", 1f);
-                ApplyCompareArm(lit ? "native" : arm);
+                // Task 193: an arm may end in "_sf0|1|2" = RaymarchFeature.SkyFill for that shot ("native_sf2").
+                string baseArm = lit ? "native" : arm;
+                int sfAt = baseArm.LastIndexOf("_sf");
+                int sf0 = RaymarchFeature.SkyFill;
+                if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
+                { RaymarchFeature.SkyFill = RaymarchFeature.ValidSkyFill(sfv); baseArm = baseArm.Substring(0, sfAt); }
+                ApplyCompareArm(baseArm);
                 cam.ResetProjectionMatrix();
                 cam.transform.SetPositionAndRotation(p.eye, rot);
-                yield return Frames(60);
+                // The 60 settle frames (the sky-fill history needs 16+), timed: a ROUGH cost per arm, not a rig.
+                var ft = new List<float>(60);
+                for (int f = 0; f < 60; f++) { yield return null; ft.Add(Time.unscaledDeltaTime * 1000f); }
+                ft.Sort();
+                float ftMean = 0f; foreach (float x in ft) ftMean += x; ftMean /= ft.Count;
+                L($"  [frame] {p.name} {arm}: settle frames mean {ftMean:F1} ms, p50 {ft[ft.Count / 2]:F1} ms, max {ft[ft.Count - 1]:F1} ms (skyfill {RaymarchFeature.SkyFill})");
                 yield return CaptureTo($"ws_{p.name}_{arm}");
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
+                RaymarchFeature.SkyFill = sf0;
             }
             float pitch = rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x;
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");

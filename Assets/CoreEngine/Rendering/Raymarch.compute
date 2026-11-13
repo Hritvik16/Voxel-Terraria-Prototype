@@ -1926,6 +1926,8 @@ struct ShadowHit
     float sunVis;   // C.9's sunVis: 0 fully occluded .. 1 fully lit
     int   steps;    // outer iterations, for the §10.3 heat view and §10.4 dump
     float exitT;    // task 133: >= 0 = the ray left the window or the band ceiling unblocked at this t; -1 otherwise
+    int3  hitV;     // task 193: the blocking voxel (the cell the ray was in when it stopped; sunVis 0 only)
+    float hitT;     // task 193: the ray's t on entering hitV; -1 = not blocked
 };
 
 // TASK 133 (owner Q83 (a); RaymarchFeature.NearShadowShells, `-nearshadowshells`): a tier-0 sun ray
@@ -2038,6 +2040,8 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     r.sunVis = 1.0;
     r.steps = 0;
     r.exitT = -1.0;
+    r.hitV = int3(0, 0, 0);
+    r.hitT = -1.0;
 
     // ---- §6.5's ORIGIN RULE. One cell off the hit face, at its centre. ----
     // There is no bias term here and there must never be one: §13's failure
@@ -2217,7 +2221,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
                 // OCCLUSION ONLY. §6.5: "first hit = done." The material is
                 // deliberately not recorded -- nothing downstream may branch on
                 // WHAT cast a shadow, only that something did.
-                if (mat != 0) { r.sunVis = 0.0; return r; }
+                if (mat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
                 // ---- C.10, tracked on the DENSE path only ----
                 // A BOUNDED, STATED APPROXIMATION, not an oversight. Scanning
@@ -2255,7 +2259,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
             }
 
             uint umat = handle & 0xFF;
-            if (umat != 0) { r.sunVis = 0.0; return r; }
+            if (umat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
             LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                      brickCoord * 8, 8, nrm, exitIters, nonExitIters);
@@ -2279,7 +2283,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
                 uint vIdx = (uint)LocalVoxelIndex(tierVoxel & 7);
                 uint packed = ReadBrickDataTier(tier, poolIdx, vIdx >> 2);
                 uint mat = (packed >> ((vIdx & 3u) * 8u)) & 0xFF;
-                if (mat != 0) { r.sunVis = 0.0; return r; }
+                if (mat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
                 LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                          tierVoxel << tierShift, 1 << tierShift,
@@ -2288,7 +2292,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
             }
 
             uint umat = handle & 0xFF;
-            if (umat != 0) { r.sunVis = 0.0; return r; }
+            if (umat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
             LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                      (tierBrick * 8) << tierShift, 8 << tierShift,
@@ -4024,6 +4028,163 @@ float SeeCutFade(float pathVoxels, float maxPathVoxels)
     return saturate((maxPathVoxels - pathVoxels) / max(1.0e-3, SEE_CUT_FADE * maxPathVoxels));
 }
 
+// ===========================================================================
+// TASK 193 (look, owner 2026-11-12 "Yeah"; SOFT_SKY_PLAN.md step S2 + a ground-bounce half):
+// SKY FILL, `-skyfill 1|2` (RaymarchFeature.SkyFill), OFF by default (0 = the vertical probe).
+//
+// WHY SHADE WAS BLACK. The AMBIENT SKY VISIBILITY block traced ONE ray straight up: skyVis 0 or 1.
+// skyOpen = lerp(_UndergroundAmbientFloor (High: 0.02), 1, skyVis) scales the ambient AND the
+// sun-shadow floor, so a face blocked straight up (ground under a crown, a trench wall under a lip,
+// every down face: its own voxel blocks it) and out of the sun got 2 % of its light = black.
+//
+// WHAT REPLACES IT. skyVis becomes how OPEN the face's hemisphere is, from the voxels themselves:
+//  S = the cosine-weighted share of the face's sky half (directions with y > 0) whose ray reaches
+//      the sky (SkyVisReference's quantity divided by its open value: a side face's open sky half is
+//      1, not 0.5 -- the ambient term already carries the normal's share of the sky).
+//  B = (-skyfill 2 only) the share of the face's ground half (y < 0) that lands on SUNLIT ground: the
+//      ray runs to the first solid voxel, then one sun ray from the cell it came through. A ray that
+//      finds nothing (leaves the window) counts as open, as every other ray here does. Night: 0
+//      (the bounce term is 0 then anyway).
+// Mode 1 uses S for everything (B = S; a down face has no sky half -> 0, today's answer). Mode 2 mixes
+// them by what each carries at this normal: the sky term FarShadeSky(n) and the bounce term
+// CubeBounceLight(n, sun) (luma weights), so an up face is S, a down face B, a side face both.
+// A sealed cave: every sky ray and every ground ray's sun ray is blocked -> exactly 0, zero noise.
+// Open ground on sunlit ground: exactly 1 (today's value), zero noise.
+//
+// ESTIMATE. One direction per pixel per frame (side faces in mode 2: sky half on even frames, ground
+// half on odd ones), from SkyVisReference's R2 sequence, seeded by the SURFACE CELL (its key), not the
+// pixel: every pixel of one voxel face takes the same sample, so a face converges to its own
+// stratified 16-sample mean while the camera moves. A per-pixel history (SkyHistR/W, ping-pong, keyed
+// ShadowOriginKey(voxel + normal), found by reprojection like the sun history) keeps a running mean
+// per half: weight 1/n for 16 samples, then 1/16; a new key restarts. CPU twin: SkyFillReference.
+// Shell / far hits keep skyVis 1 (plan Q5 (a)); a sky ray leaving the window sideways counts as open
+// (plan step S3, not done here).
+// ===========================================================================
+StructuredBuffer<uint2> SkyHistR;      // x = S 12b | B 12b << 12 | nS 4b << 24 | nB 4b << 28, y = key; 0xFFFFFFFF = none
+RWStructuredBuffer<uint2> SkyHistW;
+int _SkyFill;            // 0 off (the vertical probe), 1 sky, 2 sky + ground bounce
+int _SkyHistValid;       // 0 = SkyHistR holds nothing usable (first frame, resize, mode change)
+int _SkyFrame;           // frame counter: the sample index
+float4x4 _SkyPrevViewProj;
+
+uint SkyFillHash(uint x)   // lowbias32, SkyVisReference.Hash
+{
+    x ^= x >> 16; x *= 0x7FEB352Du;
+    x ^= x >> 15; x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return x;
+}
+
+// SkyVisReference.SamplePoint: the R2 lattice, rotated per seed, 23 bits + a half step.
+float2 SkyFillPoint(uint seed, uint index)
+{
+    uint r1 = SkyFillHash(seed), r2 = SkyFillHash(r1);
+    uint ux = index * 0xC13FA9A9u + r1;
+    uint vx = index * 0x91E10DA6u + r2;
+    return float2(((float)(ux >> 9) + 0.5) * (1.0 / 8388608.0), ((float)(vx >> 9) + 0.5) * (1.0 / 8388608.0));
+}
+
+// SkyVisReference.CosineDir: cosine-weighted about the axis normal n.
+float3 SkyFillCosineDir(int3 n, float2 uv)
+{
+    float r = sqrt(uv.x), z = sqrt(1.0 - uv.x);
+    float sn, cs;
+    sincos(6.28318530718 * uv.y, sn, cs);
+    float a = r * cs, b = r * sn;
+    if (n.y != 0) return float3(a, z * (float)n.y, b);
+    if (n.x != 0) return float3(z * (float)n.x, a, b);
+    return float3(a, b, z * (float)n.z);
+}
+
+// Which half this frame samples: 0 = sky, 1 = ground (SkyFillReference.Half).
+uint SkyFillHalf(int3 n, uint frame)
+{
+    if (_SkyFill != 2 || n.y > 0) return 0u;
+    if (n.y < 0) return 1u;
+    return frame & 1u;
+}
+
+// This frame's direction (SkyFillReference.Direction): a side face's cosine lobe folded onto the
+// half being sampled (y -> +|y| or -|y|: the fold keeps the cosine weight, n.y being 0).
+float3 SkyFillDirection(int3 n, uint seed, uint frame, uint half)
+{
+    uint idx = (_SkyFill == 2 && n.y == 0) ? (frame >> 1) : frame;
+    float3 d = SkyFillCosineDir(n, SkyFillPoint(seed, idx));
+    if (n.y == 0) d.y = (half != 0u) ? -abs(d.y) : abs(d.y);
+    return d;
+}
+
+// The face a TraceShadowRay ray entered its blocking voxel through (the ray's own setup: origin cell
+// centre, normalized, axis lift): the axis whose entry plane the entry point lies closest to.
+// int3(0,0,0) = blocked in its own origin cell (no face to bounce from).
+int3 ShadowEntryNormal(int3 originCell, float3 dirIn, int3 v, float t)
+{
+    if (t <= 0.0) return int3(0, 0, 0);
+    float3 d = normalize(dirIn);
+    d.x = abs(d.x) < 1e-6 ? (d.x >= 0 ? 1e-6 : -1e-6) : d.x;
+    d.y = abs(d.y) < 1e-6 ? (d.y >= 0 ? 1e-6 : -1e-6) : d.y;
+    d.z = abs(d.z) < 1e-6 ? (d.z >= 0 ? 1e-6 : -1e-6) : d.z;
+    float3 p = (float3)originCell + 0.5 + d * t;
+    float3 fv = (float3)v;
+    float3 e = abs(p - (fv + 1.0 - step(0.0, d)));   // entry plane: v on a + axis, v + 1 on a - axis
+    if (e.x <= e.y && e.x <= e.z) return int3(d.x > 0.0 ? -1 : 1, 0, 0);
+    if (e.y <= e.z) return int3(0, d.y > 0.0 ? -1 : 1, 0);
+    return int3(0, 0, d.z > 0.0 ? -1 : 1);
+}
+
+// Last frame's record for this surface cell: the reprojected pixel, then its neighbours toward the
+// point (the sun history's probe set); the key decides. uint2(0, 0xFFFFFFFF) = none.
+uint2 SkyHistFetch(uint key, float3 hpVox, uint width, uint height)
+{
+    uint2 none = uint2(0u, 0xFFFFFFFFu);
+    if (_SkyHistValid == 0) return none;
+    float4 pc = mul(_SkyPrevViewProj, float4(hpVox * 0.1, 1.0));
+    if (pc.w <= 1e-4) return none;
+    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+    int2 p0 = int2(floor(ppf));
+    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+    [unroll]
+    for (int q = 0; q < 4; q++)
+    {
+        int2 pp = probes[q];
+        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+        {
+            uint2 hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.y == key) return hv;
+        }
+    }
+    return none;
+}
+
+// One half's running mean (SkyFillReference.Fold): 12-bit value, 4-bit count (samples so far, capped 15).
+void SkyFillFold(inout float v, inout uint c, float sample)
+{
+    uint n = min(c + 1u, 16u);
+    v += (sample - v) / (float)n;
+    v = (float)(uint)round(saturate(v) * 4095.0) / 4095.0;
+    c = min(n, 15u);
+}
+
+// The face's openness from the two halves (SkyFillReference.Open). A half with no sample yet takes
+// the other's value.
+float SkyFillOpen(int3 n, float s, uint cs, float b, uint cb)
+{
+    if (_SkyFill != 2) return s;
+    if (cs == 0u) s = b;
+    if (cb == 0u) b = s;
+    float3 nf = (float3)n;
+#ifdef VE_FAR_SHADE
+    const float3 LW = float3(0.2126, 0.7152, 0.0722);
+    float ws = dot(FarShadeSky(nf), LW);
+    float wb = dot(CubeBounceLight(nf, normalize(_SunDir)), LW);
+#else
+    float ws = 0.5 + 0.5 * nf.y, wb = 0.5 - 0.5 * nf.y;
+#endif
+    float w = ws + wb;
+    return w > 1e-6 ? (ws * s + wb * b) / w : (n.y > 0 ? s : b);
+}
+
 // What lies behind the fluid, lit with the light that got through it (lightT):
 // the far band's combine (no AO, no point lights), then haze at its own
 // distance, grade and the output transform -- the same space `color` is in.
@@ -4910,6 +5071,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
     float sunVis = 0.0;
     float skyVis = 1.0;
+    uint2 skyRec = uint2(0u, 0xFFFFFFFFu);   // task 193: this pixel's sky-fill record (none)
     int shadowSteps = 0;
 
     // §6.5's night rule and rung 3, evaluated once and shared by every branch
@@ -5212,10 +5374,66 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         //
         // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
         // ring buffer, or the dump would describe the wrong ray.
-        ShadowHit sky = TraceShadowRay(voxel, normal, SkyProbeDir(normal, rayDir),   // task 138: tilted when _SkyProbeTilt
-                                       _WindowDimsBricks, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
-        skyVis = sky.sunVis;
+        //
+        // Task 193 (`-skyfill`, see SKY FILL): the same call site, one direction per frame over the face's
+        // hemisphere; a ground-half ray (mode 2) takes a second leg, the sun ray from where it landed.
+        float3 probeDir = SkyProbeDir(normal, rayDir);   // task 138: tilted when _SkyProbeTilt
+        uint fillKey = 0u, fillHalf = 0u;
+        bool fillTrace = true;
+        if (_SkyFill != 0)
+        {
+            fillKey = ShadowOriginKey(voxel + normal);
+            fillHalf = SkyFillHalf(normal, (uint)_SkyFrame);
+            fillTrace = !(_SkyFill == 1 && normal.y < 0);   // mode 1: a down face has no sky half (0, as before)
+            probeDir = SkyFillDirection(normal, SkyFillHash(fillKey), (uint)_SkyFrame, fillHalf);
+        }
+        float fillSample = 0.0;
+        if (fillTrace)
+        {
+            int3 tv = voxel, tn = normal;
+            float3 td = probeDir;
+            int legs = (fillHalf != 0u) ? 2 : 1;
+            [loop]
+            for (int leg = 0; leg < legs; leg++)
+            {
+                ShadowHit sky = TraceShadowRay(tv, tn, td,
+                                               _WindowDimsBricks, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
+                fillSample = sky.sunVis;
+                if (leg == 0 && legs == 2)
+                {
+                    if (sky.hitT < 0.0) break;                     // the ground ray found nothing: open
+                    float3 sdn = normalize(_SunDir);
+                    int3 en = ShadowEntryNormal(tv + tn, td, sky.hitV, sky.hitT);
+                    if (sdn.y <= 0.0 || (en.x == 0 && en.y == 0 && en.z == 0)) { fillSample = 0.0; break; }
+                    tv = sky.hitV; tn = en; td = sdn;               // one bounce: is the ground it landed on in sun?
+                }
+            }
+        }
+        skyVis = fillSample;
+        if (_SkyFill != 0)
+        {
+            uint2 hv = SkyHistFetch(fillKey, rayStart + rayDir * currentDist, width, height);
+            float hs = 0.0, hb = 0.0;
+            uint cs = 0u, cb = 0u;
+            if (hv.y == fillKey)
+            {
+                hs = (float)(hv.x & 0xFFFu) / 4095.0;
+                hb = (float)((hv.x >> 12) & 0xFFFu) / 4095.0;
+                cs = (hv.x >> 24) & 0xFu;
+                cb = (hv.x >> 28) & 0xFu;
+            }
+            if (fillTrace)
+            {
+                if (fillHalf == 0u) SkyFillFold(hs, cs, fillSample);
+                else                SkyFillFold(hb, cb, fillSample);
+                skyRec = uint2((uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28), fillKey);
+            }
+            skyVis = fillTrace ? SkyFillOpen(normal, hs, cs, hb, cb) : 0.0;
+        }
     }
+    // Task 193: every pixel writes its record (none when it has no tier-0 sky fill), so a stale one
+    // never outlives a frame.
+    if (_SkyFill != 0 && inBounds) SkyHistW[id.y * width + id.x] = skyRec;
 
     // §10.4's scalar record for the shadow path, alongside the ring buffer the
     // trace filled. Written unconditionally for the debug pixel so a dump

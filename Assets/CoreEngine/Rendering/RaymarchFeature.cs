@@ -558,6 +558,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static int ShadowReusePeriod = ValidReusePeriod(ReadIntArg("-shadowreuse", 4));
     public static int ValidReusePeriod(int n) => n == 1 || n == 2 || n == 4 || n == 8 || n == 16 ? n : 4;
     private static GraphicsBuffer _tsA, _tsB, _tsDummyR, _tsDummyW;
+
+    /// TASK 193 (look, owner 2026-11-12; SOFT_SKY_PLAN S2 + a ground-bounce half): SKY FILL, `-skyfill 1|2`,
+    /// OFF (0 = the vertical sky probe). 1: the ambient's sky visibility is the open share of the face's sky
+    /// half (one cosine-weighted ray per pixel per frame, a per-pixel running mean); 2: also the share of its
+    /// ground half that lands on sunlit ground (a second, sun ray from there). Raymarch.compute SKY FILL;
+    /// CPU twin SkyFillReference. Costs a 2 x W x H x 8 B history while on (7.4 MB at 1280x720).
+    public static int SkyFill = ValidSkyFill(ReadIntArg("-skyfill", 0));
+    public static int ValidSkyFill(int v) => v == 1 || v == 2 ? v : 0;
+    private static GraphicsBuffer _sfA, _sfB, _sfDummyR, _sfDummyW;
+    private static int _sfW, _sfH, _sfMode;
+    private static bool _sfValid;
+    private static uint _sfFrame;
+    private static Matrix4x4 _sfPrevVP;
     private static int _tsW, _tsH;
     private static bool _tsValid;
     private static uint _tsFrame;
@@ -679,6 +692,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
+            public int skyFill, sfValid;                 // task 193
+            public uint sfFrame;
+            public GraphicsBuffer sfRead, sfWrite;
+            public Matrix4x4 sfPrevVP;
             public int taa, taaHistValid, taaDirtyCount, taaChecker, taaCheckerParity;
             public Vector2 taaJitter;
             public Matrix4x4 taaPrevVP;
@@ -934,6 +951,43 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     _tsValid = true;
                 }
                 else { passData.tsRead = _tsDummyR; passData.tsWrite = _tsDummyW; }
+
+                // Task 193: sky-fill history, the same ping-pong pattern. A mode change drops it (a mode-1
+                // record holds no ground half).
+                if (_sfDummyR == null)
+                {
+                    _sfDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                    _sfDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                }
+                int sfMode = ValidSkyFill(SkyFill);
+                passData.skyFill = sfMode;
+                if (sfMode != 0)
+                {
+                    if (_sfA == null || _sfW != dispatchW || _sfH != dispatchH)
+                    {
+                        _sfA?.Release(); _sfB?.Release();
+                        _sfA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        _sfB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        var fill = new uint[dispatchW * dispatchH * 2];
+                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _sfA.SetData(fill); _sfB.SetData(fill);
+                        _sfW = dispatchW; _sfH = dispatchH; _sfValid = false;
+                    }
+                    if (_sfMode != sfMode) { _sfValid = false; _sfMode = sfMode; }
+                    passData.sfRead = _sfA; passData.sfWrite = _sfB;
+                    passData.sfValid = _sfValid ? 1 : 0;
+                    passData.sfFrame = _sfFrame++;
+                    passData.sfPrevVP = _sfPrevVP;
+                    var sfCam = cameraData.camera;
+                    _sfPrevVP = sfCam.projectionMatrix * sfCam.worldToCameraMatrix;
+                    (_sfA, _sfB) = (_sfB, _sfA);
+                    _sfValid = true;
+                }
+                else
+                {
+                    passData.sfRead = _sfDummyR; passData.sfWrite = _sfDummyW;
+                    if (_sfA != null) { _sfA.Release(); _sfB.Release(); _sfA = _sfB = null; _sfMode = 0; }   // OFF holds no memory
+                }
 
                 // TAA: ping-pong colour + "same surface?" history, previous
                 // unjittered camera, this frame's jitter.
@@ -1516,6 +1570,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
                         cmd.SetComputeIntParam(data.compute, "_SkyProbeTilt", data.skyProbeTilt);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFill", data.skyFill);              // task 193
+                        cmd.SetComputeIntParam(data.compute, "_SkyHistValid", data.sfValid);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFrame", (int)data.sfFrame);
+                        cmd.SetComputeMatrixParam(data.compute, "_SkyPrevViewProj", data.sfPrevVP);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistR", data.sfRead);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistW", data.sfWrite);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
 
@@ -1860,6 +1920,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         _shellPre?.Release(); _shellPre = null;
         _shellPreDummy?.Release(); _shellPreDummy = null;
         _lightDummy?.Release(); _lightDummy = null;
+        _sfA?.Release(); _sfB?.Release(); _sfDummyR?.Release(); _sfDummyW?.Release();   // task 193
+        _sfA = _sfB = _sfDummyR = _sfDummyW = null;
         _farDummy = null;
         _taaColA?.Release(); _taaColB?.Release(); _taaMetaA?.Release(); _taaMetaB?.Release(); _taaCur?.Release();
         _taaDummy4?.Release(); _taaDummy2?.Release();
