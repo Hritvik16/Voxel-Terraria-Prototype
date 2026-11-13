@@ -1,35 +1,55 @@
-# 190b-landsig-default-on: DONE. Landform signatures (task 189: dunes, canyonland benches + slot canyons, alpine ridges) are now the DEFAULT everywhere (play, rigs, capture runs, tests). `-landsig 0` brings back the pre-189 ground, byte for byte.
+# 191-placement-preview-all-on: DONE (pictures only). ALL ON (`-trees 1 -ores 1 -fluidpockets 1 -sites 1 -towns 1`) vs today's defaults, seeds 42 + 7, 16 pose pairs + trees / towns alone. Viewer: `Screenshots/191/viewer.html` (Space = ON / OFF / alone, arrows = pose, Z = full size).
 
-## What changed (commit 448c579)
-- `TerrainSpec.landSigOn` became `landSigOff`, the same pattern as 187a / 190a. A default spec (byte 0) now has signatures; `LandSig => mapVersion >= 4 && landSigOff == 0`.
-- `TerrainGenChunkSource.LandSigArg()` now defaults to true; `-landsig 0` sets `landSigOff = 1`. `FarField` does the same for the far band's spec, so near chunks, FarQuery, shells, shell fill and the far band agree.
-- `WorldMap.Build` now builds the LandSig weight plane whenever `spec.LandSig` is on. Reason: `ShapeField.Sample` quietly takes the OFF path when a map has no plane, so without this any map built from a default spec outside the engine's two call sites (tests, tools) would have shown the OFF ground. The engine's explicit `EnsureLandSigPlane` calls stay (no-ops now).
-- `WorldMap.LandSigBuildMs` (new) times the plane build. Launch log lines print the setting in force:
-  - `[StreamManager] tg2 chunk source: ..., landform signatures ON (default; plane 3072 KB in 34 ms)`
-  - `[FarField] tg2 WORLD ...` ends the same way. With `-landsig 0`: "landform signatures OFF (-landsig 0)".
-- Scene-builder landmine: no SerializeField carries this setting (only the arg and the spec); the log lines above prove the flip took effect in a built player.
-- Tests (no assertion loosened):
-  - `LandSigTests` builds its world from the default spec (ON); `off` is `landSigOff = 1`. `Off_IsTodayByteForByte` still matches 188a's pins on OFF, and now asserts the default is ON and that `WorldMap.Build` built the plane. New `Default_IsOn_Pinned`: seed 42 `0x5647ec7f`, seed 7 `0x08a2a095`, and the default differs from `-landsig 0`.
-  - `MatVariantTests.Variant1_IsTodayByteForByte`: 188a's pins on `-matvariant 1 -landsig 0`; 190a's `PIN_DEFAULT_42` (0xc6bc4dbe) on `-landsig 0`; today's default on new `PIN_DEFAULT_190B_42` = 0x5647ec7f (the same as LandSig's ON pin, as it should be: both hash the same 600 columns).
-  - `TownTests.Flatten_OffPins_OutsideIdentical`: its 188a pin runs on `-landsig 0`. Every other town assertion (fast and Slow) now runs on the ON default and passes.
-- TASKS.md: task 190b paragraph. `Screenshots/190b/viewer.html` committed.
+## What changed (commit b182509)
+- Capture only: the world survey prints a `[mem]` line per pose (CPU / GPU body pool peak + refused, process peak). No default, generator or engine change.
+- Reused the first (auth-killed) run's finished shots (01:00-02:21, same build); reran only the 400 m wide shots with a 90 s wait (35 s left shells 2-3 empty: no distant trees). The seed-7 OFF 90 s shot came out facing a different view with the same logged pose (camera likely moved by input while the owner used the Mac); retaken once (`lookreview_wideoff7b.txt`).
+- `TASKS.md` paragraph 191. Fast suite **PASS 987 FAIL 0 SKIP 19** (`Logs/overnight/191/fast.out`).
 
-## Evidence
-- Filter run (the 4 pin tests): first pass gave the new pins (`Logs/overnight/190b/filter1.out`); fast suite after pinning: PASS 987 FAIL 0 SKIP 19 (`Logs/overnight/190b/fast1.out`).
-- Whole suite: **PASS 1059 FAIL 0 SKIP 27** (`Logs/overnight/190b/all.out`, wall 26m14s; `Logs/overnight/190b/TestResults_all.xml`).
-- Cost of building the plane by default (from the launch log, no timing arms): 1024 x 1024 cells x 3 B = **3,072 KB** of CPU memory, built in **34 ms** in the player (`Logs/overnight/190b/player_default.log`). The plane is shared by the chunk source and the far band (one map); no GPU memory. Shell pools were not refused in either arm (`[pools]` lines, r0).
-- Shots: one build + two launches (the setting is a start-up arg), 45 s wait each, noon, sun behind the camera, 189's two good poses (`Logs/overnight/190b_shots.sh`, `Logs/overnight/190b/shots.out`). `dune_field_low` skipped (broken pose per 189). After 45 s shell 1 was fully stored (missing 0), shell 2 partial (597-702 missing), shells 3+ largely unfilled, in both arms, so small far-horizon differences between arms are streaming, not this change.
+## Memory / pools from the run logs (no timing arms; `Screenshots/191/lookreview_*.txt`)
+| run | process peak MB | GPU body pool (near, cap 254,400) peak / refused | shell body peak (s1 / s2 / s3, % of cap) | POOL FULL |
+|---|---|---|---|---|
+| seed 42 ALL ON (10 poses) | 2,601.6 | 254,400 / **23,020** | 48 / 60 / 38 % | 0 |
+| seed 42 ALL OFF | 2,470.1 | 254,400 / 94 | 31 / 41 / 14 % | 0 |
+| seed 7 ALL ON (4 poses) | 2,608.3 | 254,400 / **4,450** | 32 / 44 / 33 % | 0 |
+| seed 7 ALL OFF | 2,529.2 | 246,855 / 0 | 27 / 23 / 13 % | 0 |
+| seed 42 trees alone (2) | 2,511.1 | 254,400 / 6,199 | 39 / 51 / 36 % | 0 |
+| seed 42 towns alone (2) | 2,582.9 | 254,400 / 90 | 26 / 34 / 11 % | 0 |
+- Memory: ALL ON +80 to +130 MB process peak, all under the 3,000 MB cap. Shell pools never refuse (r0 everywhere; task 188's packing holds). Wide 90 s: shell 3 pages peak 247/320 ON vs 195/320 OFF.
+- **The NEAR GPU body pool is the one that overflows**: already ~98-100 % in OFF, trees push it to thousands of refused chunks. A refused chunk is cleared to air and handed to shell 1 (`TerrainClipmap.GpuPool.cs` header). **Likely visible as rectangular PITS**: `towns42_town_150m.png` (2 pits, front) and `on7_town_150m.png` (3 pits) show sunken boxes with straight walls in front of the towns; never in an OFF shot; they appear right after the refused count rose (seed 7: 4,073 -> 4,450). Correlation only -- NOT proven; needs a look before trees go default.
 
-## Unfinished / next
-- Nothing left in this task. Task 191's "everything ON vs OFF" preview will now show signatures in the default.
-- Watch item (no failure): town rings blend back to the natural ground, which now includes the signatures. Tier-1 towns sit on easy areas, where the plane is 0 by construction; a tier-2 town in canyonland could have a ring that blends into a slot or bench. TownTests stay green; worth a look in 191's preview.
+## What the pictures show (all looked at)
+- `on42_forest.png` vs `off42_forest.png`: eye level, meadow becomes dense broadleaf forest. The ground under canopies is PITCH BLACK (no sky light under leaves).
+- `on42_forest_far.png` (~200 m): forest blocks on green, savanna trees on yellow, none on rock / sand banks / rivers. Placement reads right.
+- `on42_jungle.png`: huge canopies, almost everything under them black (worst case of the lighting point above).
+- `on42_snow.png`: conifers on snow, black disc shadows. Looks good.
+- `on42_town_eye.png`, `on7_town_eye.png`: towns on flattened pads (OFF = stepped terraces / dunes at the same spot); camera-facing house walls nearly BLACK.
+- `on7_village_eye.png`: red roofs close up; shaded walls pure black, windows show sky. No buildings on slopes, none floating, in any shot.
+- `on42_tall_cliff.png` (crop right half): ORE WALL VEINS, thin tilted green and orange-brown lenses on the vertical face, as task 181 specifies; none on flat ground.
+- `on42_surface_lava.png`: a round lava pool with straight vertical walls in a snow conifer forest (volcanic-landform rule; looks cut, not natural).
+- `on42_wide_400m_90s.png` / `on7_wide_400m_90s.png`: the filled-in region. Dense forest on green, sparse dots on savanna, nothing on rock / water. Good.
+
+## Per switch
+- **trees**: looks ready on placement; needs work on LIGHTING (black under canopies, jungle worst) and the near GPU pool overflow (pits?).
+- **ores**: looks ready (only visible as wall veins; caves not posed).
+- **fluidpockets**: needs work on look -- the surface pool has sheer cylinder walls; at rest and in the right place.
+- **sites**: invisible by itself (planner only); ready if towns go on.
+- **towns**: placement / flatten ready; house walls in shade render black; 90 refused near chunks alone, pits seen once.
+
+## Next step
+Owner answers the question below. Suggested follow-ups (named, not queued; need owner OK): (1) find out whether the rectangular pits are refused near-pool chunks (a bug task: count `GpuPoolRefusedNow` at those poses); (2) sky/ambient light on shaded vertical walls and under canopies (a lighting task).
+
+## Question for the owner: which switches become default ON?
+- trees: (a) ON now (b) ON after the pits/near-pool check (c) ON after the canopy-lighting fix too -- recommended (b)
+- ores: (a) ON now -- recommended (b) stay OFF
+- fluidpockets: (a) ON now (b) ON after softening the basin walls -- recommended (c) stay OFF
+- sites + towns (together): (a) ON now (b) ON after the pits check -- recommended (c) stay OFF
 
 ## For the doc
-- Landform signatures: **OFF -> ON by default** (`-landsig 0` = the old ground). Launch log: "landform signatures ON (default; plane 3072 KB in 34 ms)" (`Logs/overnight/190b/player_default.log`).
-- Cost of the default plane: **+3,072 KB CPU memory, +34 ms at world start** (player log). No GPU memory.
-- Old ground is byte for byte unchanged under `-landsig 0`: seed 42 `0x6f6c8910`, seed 7 `0xeaaad676` (188a pins); new default pinned at seed 42 `0x5647ec7f`, seed 7 `0x08a2a095` (`LandSigTests`).
-- Whole suite: PASS 1059 FAIL 0 SKIP 27 (`Logs/overnight/190b/all.out`).
-
-Images (full size; open `Screenshots/190b/viewer.html`: Space flips, arrows change the pose, Z zooms):
-- `Screenshots/190b/pair_desert_canyonlands_default.png` vs `..._landsig0.png`: the biggest change. In `-landsig 0` the whole desert is a lumpy sand sheet with a rounded red hill on the right. In the NEW DEFAULT the middle becomes a flat bench plain crossed by thin winding slot canyons (the dark lines), the right side is a tall stepped red cliff band (mesa with two rock layers), and the left horizon is a rough band of eroded red rock. The green river strip in the foreground is the same in both (keep-out ground).
-- `Screenshots/190b/range_200up_default.png` vs `..._landsig0.png`: subtle at 1.5 km. Look at the left face of the big mountain: the default has grooves running down it and a notched, stepped summit line on its right shoulder; `-landsig 0` is a smooth dome. The red ridge at the right is a little more jagged in the default.
+- Process memory peak, ALL ON vs ALL OFF: seed 42 **2,470 -> 2,602 MB**, seed 7 **2,529 -> 2,608 MB** (cap 3,000) (`Screenshots/191/lookreview_{on,off}{42,7}.txt`).
+- Near GPU body pool refused chunks, OFF -> ON: seed 42 **94 -> 23,020**, seed 7 **0 -> 4,450** (cap 254,400, full in both).
+- Shell pools: **0 refusals** in every run; peak shell 2 ON 60 % / OFF 41 % of cap (seed 42).
+- POOL FULL lines: **0** in all 11 launches.
+Images (open `Screenshots/191/viewer.html`; Space flips ON / OFF):
+- `Screenshots/191/on42_wide_400m_90s.png` vs `off42_wide_400m_90s.png`: the whole region filled in -- dark forest across the green middle, scattered trees on the yellow plateau at right.
+- `Screenshots/191/on42_snow.png` vs `off42_snow.png`: bare snow becomes a conifer forest; the best-looking switch result.
+- `Screenshots/191/on7_town_150m.png`: a desert town on the savanna; look at the three rectangular pits in front of it (the open problem).
