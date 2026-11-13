@@ -24,16 +24,9 @@
   - Lattice canopy: ground 0.50, trunk 0.52, crown underside 0.54.
   - The GPU's entry face equals the DDA's on 1,765 rays.
 - **Trade, stated plainly:** an OPEN but deep narrow slot gets darker than today. Today its walls are fully lit (the straight-up ray escapes). Now a 1 m × 6 m trench wall gets S 0.29 / 0.047 / 0.012 at 0.9 / 2.9 / 5.8 m down. That is physical, and it is not tuned.
-- **Shots, one build + one launch** (`Logs/lookreview_20261113_080409.txt`), plus a one-pose retake without a rebuild (`_085114.txt`). Share of pure-black pixels, from `Screenshots/193/black193.txt` (OFF → mode 1 → mode 2):
-
-| pose | OFF | mode 1 | mode 2 |
-|---|---|---|---|
-| forest | 27.5 % | 11.8 % | 12.2 % |
-| jungle_high | 10.8 % | 4.9 % | 3.8 % |
-| under_crown | 83.2 % | 53.2 % | 54.6 % |
-| cavern (true cave) | 100 % | 100 % | 100 % |
-
-  - The open-slope control's mean luma goes 137.5 → 134 (-3 %): open voxel steps now see slightly less than the whole sky.
+- **Shots** (one build + launch `Logs/lookreview_20261113_080409.txt`; one-pose retake `_085114.txt`). Pure-black share OFF → mode 1 → mode 2
+  (`Screenshots/193/black193.txt`): forest 27.5 → 11.8 → 12.2 %; jungle_high 10.8 → 4.9 → 3.8 %; under_crown 83.2 → 53.2 → 54.6 %;
+  cavern (true cave) 100 % in all three. Open-slope control: mean luma 137.5 → 134 (-3 %; open voxel steps see slightly less than the whole sky).
 - **Looked at:**
   - `forest`: OFF has black trunks, black crown undersides and black ground under the crowns. In mode 2 the trunks are brown, the undersides shaded green, the ground in shade dark green.
   - `under_crown`: OFF is a black floor. ON shows the shaded grass texture and brown trunks; deep shade stays dark.
@@ -42,17 +35,8 @@
   - `jungle_high`: the orange/white boxes are 191's near-pool pits, present in every arm.
 
 ## Rough cost (capture launch, native 1920x1080, NOT a rig, cold, streaming running)
-Settle-frame p50 per pose, OFF → mode 1 → mode 2:
-
-| pose | OFF | mode 1 | mode 2 |
-|---|---|---|---|
-| forest | 163 ms | 230 ms | 285 ms |
-| jungle_high | 195 ms | 337 ms | 300 ms |
-| under_crown | 144 ms | 219 ms | 221 ms |
-| cave_in | 132 ms | 289 ms | 331 ms |
-| cavern | 101 ms | 140 ms | 136 ms |
-| open slope | 144 ms | 195 ms | 196 ms |
-
+Settle-frame p50, OFF → mode 1 → mode 2: forest 163 → 230 → 285 ms; jungle_high 195 → 337 → 300; under_crown 144 → 219 → 221;
+cave_in 132 → 289 → 331; cavern 101 → 140 → 136; open slope 144 → 195 → 196.
 That is **×1.35 to ×2.5**. The bounce adds little over the sky alone. Slanted sky rays run much longer than the old vertical one. Play renders 4-7× fewer pixels (FSR 3 at 540-720 rows), so the absolute cost there is unknown until a performance milestone measures it.
 
 ## Not done / open
