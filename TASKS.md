@@ -1404,3 +1404,12 @@ line. Tests: `LandSigTests` builds its world from the default (ON) spec, `off` =
 190a's `PIN_DEFAULT_42` on `-landsig 0`, today's default on `PIN_DEFAULT_190B_42`; `TownTests.Flatten_OffPins_OutsideIdentical` pins on
 `-landsig 0` (towns run on the ON default, whole suite green). Shots: `Logs/overnight/190b_shots.sh` (189's canyonlands + range_200up;
 default vs `-landsig 0`), `Screenshots/190b/viewer.html`. Result: HANDOFF 190b.
+
+**Task 191 -- placement preview, ALL switches ON vs OFF (pictures only, owner 2026-11-12; no default or generator change).** ALL ON =
+`-trees 1 -ores 1 -fluidpockets 1 -sites 1 -towns 1` on today's defaults (material rules, stamp fit, landform signatures ON; variant spray OFF);
+ALL OFF = the defaults. One build, world survey (`-worldsurvey 1 -wsposes fixed -wsfixed <poses> -wsarms native -lookwait 35`, PRESETS=high),
+seeds 42 (10 poses) and 7 (4), plus `-trees 1` alone (forest, forest_far) and `-towns 1` alone (town eye / 150 m); the 400 m wide shots again
+with `-lookwait 90` (35 s leaves shells 2-3 empty = no distant trees). Scripts `Logs/overnight/191_shots.sh`, `191_wide.sh`,
+`191_wide_retake.sh`; logs `Logs/overnight/191/`; per-run `lookreview_*.txt` and the flip viewer in `Screenshots/191/` (Space cycles
+ON / OFF / switch alone). Capture change: the world survey prints a `[mem]` line (`MemoryLedger.Step14Line`: CPU / GPU body pool peak,
+refused, process now / peak) after each pose's `[pools]` line. Result: HANDOFF 191.

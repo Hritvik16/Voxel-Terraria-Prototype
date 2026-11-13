@@ -1,0 +1,32 @@
+<html><head><meta charset="utf-8"><title>Task 191: all placement switches ON vs OFF</title></head>
+<body style="background:#111;color:#ddd;font-family:sans-serif;margin:8px">
+<h3 style="margin:4px 0">Task 191: Space cycles ALL ON / ALL OFF (and the switch ALONE where there is one), arrows change the pose, Z full size</h3>
+<div id=t style="font-size:18px;color:#ff6"></div><div id=c style="margin:4px 0 8px 0"></div>
+<img id=i style="max-width:100%">
+<script>
+var ON='ALL ON (-trees 1 -ores 1 -fluidpockets 1 -sites 1 -towns 1)', OFF='ALL OFF (today\'s defaults)';
+var P=[
+ ['seed 42 forest, eye level',[['on42_forest',ON],['off42_forest',OFF],['trees42_forest','-trees 1 ALONE']],'Broadleaf canopies fill the meadow. The ground under the canopy is pitch black (no sky light under leaves). Trees alone = ALL ON here.'],
+ ['seed 42 forest from ~200 m',[['on42_forest_far',ON],['off42_forest_far',OFF],['trees42_forest_far','-trees 1 ALONE']],'Forest blocks on the green, savanna trees on the yellow, none on rock or sand banks. Far left (shell 3) is still sparse: streaming, not placement.'],
+ ['seed 42 jungle plain',[['on42_jungle',ON],['off42_jungle',OFF]],'Giant jungle canopies; under them almost everything is BLACK. Right edge: a small fence-like grid (a building?) half hidden in the canopy.'],
+ ['seed 42 snow slope',[['on42_snow',ON],['off42_snow',OFF]],'Conifers on the snow, each with a black disc shadow. Looks right.'],
+ ['seed 42 town, eye level',[['on42_town_eye',ON],['off42_town_eye',OFF],['towns42_town_eye','-towns 1 ALONE']],'Town on a flattened green pad with a dirt road. The house walls facing the camera are nearly black.'],
+ ['seed 42 town from ~150 m',[['on42_town_150m',ON],['off42_town_150m',OFF],['towns42_town_150m','-towns 1 ALONE']],'Town sits on the flat green. In -towns 1 ALONE: two RECTANGULAR PITS in the red ground at the front (holes, see HANDOFF).'],
+ ['seed 42 village (savanna)',[['on42_village_eye',ON],['off42_village_eye',OFF]],'Thatched huts on flattened sand; OFF the ground here is terraced sand steps with pale patches.'],
+ ['seed 42 cliff face with ore veins',[['on42_tall_cliff',ON],['off42_tall_cliff',OFF]],'ON adds ORE WALL VEINS: thin tilted green and orange-brown lenses (copper / iron-gold) on the vertical rock -- task 181's rule. The black slot is in both (not placement).'],
+ ['seed 42 surface lava pocket',[['on42_surface_lava',ON],['off42_surface_lava',OFF]],'ON: a round lava pool with straight vertical walls in the snow forest, beside a tree.'],
+ ['seed 42 wide 400 m (35 s wait)',[['on42_wide_400m',ON],['off42_wide_400m',OFF]],'After 35 s no trees at all at this range (shells 2-3 unfilled). See the 90 s pair next.'],
+ ['seed 42 wide 400 m (90 s wait)',[['on42_wide_400m_90s',ON],['off42_wide_400m_90s',OFF]],'90 s wait: the whole region fills -- dense dark forest on the green middle, scattered trees on the yellow plateau at right, a few on the snow at bottom left, none on rock or water.'],
+ ['seed 7 town, eye level',[['on7_town_eye',ON],['off7_town_eye',OFF]],'Desert town on a flat sand pad; OFF is stepped dunes. Front walls black again.'],
+ ['seed 7 village, eye level',[['on7_village_eye',ON],['off7_village_eye',OFF]],'Red-roof houses close up; walls in shade are pure black, windows show the sky through.'],
+ ['seed 7 town from ~150 m',[['on7_town_150m',ON],['off7_town_150m',OFF]],'Baobab savanna and cacti; THREE RECTANGULAR PITS in front of the town (ON only).'],
+ ['seed 7 wide 400 m (35 s wait)',[['on7_wide_400m',ON],['off7_wide_400m',OFF]],'Trees only in the nearest band (bottom middle); the rest unfilled.'],
+ ['seed 7 wide 400 m (90 s wait)',[['on7_wide_400m_90s',ON],['off7_wide_400m_90s',OFF]],'90 s wait: forest along the green coast at the bottom, a sparse savanna dot pattern over the yellow plain; the town (middle, small huts) reads as a tiny grey patch.']
+];
+var k=0,s=0,z=0;
+function show(){var e=P[k];s=s%e[1].length;var im=document.getElementById('i');im.src=e[1][s][0]+'.png';im.style.maxWidth=z?'none':'100%';
+document.getElementById('t').textContent=(k+1)+'/'+P.length+'  '+e[0]+'  --  '+e[1][s][1]+'  ['+(s+1)+'/'+e[1].length+']';
+document.getElementById('c').textContent=e[2];}
+document.onkeydown=function(ev){if(ev.key==' '){s++;ev.preventDefault();}else if(ev.key=='ArrowRight'){k=(k+1)%P.length;s=0;}else if(ev.key=='ArrowLeft'){k=(k+P.length-1)%P.length;s=0;}else if(ev.key=='z'||ev.key=='Z')z=1-z;show();};
+show();
+</script></body></html>
