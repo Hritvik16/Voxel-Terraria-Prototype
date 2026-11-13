@@ -1,50 +1,59 @@
-# 188-trees-pool-overflow-and-cost: DONE. Trees (`-trees 1`) no longer overflow the shell pools. The fix is exact: 2-value shell bricks are packed. Trees stay default OFF; the owner decides from the table.
+# 188a-matrules-no-random-variant: DONE. `-matvariant 0` removes the random variant spray (materials by the rules only). The DEFAULT is unchanged (`-matvariant 1` = today, byte for byte). The owner picks the default from the pictures.
 
-## Cause (found before changing anything)
-- `TreePoolTests.Pools_ForestPose` / `Pools_JunglePose` generate every chunk shells 1-5 store at 180's poses (seed 42, High). Arms: OFF, ON, and ADVERSARIAL. ADV is a test-only `treesOn = 2 + biome`: every tree cell that passes the physical rules gets a tree, i.e. a solid forest cover.
-- Canopies are a second surface over the ground, so trees add dense bricks. **92 % of the added bricks hold exactly 2 values** (leaf or wood + air), yet each took a full 512 B body.
-- **180's FULL was at the JUNGLE pose, not the forest one.** The `[shells]` line prints BEFORE its `WSPOSE` line. With trees ON at the jungle pose, shells 1 / 2 were at 120 / 117 % of PoolCap.
-
-## Fix (commits f3c4792, c7e5d61)
-- `Mirror/ShellBrickPack.cs` (an Appendix A addition): a dense shell brick with <= 2 values is stored as 17 uints (`a | b<<8` + a 512-bit plane), packed 7 per 128-uint body. Handle bit 30 = COMPACT; full bricks are unchanged.
-- It is decided per brick from its own voxels, for terrain bricks too. No cap, no constant. Tier 0 is untouched.
-- `ShellStore.Store`: Burst `ClassifyJob` plus `StageJob`; the job replaces the old managed body copy. The pool unit is still the body.
-- Readers that decode the same bits:
-  - `Raymarch.compute` `ShellBrickVoxel` (both shell lookups)
-  - `ShellRayReference.IView.VoxelOf`
-  - `ShellValidator.CompareShadow`
-- `-shellpack 0` is a diagnostic flag that restores the old storage.
-- Player capture prints a `[pools]` line (bodies/pages used/peak/cap) after each `[shells]` line. It was added to the world-survey path after the shots, so the shots don't show it.
-- Tests: new `TreePoolTests.CompactBricks_StoreIsByteExact_PoolCountsBodies`. Two tests now count in bodies with unchanged intent: the `EditOpRedrawTests` replace test, and `ShellSkyExitTests.Store_RaisesTheBound` (its refused chunk now uses 3-value bricks).
-- Docs: TASKS 188 paragraph; KNOWN_ISSUES has a new top entry.
+## What changed (commit 1031594)
+- `TerrainSpec.matVariantOff`, read through `MatVariant`. `GroundRules.Column`: `variant = noisePatch && spec.MatVariant`. That is the one place the switch happens, so near voxels, `TopMaterial` (far band, minimap) and shells all agree.
+- The `-matvariant` arg: `TerrainGenChunkSource.MatVariantArg`, and `FarField`'s own spec, the same way as `-matrules`.
+- **Trees are unchanged in both settings.** `c.cover` keeps the noise patch's VARIANT bit, so tree-density patches (`Trees.VARIANT_MUL`) are identical. With `-trees 1` nothing changes for trees.
+- The old `-matrules 0` path ignores the flag.
+- Where a variant entry was BARE (the high slot in forest / desert / jungle / badlands, snow's steep slot), those patches no longer show bare rock. The bare / sunny / crest rule still makes bare rock.
+- Tests: new `MatVariantTests` (TASKS.md 188a paragraph).
 
 ## Evidence
-- Whole suite **PASS 1037 FAIL 0 SKIP 27** (`Logs/overnight/188/all1.out`); 187a was 1036/0/25. All 180 `TreeTests` are green. The +2 skips are the two Explicit reports.
-- Pool reports: `Logs/TerrainGen/trees188/pools_forest.txt`, `pools_jungle.txt`. They give bricks (= bodies before) and bodies (after), pages, upload MB and generation ms.
-- Player, one build, `-trees 1`, 45 s wait (`Logs/overnight/188_shots.out`), jungle pose:
-  - BEFORE (`-shellpack 0`): `s1 1789/378 FULL, s2 1481/689`, 3,456 stored.
-  - AFTER: `s1 2170/0, s2 2170/0`, no FULL, 5,437 stored.
-- Generation cost: trees add +0.1 to +4.9 % per stored chunk ON, and up to +9.6 % ADV. That is the column pass +1-21 % (worse at shell 5) plus +23-88 % voxel+fill, but only on the ~15-20 % of chunks the trees reach.
-- **180's 55-74 -> 89-156 ms worker mean does not reproduce in the generator.** That mean is averaged over a different shell mix per arm (a shell-5 chunk costs 6x a shell-1 chunk). It is not a per-chunk comparison. This task does not change generation cost.
+- `-matvariant 1` == before. An FNV over height, slot, cover, soil depths, top material and the top 4.8 m of Material (600 columns each, seeds 42 and 7) gives 0x6f6c8910 / 0xeaaad676. Those values were pinned on the pre-change code (`Logs/overnight/188a/pin_before.out`) and match.
+- `-matvariant 0`:
+  - 0 variant columns (22.4 % with the default, 3,000 land columns).
+  - The same rule slot, cover, height, water and biome.
+  - The skin is the slot's MAIN entry.
+  - Near == far slots at texel 4 / 16.
+- Whole suite **PASS 1041 FAIL 0 SKIP 27** (`Logs/overnight/188a/all1.out`); 188 had 1037, and this task adds 4 tests.
+- Shots: one build, two launches, 45 s wait, noon (sun 78 deg) (`Logs/overnight/188a/shots.out`, `Logs/overnight/188a_shots.sh`). At 5 of the 6 poses shell 1 is filled or nearly (missing 0-44 per pose); shell 2 is partial and shells 3+ are unfilled.
+- One fill difference: at savanna_flat the AFTER launch had 292 shell-1 chunks missing (BEFORE: 26). So the stamp arch at the right edge is drawn as a far-band slab there. That is streaming timing, not this change (heights are proven identical).
 
-## Unfinished / notes
-- Shell 3 is the closest to its caps:
-  - ADV bodies 89-94 %.
-  - Its PAGE table (cap 320) runs at 69-84 % with or without trees.
-  - Not a tree issue. If a denser cover ever comes, look there first.
-- The main-thread cost of the Burst classify is not measured (no rig, per the rules). It replaces a managed 8-byte-MemCpy loop, and upload bytes drop 10-56 %.
-- No black-shadow work (left for the lighting task).
+## Materials that leave a biome's SURFACE with the spray off (owner decides; no new rules invented)
+| biome | lost from the surface | where it came from | still underground? |
+|---|---|---|---|
+| forest | JungleGrass (12.2 % -> 0) | flat variant | no |
+| desert | Mud (0.8 % -> 0) | wet-bank variant (the oasis is Grass) | no |
+| jungle | Grass (15.4 % -> 0) | flat variant | no |
+| jungle | Gravel (0.3 % -> 0) | scree variant | no |
+| savanna | PackedSand (12.8 % -> 0) | flat variant | no |
+| savanna | Mud (0.6 % -> 0) | wet-bank variant (the banks are Grass) | no |
+| forest | Loam | wet-bank variant | yes: the soil |
+| desert | PackedSand (13.7 -> 0.2 %) | flat / scree variant | yes: the soil |
+| savanna | RedEarth | scree variant | yes: the soil |
+| badlands | OchreBand | scree variant | yes: the subsoil |
+
+Snow loses nothing: PackedIce stays the rule-made ice on shaded steeps and frozen banks (25.7 -> 15.5 %).
+
+## Next step
+The owner looks at the viewer and picks the default. If they choose (a), flip it: default `matVariantOff = 1`, and re-pin `MatVariantTests` to the new arm. Optionally they may want rules for the lost materials (e.g. savanna PackedSand on dry flats); that is a design decision.
 
 ## For the doc
-| pose, shell | trees ON: before -> after (% of PoolCap) | adversarial cover: before -> after |
+Share of the surface per material, before -> after (4 seeds, 3,000 land columns each; `Logs/TerrainGen/188a/share188a.txt`):
+
+| biome | main ground | the sprayed material |
 |---|---|---|
-| jungle s1 | 120 % OVER -> **49 %** | 134 % OVER -> **51 %** |
-| jungle s2 | 117 % OVER -> **63 %** | 142 % OVER -> **71 %** |
-| forest s1 / s2 | 80 / 78 % -> **41 / 51 %** | 149 / 157 % OVER -> **55 / 76 %** |
-| forest s3 / s4 | 80 / 73 % -> **56 / 55 %** | 145 / 106 % OVER -> **94 / 77 %** |
-- Jungle s1 upload, trees ON: 92.6 -> 40.5 MB. Trees OFF also gains (s1 forest 42 -> 33 %). Source: `pools_*.txt`.
-- Generation time per stored chunk, ON vs OFF: +0.1 to +4.9 % (ADV <= +9.6 %), unchanged by this task (`pools_*.txt`).
-- Player, jungle pose, 45 s: before `s1 1789/378 FULL`; after `s1 2170/0, s2 2170/0`, 3,456 -> 5,437 chunks stored.
-- Images: BEFORE `LookReview/2026-11-12_144829_high/`, AFTER `LookReview/2026-11-12_150058_high/` (under ~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/).
-  - `ws_fixed_jungle_native.png`: near canopy identical. In the lower right, through the trunks, BEFORE shows a red-brown wall where AFTER shows beige ground. Those are shell chunks that BEFORE was missing (pool FULL), so a coarser shell or the far band showed instead.
-  - `ws_fixed_jungle_far_native.png` (220 m up, the jungle canopy across shells 1-3 over a pale plain and the sea): looks identical side by side (compared at 960 px, not diffed). This shows the compact decode in the shader is exact. The grey box left of the lake is task 190's known artefact.
+| forest | Grass 41.3 -> 53.4 % | JungleGrass 12.2 -> 0 % |
+| desert | Sand 39.9 -> 52.7 % | PackedSand 13.7 -> 0.2 % |
+| snow | Snow 45.1 -> 59.5 % | PackedIce 25.7 -> 15.5 % (the rule-made ice stays) |
+| jungle | JungleGrass 47.2 -> 62.1 % | Grass 15.4 -> 0 % |
+| savanna | SavannaGrass 44.6 -> 57.4 % | PackedSand 12.8 -> 0 % |
+| badlands | BadlandsClay 46.1 -> 60.8 % | Hardpan 18.8 -> 1.6 % (stays as rubble) |
+
+Variant columns: 22.4 % -> 0 %. Heights and slots are unchanged (FNV pin).
+
+Images (full size; open `Screenshots/188a/viewer.html`: Space flips, arrows change pose, Z zooms). Each `pair_*.png` has BEFORE on top and AFTER below:
+- `Screenshots/188a/pair_site_frontier.png`: in the foreground of the seed 42 frontier snowfield, the pale-blue ice blotches go and the snow is uniform. The cliff and far ground are unchanged.
+- `Screenshots/188a/pair_site_town.png`: on the town plateau, the bright JungleGrass patches in the lower-left grass go. The mountains behind are unchanged.
+- `Screenshots/188a/pair_desert_flat.png` and `pair_savanna_flat.png`: the dark PackedSand blotches go from the sand and the golden grass. In savanna, the river's beach sand and the green bank by the water stay (rule-made).
+- `Screenshots/188a/pair_forest_bank_a.png` and `pair_forest_bank_b.png`: the brown mud collars along the river stay, and so does the pale ice on the shaded snowy slope (bank_a, upper left). Only the JungleGrass patches in the forest grass (and small ice patches on flat snow, bank_a bottom right) go.
