@@ -1,58 +1,45 @@
-# 193-look-sky-light-in-shade: DONE. Shade at noon is no longer black: `-skyfill 1` (sky) / `-skyfill 2` (sky + ground bounce), default OFF. A true cave stays 100 % black. The owner decides from the pictures; the cost is large (below).
+# 194-bug-rectangular-pits-near-pool: DONE. The pits ARE refused near-pool chunks. Fixed inside the design (shader hand-over); no pool size, eviction, layout or API change.
 
-## Why shade was black (cause, from the shader)
-`Raymarch.compute` AMBIENT SKY VISIBILITY traced ONE ray straight up per tier-0 hit: skyVis = 0 or 1. Then skyOpen = lerp(floor, 1, skyVis), with floor = 0.02 on High, scales both the ambient and the sun-shadow floor. So a face whose straight-up ray is blocked, and that is also out of the sun, draws at 2 %. That covers ground and trunks under a crown, a leaning tube wall, and EVERY down face (its own voxel blocks the ray). AO was not the cause.
+## Cause (proven)
+- A chunk the full near GPU body pool refuses is held as AIR in tier 0. Its column is marked non-resident so the shells draw it.
+- But tier 0 still draws the rest of that column (the uniform rock under a surface chunk needs no GPU body) and the columns around it. Tier 0 marches first.
+- So a ray through the refused chunk's air hit that rock: a 12.8 m box pit, with the neighbours' sides as straight walls.
+- Probe (`[refused]` lines per shot): the refused chunks are surface chunks (700-1,100 dense bricks: trees). Shell 1 STORES every one (0 in its ±1-chunk hole at High). The chunk below is drawn solid by tier 0 in 13-75 of each pose's refusals.
+- A pit shows only when the refused chunk lies within tier 0's real reach (about 60-100 m). Chunks refused at 104-145 m (box edge) never showed.
 
-## What changed (commit 391e2a0)
-- `Raymarch.compute`: the same call site now traces ONE cosine-weighted direction per pixel per frame over the face's hemisphere. The sequence is SkyVisReference's R2, seeded by the surface cell's key, so a voxel face converges to its own stratified mean.
-  - S = open share of the sky half. A side face's lobe is folded upward, so an open side face = 1, as today.
-  - Mode 2 adds B = share of the ground half that lands on sunlit ground: the ray runs to its first solid voxel, then one sun ray from there. `ShadowHit.hitV/hitT` and `ShadowEntryNormal` are new.
-  - Per-pixel history `SkyHistR/W`: 8 B/px, ping-pong, reprojected like the sun history. Running mean 1/n then 1/16.
-  - Mode 2 mixes S and B by the sky and bounce terms' lumas at the face normal.
-  - Unchanged: shells and far hits keep skyVis 1; OFF is the old code path (the history is freed).
-- `RaymarchFeature.cs`: `SkyFill` (`-skyfill`), the buffers and the bindings.
-- `SkyFillReference.cs`: the CPU twin. `SkyFillReferenceTests` (7 tests).
-- WorldSurvey: arm suffix `_sfN`, plus a `[frame]` mean/p50 line over each arm's 60 settle frames. TASKS.md: task 193 paragraph.
+## Fix (commit 6bab2d5)
+- `Raymarch.compute`, REFUSED-CHUNK HAND-OVER block: while `_Tier0Refused` is set (any chunk refused, shells + far band on), a tier-0 hit past the ray's entry into a column holding a REFUSED chunk is dropped. Tier 0 ends there and the shell march draws on from that point.
+- Refused columns only: `FarField.UpdateResidency` writes them as a second bitmap after the residency bits in `FarResident`.
+- v1 (any non-resident column) was REJECTED after its shots: still-streaming columns near the camera lie in shell 1's hole, where no shell holds anything, so houses vanished at eye level.
+- CPU twin `Tier0HandOverReference`. `RefusedHandOverTests` (7): a real TerrainClipmap with a 25-body pool reproduces the pit; the floor hit is dropped at the refused column's entry; earlier hits are kept; a streaming-only column is never handed over; tier 0 owns the column again once the chunk lands; the twin matches a fine walk on 500 rays.
+- Capture only: `-refusedhandover 0`, WorldSurvey arm `native_rh0` (OFF for one shot), `PlaygroundCapture.RefusedProbe.cs`. TASKS.md paragraph 194.
 
 ## Evidence
-- **Fast suite: PASS 994, FAIL 0, SKIP 20** (`Logs/overnight/193/fast.out`).
-- **SkyFillReferenceTests 7/7** (`Logs/overnight/193/TestResults_skyfill.xml`):
-  - A sealed 2 m rock room and a 0.1 m shell room: exactly 0 on every face and every frame, both modes.
-  - A 1-voxel crack in a 1.1 m roof: the floor under it gets 1.2 %; 2 m aside it is exactly 0.
-  - Open ground, and a pillar side over sunlit ground: exactly 1.
-  - 3 m ledge: underside B 0.42 (mode 1 keeps 0); the wall under it S 0.56. The running mean matches the quadrature (rms 0.04-0.06).
-  - Lattice canopy: ground 0.50, trunk 0.52, crown underside 0.54.
-  - The GPU's entry face equals the DDA's on 1,765 rays.
-- **Trade, stated plainly:** an OPEN but deep narrow slot gets darker than today. Today its walls are fully lit (the straight-up ray escapes). Now a 1 m × 6 m trench wall gets S 0.29 / 0.047 / 0.012 at 0.9 / 2.9 / 5.8 m down. That is physical, and it is not tuned.
-- **Shots** (one build + launch `Logs/lookreview_20261113_080409.txt`; one-pose retake `_085114.txt`). Pure-black share OFF → mode 1 → mode 2
-  (`Screenshots/193/black193.txt`): forest 27.5 → 11.8 → 12.2 %; jungle_high 10.8 → 4.9 → 3.8 %; under_crown 83.2 → 53.2 → 54.6 %;
-  cavern (true cave) 100 % in all three. Open-slope control: mean luma 137.5 → 134 (-3 %; open voxel steps see slightly less than the whole sky).
-- **Looked at:**
-  - `forest`: OFF has black trunks, black crown undersides and black ground under the crowns. In mode 2 the trunks are brown, the undersides shaded green, the ground in shade dark green.
-  - `under_crown`: OFF is a black floor. ON shows the shaded grass texture and brown trunks; deep shade stays dark.
-  - `cave_in`: today it is an ENCLOSED tube, not 173's trench. The walls lift only near its openings and the deep tube stays dark.
-  - `open_slope` (173's trench spot): the trench is gone after later generator changes, so it serves as a control. OFF and ON look nearly the same.
-  - `jungle_high`: the orange/white boxes are 191's near-pool pits, present in every arm.
-
-## Rough cost (capture launch, native 1920x1080, NOT a rig, cold, streaming running)
-Settle-frame p50, OFF → mode 1 → mode 2: forest 163 → 230 → 285 ms; jungle_high 195 → 337 → 300; under_crown 144 → 219 → 221;
-cave_in 132 → 289 → 331; cavern 101 → 140 → 136; open slope 144 → 195 → 196.
-That is **×1.35 to ×2.5**. The bounce adds little over the sky alone. Slanted sky rays run much longer than the old vertical one. Play renders 4-7× fewer pixels (FSR 3 at 540-720 rows), so the absolute cost there is unknown until a performance milestone measures it.
+- Fast suite **PASS 1000 FAIL 0 SKIP 20** (`Logs/overnight/194/fast.out`); filter run 12/12 (`filter2.out`).
+- Repro, seed 7, default pool, 191's pose order (`refused_before7.txt`): 14 refused at town_150m, all 104-145 m out. No pits; 191's pits depended on the refusal history.
+- Seed 7, `-gpubrickcap 200000` (adversarial, forces near refusals), town_150m: 85 refused, 22 on screen, 63-98 m in front of the town.
+  - OFF: a band of box pits. ON: flat sand. Refused count identical in both arms (85 now, 3,174 total).
+  - 7.35 % of pixels differ (`Screenshots/194/diff194.txt`).
+- Seed 42, default pool:
+  - forest: 40 refused, 10 on screen, 52-72 m out. The OFF arm shows a box wall behind the trees; ON shows trees and grass.
+  - town_eye: v2 shows all houses (v1 lost them).
+- Shots: one build + one launch per seed (`Logs/overnight/194_proof2.sh`). The first v2 build hit the known CSMainFarShadeDiag compiler timeout (as in 134) while the owner used the Mac; the retry at a 60-minute timeout built. Log: `Logs/overnight/194/build_timeout1.log`.
 
 ## Not done / open
-- Plan step S3: a sky ray that leaves the 0.1 m window sideways counts as open, so a cave right at the window edge could leak. Not seen in these shots; unfixed.
-- No open-trench picture: 173's trench no longer exists. The CPU trench test covers that case.
-- Cheaper variants (owner approval needed, since they change performance): trace on the 2x2 quad lead only; sample every other frame; a shorter clamp for sky rays.
+- A refused chunk INSIDE shell 1's hole still has no shell data: ABSENT, so the far band draws it. Seen once (4 at seed 42 forest ON, none on screen). The real fix would need shell data in the hole or a pool rule. Owner call if it ever shows.
+- Sun shadows across a handed-over column can differ (seed7cap town_150m ON: the tree shadow bottom-left is clipped to a notch).
+- The pool itself still overflows with trees on (191: 23 k refusals). Pits are gone, but refused chunks draw at shell 1's 0.2 m until a slot frees.
+- No timing (rule 10). The new block runs a ≤20-cell column walk per tier-0 hit, only while chunks are refused. A performance milestone should see it.
 
 ## Next step
-The owner picks from `Screenshots/193/viewer.html`: OFF, sky (1), or sky + bounce (2), and whether the cost is acceptable before a performance milestone measures it in play.
+191's question can now move on: trees / towns ON no longer hinge on the pits. Optional: re-shoot 191's pit poses in play.
 
 ## For the doc
-- Pure-black share at noon, OFF → `-skyfill 2`: forest 27.5 → 12.2 %, jungle 10.8 → 3.8 %, under a crown 83.2 → 54.6 % (`Screenshots/193/black193.txt`).
-- True cave 200 m down: 100 % black in every arm. Sealed rooms are exactly 0 in the CPU tests (no light through rock).
-- Ledge underside: 0 → 0.42 sky+bounce openness. Crack in a roof: 1.2 % under it, 0 two metres aside (`SkyFillReferenceTests`).
-- Rough cost: capture-launch p50 at native 1080p is ×1.35-2.5 (forest 163 → 285 ms; `Screenshots/193/lookreview193.txt` `[frame]` lines).
+- Cause: refused near-pool chunk = air in tier 0 over drawn rock → 12.8 m box pit. Shell 1 stores 100 % of the refused chunks seen (`Screenshots/194/refused_v2_*.txt`).
+- Seed 7 small pool, town_150m: on-screen box pits **many → 0**, refused **85 → 85** (unchanged); 7.35 % of pixels change (`Screenshots/194/diff194.txt`).
+- Seed 42 forest (default pool): the box wall behind the trees **→ gone**; refused 40 OFF / 15 ON (streaming between arms).
+- Tests: RefusedHandOverTests 7/7; fast suite PASS 1000 FAIL 0 SKIP 20.
 - Images:
-  - `Screenshots/193/forest_sf0.png` vs `forest_sf2.png`: the trees in the middle and at right. Black trunks and crown undersides become brown trunks and shaded green undersides; the ground under the crowns goes from black to dark green.
-  - `Screenshots/193/under_crown_sf0.png` vs `under_crown_sf2.png`: the lower two thirds. A black forest floor becomes shaded grass; the trunks at right turn brown.
-  - `Screenshots/193/cavern_sf2.png`: the whole frame stays black. A real cave is still dark with sky fill on.
+  - `Screenshots/194/seed7cap_town_150m_before.png` vs `..._after.png`: the foreground between the camera and the desert town. BEFORE has a band of sunken rectangular boxes with straight pink-brown walls and pale floors. AFTER is flat unbroken sand. Same pose, same refused chunks.
+  - `Screenshots/194/seed42_forest_before.png` vs `..._after.png`: the centre behind the dark trunks (x≈960-1000, y≈500-590). BEFORE shows a yellow-brown vertical box wall and a brown patch at left (x≈520, y≈580). AFTER shows trees and grass there.
+  - `Screenshots/194/seed42_town_eye_after_v1_REJECTED.png` vs `seed42_town_eye_after_v2.png`: the left half. v1 lost the houses and treeline (a bare far-band hill shows); v2 keeps them. Why the fix is limited to refused columns.
