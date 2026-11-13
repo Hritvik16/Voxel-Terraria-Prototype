@@ -316,6 +316,7 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.RiverShapeOffArg()) { var ts = Tg2Spec; ts.riverShapeOff = 1; Tg2Spec = ts; }   // task 179
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOff = 1; Tg2Spec = ts; }   // task 180b / 186: ON unless -matrules 0
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOff = 1; Tg2Spec = ts; }   // task 185 / 187a: ON unless -stampfit 0
+                if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatVariantArg()) { var ts = Tg2Spec; ts.matVariantOff = 1; Tg2Spec = ts; }   // task 188a: spray ON unless -matvariant 0
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.SitesArg()) { var ts = Tg2Spec; ts.sitesOn = 1; Tg2Spec = ts; }   // task 187 (records only)
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);

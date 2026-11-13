@@ -434,11 +434,14 @@ namespace TerrainGen
             int slot = ChooseSlot(in ri);
             float vn = Cover.VariantNoise(in o, p, texel);
             float bn = BiomeNoise(in o, p, skin, texel);
-            bool variant = vn > Cover.VARIANT_ABOVE - 0.15f * bn;
+            bool noisePatch = vn > Cover.VARIANT_ABOVE - 0.15f * bn;
+            // Task 188a: -matvariant 0 drops the random spray from the MATERIALS only
+            // (every column takes its slot's MAIN entry); trees keep the noise patch.
+            bool variant = noisePatch && spec.MatVariant;
             byte s8 = (byte)(slot | (variant ? VARIANT_BIT : 0));
             if (slot == Hollow && ri.underWater && c.waterKind == 1) s8 |= FLUID_BED;
             c.mrSlot = s8;
-            c.cover = (byte)(LegacySlot(slot) | (variant ? Cover.VARIANT_BIT : 0));   // trees read the Cover slot
+            c.cover = (byte)(LegacySlot(slot) | (noisePatch ? Cover.VARIANT_BIT : 0));   // trees read the Cover slot
 
             // Thickness by slot x the biome noise.
             float f = 1f + THICK_NOISE * bn;

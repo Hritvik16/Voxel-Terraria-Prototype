@@ -1,0 +1,106 @@
+Task 188a: share of the SURFACE (DetailField.TopMaterial, land above the sea, no fluid on top) per material per skin biome,
+seeds 42 / 7 / 2026 / 31337, 3,000 random land columns each. before = -matvariant 1 (today), after = -matvariant 0 (no spray).
+Stone names are the bare rock showing (steep / crest / sunny faces); stamp, lip and pocket materials are included as they are.
+
+forest: 2489 columns
+  Grass               41.3 % ->  53.4 %
+  Granite             20.4 % ->  22.6 %
+  VolcanicRock        14.5 % ->  14.5 %
+  JungleGrass         12.2 % ->   0.0 %   (GONE from the surface)
+  Gravel               6.7 % ->   3.4 %
+  BeachSand            2.2 % ->   3.2 %
+  Mud                  1.0 % ->   1.2 %
+  SilverSchist         0.5 % ->   0.6 %
+  RedBand              0.4 % ->   0.4 %
+  KarstLimestone       0.3 % ->   0.4 %
+  Loam                 0.3 % ->   0.0 %   (GONE from the surface)
+  KopjeGranite         0.1 % ->   0.2 %
+  RiverLip             0.1 % ->   0.1 %
+
+desert: 1515 columns
+  Sand                39.9 % ->  52.7 %
+  OrangeSandstone     33.5 % ->  33.5 %
+  PackedSand          13.7 % ->   0.2 %
+  BeachSand            3.4 % ->   3.4 %
+  Gravel               2.0 % ->   2.6 %
+  VolcanicRock         2.3 % ->   2.3 %
+  Grass                1.3 % ->   2.1 %
+  KopjeGranite         1.5 % ->   1.5 %
+  Mud                  0.8 % ->   0.0 %   (GONE from the surface)
+  CreamSandstone       0.7 % ->   0.7 %
+  RedBand              0.7 % ->   0.7 %
+  Granite              0.3 % ->   0.3 %
+
+snow: 2628 columns
+  Snow                45.1 % ->  59.5 %
+  PackedIce           25.7 % ->  15.5 %
+  SilverSchist        17.6 % ->  14.6 %
+  VolcanicRock         8.9 % ->   8.9 %
+  Gravel               2.1 % ->   0.9 %
+  RedBand              0.2 % ->   0.2 %
+  Granite              0.1 % ->   0.0 %   (GONE from the surface)
+  Sinter               0.1 % ->   0.1 %
+  Bone                 0.1 % ->   0.1 %
+
+jungle: 1519 columns
+  JungleGrass         47.2 % ->  62.1 %
+  KarstLimestone      22.3 % ->  25.0 %
+  Grass               15.4 % ->   0.0 %   (GONE from the surface)
+  BeachSand            4.9 % ->   4.9 %
+  MossRock             3.8 % ->   1.4 %
+  VolcanicRock         3.2 % ->   3.2 %
+  Mud                  1.1 % ->   1.6 %
+  Granite              0.7 % ->   0.7 %
+  Sinter               0.5 % ->   0.5 %
+  Gravel               0.3 % ->   0.0 %   (GONE from the surface)
+  KopjeGranite         0.2 % ->   0.2 %
+  RiverLip             0.1 % ->   0.1 %
+  SilverSchist         0.1 % ->   0.1 %
+  Bone                 0.1 % ->   0.1 %
+
+savanna: 1405 columns
+  SavannaGrass        44.6 % ->  57.4 %
+  KopjeGranite        23.1 % ->  26.2 %
+  PackedSand          12.8 % ->   0.0 %   (GONE from the surface)
+  BeachSand            5.4 % ->   5.4 %
+  Gravel               5.2 % ->   2.3 %
+  VolcanicRock         4.7 % ->   4.7 %
+  Grass                1.4 % ->   2.1 %
+  Granite              0.6 % ->   0.8 %
+  KarstLimestone       0.6 % ->   0.7 %
+  RedEarth             0.6 % ->   0.0 %   (GONE from the surface)
+  Mud                  0.6 % ->   0.0 %   (GONE from the surface)
+  OrangeSandstone      0.1 % ->   0.2 %
+  Sinter               0.1 % ->   0.1 %
+
+badlands: 1802 columns
+  BadlandsClay        46.1 % ->  60.8 %
+  RedBand             20.6 % ->  22.4 %
+  Hardpan             18.8 % ->   1.6 %
+  BeachSand            7.2 % ->   7.2 %
+  VolcanicRock         3.8 % ->   3.8 %
+  Mud                  1.7 % ->   2.1 %
+  OrangeSandstone      0.3 % ->   0.5 %
+  SilverSchist         0.4 % ->   0.4 %
+  Granite              0.3 % ->   0.4 %
+  CreamBand            0.2 % ->   0.3 %
+  PackedSand           0.2 % ->   0.2 %
+  Bone                 0.2 % ->   0.2 %
+
+Palette variant entries that are on NO main skin entry of their biome (they leave the surface with the spray off):
+  forest    flat    variant JungleGrass    -> nowhere else in this biome
+  forest    hollow  variant Loam           -> still underground as the soil
+  forest    high    variant bare           -> bare-rock patches on this slot go (the bare / sunny / crest rule stays)
+  desert    flat    variant PackedSand     -> still underground as the soil
+  desert    hollow  variant Mud            -> nowhere else in this biome
+  desert    scree   variant PackedSand     -> still underground as the soil
+  desert    high    variant bare           -> bare-rock patches on this slot go (the bare / sunny / crest rule stays)
+  snow      steep   variant bare           -> bare-rock patches on this slot go (the bare / sunny / crest rule stays)
+  jungle    flat    variant Grass          -> nowhere else in this biome
+  jungle    scree   variant Gravel         -> nowhere else in this biome
+  jungle    high    variant bare           -> bare-rock patches on this slot go (the bare / sunny / crest rule stays)
+  savanna   flat    variant PackedSand     -> nowhere else in this biome
+  savanna   hollow  variant Mud            -> nowhere else in this biome
+  savanna   scree   variant RedEarth       -> still underground as the soil
+  badlands  scree   variant OchreBand      -> still underground as the subsoil
+  badlands  high    variant bare           -> bare-rock patches on this slot go (the bare / sunny / crest rule stays)

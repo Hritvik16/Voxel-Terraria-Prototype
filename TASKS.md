@@ -1321,3 +1321,17 @@ StoreIsByteExact_PoolCountsBodies` (fast: 1-, 2-, 3+-value bricks byte-exact thr
 free them); `EditOpRedrawTests` replace test and `ShellSkyExitTests.Store_RaisesTheBound` now count bodies (the latter's refused chunk uses
 3-value bricks). Player: the capture `[pools]` line after each `[shells]` (bodies / pages used/peak/cap, refusals, pack ON/OFF). Shots:
 `Logs/overnight/188_shots.sh` (forest, jungle, forest_far, jungle_far; `-trees 1`, `-shellpack 0` vs default). Result: HANDOFF 188.
+
+**Task 188a -- `-matvariant 0|1`: the material rules without the random variant spray (owner 2026-11-12 (a): "just randomly spraying it is weird ... like blotches"; DEFAULT unchanged = 1, the owner picks from the pictures).**
+`TerrainSpec.matVariantOff` (read through `MatVariant`): 1 (`-matvariant 0`) = `GroundRules.Column` gives every column its slot's MAIN palette
+entry (`mrSlot` never carries VARIANT_BIT); 0 (default, `-matvariant 1`) = today's `VariantNoise > VARIANT_ABOVE - 0.15 x BiomeNoise` spray
+(~22 % of land columns), byte for byte. Rule-made materials (shaded-steep ice, frozen / mud / green banks, scree, bare sunny faces) are slot
+MAIN entries and stay. One switch point, so near voxels, `TopMaterial` (far band, minimap) and shells all agree; `FarField` sets the far
+band's own spec from the arg like `-matrules`. Rules path only (`-matrules 0` ignores it); the map and record ignore it; TREES are unchanged
+(`c.cover` keeps the noise patch's VARIANT bit, so tree density patches -- `Trees.VARIANT_MUL` -- are identical with either setting). Where a
+variant entry was BARE, the slot's patches lose bare rock (soil depth follows the main entry). Tests `MatVariantTests`: `-matvariant 1` FNV
+(height, slot, cover, soil depths, top material, top 4.8 m of Material; seeds 42, 7) == the pre-188a pin; `-matvariant 0` zero variant
+columns, same slot / cover / ground, skin == main entry; near == far slots at texel 4 / 16; Slow `FourSeeds_ShareOfGroundPerMaterial_
+BeforeAfter` writes `Logs/TerrainGen/188a/share188a.txt` (surface share per material per biome, 4 seeds, and the palette's variant-only
+materials). Shots: `Logs/overnight/188a_shots.sh` (187's frontier + town poses, 180's desert + savanna flats, two seed-42 forest river banks;
+default vs `-matvariant 0`). Result: HANDOFF 188a.
