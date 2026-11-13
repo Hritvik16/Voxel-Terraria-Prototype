@@ -272,6 +272,7 @@ namespace VoxelEngine.WorldGen
             if (!MatVariantArg()) spec.matVariantOff = 1;   // task 188a: variant spray ON unless -matvariant 0
             if (SitesArg()) spec.sitesOn = 1;   // task 187
             if (LandSigArg()) spec.landSigOn = 1;   // task 189
+            if (TownsArg()) { spec.townsOn = 1; spec.sitesOn = 1; }   // task 190 (towns need the sites)
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -285,8 +286,14 @@ namespace VoxelEngine.WorldGen
             _shore = new NativeArray<ushort>(Map.ShoreField ?? new ushort[1], Allocator.Persistent);
             if (Spec.LandSig) Map.EnsureLandSigPlane();   // task 189
             _landSig = new NativeArray<byte>(Spec.LandSig && Map.LandSigPlane != null ? Map.LandSigPlane : new byte[1], Allocator.Persistent);
+            var townSw = System.Diagnostics.Stopwatch.StartNew();
+            _town = TownArray(Map);   // task 190 (length 1 = none while -towns is off); before the pockets and trees
+            if (Spec.Towns && Map.TownPlane != null)
+                UnityEngine.Debug.Log($"[Towns] plan + layout {townSw.ElapsedMilliseconds} ms: {Map.TownStats.Line()}; plane {Map.TownPlane.Length * 4} B");
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
-            _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
+            var treeCells = TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells);
+            if (Spec.Towns) TerrainGen.Towns.ClearCells(treeCells, Spec.mapCells, Spec.mapCellVoxels, Map.TownPlane);   // task 190: no tree in a town
+            _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
             if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
@@ -332,6 +339,7 @@ namespace VoxelEngine.WorldGen
             if (_treePlane.IsCreated) _treePlane.Dispose();
             if (_oreCell.IsCreated) _oreCell.Dispose();
             if (_pocket.IsCreated) _pocket.Dispose();
+            if (_town.IsCreated) _town.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
         }
@@ -474,7 +482,7 @@ namespace VoxelEngine.WorldGen
                     cp.valid = false;
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, ore = _ore, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
                         treePlane = _treePlane, oreCellPlane = _oreCell, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
                     }.Run();
@@ -511,6 +519,7 @@ namespace VoxelEngine.WorldGen
                     mats = mats, brickMat = uniform, brickUniform = isUniform,
                     skip = BrickSkip, stats = stats,
                     trees = cp.trees.trees, prims = cp.trees.prims, treeCount = cp.trees.counts[0],
+                    townPlane = _town,   // task 190 (length 1 while -towns is off)
                 }.Run();
                 AddSkipStats(stats, 0);
 
@@ -552,6 +561,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -577,6 +587,7 @@ namespace VoxelEngine.WorldGen
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
                     landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
@@ -620,6 +631,7 @@ namespace VoxelEngine.WorldGen
                 hg.Dispose();
                 // task 180: the trees round this column; their crowns raise the top (air fast path)
                 GatherTrees(in spec, in map, in o, origin.x, origin.z, origin.x + E - 1, origin.z + E - 1, trees, prims, treeCounts, ref maxTop);
+                if (spec.Towns) maxTop = math.max(maxTop, TownTop(townPlane, origin.x, origin.z, origin.x + E - 1, origin.z + E - 1, 0));   // task 190
                 top[0] = maxTop;
             }
         }
@@ -641,6 +653,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<TerrainGen.Tree> trees;   // task 180
             [ReadOnly] public NativeArray<TerrainGen.TreePrim> prims;
             public int treeCount;
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190 (length 1 = none)
 
             public void Execute()
             {
@@ -696,6 +709,7 @@ namespace VoxelEngine.WorldGen
                 }
                 bTop.Dispose(); bMinH.Dispose(); bMaxH.Dispose();
                 OverlayTrees(trees, prims, treeCount, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 180
+                if (spec.Towns) OverlayBuildings(townPlane, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 190 (after the trees)
             }
         }
 

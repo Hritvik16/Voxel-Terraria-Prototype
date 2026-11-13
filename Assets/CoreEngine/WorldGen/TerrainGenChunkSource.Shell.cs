@@ -218,7 +218,7 @@ namespace VoxelEngine.WorldGen
                 output.trees.Ensure(maxTrees);
                 new ShellColumnJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, ore = _ore, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, ore = _ore, spec = Spec, o = O,
                     origin = origin, shift = shell, half = half,
                     colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
                     treePlane = _treePlane, oreCellPlane = _oreCell, gatherTrees = maxTrees > 0,
@@ -250,6 +250,7 @@ namespace VoxelEngine.WorldGen
                     mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
                     skip = BrickSkip, stats = stats,
                     trees = output.trees.trees, prims = output.trees.prims, treeCount = output.trees.counts[0],
+                    townPlane = _town,   // task 190 (length 1 while -towns is off)
                 }.Run();
                 AddSkipStats(stats, 4);
             }
@@ -302,6 +303,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -329,6 +331,7 @@ namespace VoxelEngine.WorldGen
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
                     landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
@@ -361,6 +364,8 @@ namespace VoxelEngine.WorldGen
                 if (gatherTrees)   // task 180: the trees round the sampled footprint; crowns raise the top
                     GatherTrees(in spec, in map, in o, origin.x + half, origin.z + half,
                                 origin.x + half + ((E - 1) << shift), origin.z + half + ((E - 1) << shift), trees, prims, treeCounts, ref maxTop);
+                if (spec.Towns)   // task 190: a coarse cell reaches 2^shift past its sample
+                    maxTop = math.max(maxTop, TownTop(townPlane, origin.x, origin.z, origin.x + (E << shift) - 1, origin.z + (E << shift) - 1, 1 << shift));
                 top[0] = maxTop;
             }
 
@@ -409,6 +414,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<TerrainGen.Tree> trees;   // task 180
             [ReadOnly] public NativeArray<TerrainGen.TreePrim> prims;
             public int treeCount;
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190 (length 1 = none)
 
             public void Execute()
             {
@@ -488,7 +494,12 @@ namespace VoxelEngine.WorldGen
 
                 // The top voxel (task 74 Q1 (a)). Shell 0 samples every fine
                 // voxel, so its top voxel IS h already; skip it (== Generate).
-                if (shift == 0) { OverlayTrees(trees, prims, treeCount, origin, 0, half, toEngine, mats, brickMat, brickUniform); return; }   // task 180
+                if (shift == 0)
+                {
+                    OverlayTrees(trees, prims, treeCount, origin, 0, half, toEngine, mats, brickMat, brickUniform);   // task 180
+                    if (spec.Towns) OverlayBuildings(townPlane, origin, 0, half, toEngine, mats, brickMat, brickUniform);   // task 190
+                    return;
+                }
                 for (int lz = 0; lz < E; lz++)
                 for (int lx = 0; lx < E; lx++)
                 {
@@ -509,6 +520,7 @@ namespace VoxelEngine.WorldGen
                     if (brickUniform[bi] && brickMat[bi] != m) brickUniform[bi] = false;
                 }
                 OverlayTrees(trees, prims, treeCount, origin, shift, half, toEngine, mats, brickMat, brickUniform);   // task 180
+                if (spec.Towns) OverlayBuildings(townPlane, origin, shift, half, toEngine, mats, brickMat, brickUniform);   // task 190 (after the trees)
             }
         }
     }

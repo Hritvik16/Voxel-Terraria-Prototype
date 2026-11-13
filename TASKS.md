@@ -1354,3 +1354,31 @@ layers; plane 0 on keep-out; adversarial one-cell patch and biome border; Slow b
 `ShapeStatistic_PerLandform_FourSeeds` -> `Logs/TerrainGen/189/shape189.txt` (OFF vs ON per landform, 4 seeds). Shots:
 `Logs/overnight/189_shots.sh` (task 173's `pair_jungle_dune-sea`, `pair_desert_canyonlands`, `range_200up`; default vs `-landsig 1`).
 Result: HANDOFF 189.
+
+**Task 190 -- TOWNS ON THE SITES (`-towns 1` = `TerrainSpec.townsOn` / `Towns`, also turns `-sites 1` on; v4 only, DEFAULT OFF; owner
+2026-11-12 (a)).** (1) SPACING (`Sites.TownSep2`, task 187's plan changes for `-sites 1` too): no town inside another town's FAIR SHARE of the
+land (a disc of area land / towns, radius sqrt(land / (pi towns)), integer, pi = 355/113; ~1.35 km on the 4 seeds); an easy-area town
+closer is dropped and the missing towns go on WALK ground anywhere (TIER 2: every town disc rule, whole disc Walk, ground check, within
+ROUTE_FAR of a route corridor); none fits = fewer towns (`Plan(.., spread: false)` = 187's plan). (2) THE FLATTEN (`Assets/TerrainGen/Towns.cs`,
+`Towns.Apply` in `ShapeField.Sample` after the pockets, so every path agrees): disc = the pad (187's stored median), ring R/2 blended back by
+an integer smoothstep on d^2 (rounded, so the ring edge IS the natural ground); the ring stops short of sea / lake / river / feature cells and
+half the gap to another site (`BlendWidth`); ring columns with still water, a river lip, a stamp or ledge opening are never moved; caves only
+6 m (`CAVE_CAP`) under the new ground; no tree (`ClearCells` on the tree density plane) and no fluid pocket (`FluidPockets.StartZone`) in a
+disc + ring. (3) BUILDINGS (`Towns.Layout`, BuildingKit 184): programs town 1 hall + 8 houses + 8 huts, frontier 1 + 4 + 4, village 3 + 3,
+outpost 2 huts; the hall at the centre (door toward the route join), the rest on rings from an 8 m plaza in 1 m steps x 32 integer
+directions (start = a hash of the site centre), door facing the centre; a slot = box (eaves incl.) 2 m inside the disc, 4 m (`GAP`) from every
+box, every map cell under it dry land, not sea / lake / river / feature / route corridor / stamp / start cell, natural ground passing 187's
+step rule; floor = pad + 1, 0.6 m foundation. `WorldRecord.BuildingList` = the footprints (id = the site id). PLANE (`WorldMap.EnsureTowns`,
+`MapView.town`, int[]: sites + buildings, ~3.7 KB): LOD 0 / point query = the exact kit part (`Towns.VoxelAt`; PointVoxel first, VoxelJob
+`OverlayBuildings` after the trees), shells = `Towns.CoarseRole` (the sample point's part if solid, else the highest solid part on the cell's
+stride-2 sub-grid: walls / roofs are >= 2 voxels, so far houses keep them; shell 1 is exactly the sample point); column tops raised (air fast
+paths exact; shells + 2^shift); far band = flattened heights only. Engine: `TerrainGenChunkSource.Towns.cs` (`TownsArg`, `SetTowns` for tests,
+`TownArray` also used by FarField). Player log: `[Towns] plan + layout .. ms: ..`. Tests `TownTests` (fast: `Spacing_Adversarial_OneCorner_
+FewerTowns` -- one Walk corner with 3 easy areas -> 1 town of 2, negative control 2, + a far Walk patch -> tier-2 town there;
+`Layout_Adversarial_RouteWallBlocked`; `Flatten_OffPins_OutsideIdentical` -- 188a pins with the plane in the view, outside-column FNV ON ==
+OFF, disc at the pad, ring between; Slow `FourSeeds_TownsTable_Maps_Poses` -> `Logs/TerrainGen/towns190/table.txt`, maps, plan sheets,
+`poses_<seed>.txt`), `TownChunkTests.Hall_ChunksPointShellsAgree_PoolCost` (LOD 0 = kit, ON vs OFF only in discs + rings, FarQuery = chunks,
+shell 0 = Generate, shell 1 exact, shells 2-3 every cell with a part shows one, no hall column holes, dense bricks ON vs OFF ->
+`chunks.txt`); `SiteTests` checker knows tier 2 + the spacing. Labels: `python3 tools/towns190.py` -> `Screenshots/190/towns_<seed>.png`,
+`spacing_7_before_after.png`, `plans_<seed>.png`. Shots: `Logs/overnight/190_shots.sh` (per seed town / village eye + town from 150 m); the world survey now prints task 188's `[pools]` line after each pose's `[shells]`.
+Result: HANDOFF 190.

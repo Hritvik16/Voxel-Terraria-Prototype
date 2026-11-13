@@ -145,7 +145,7 @@ namespace VoxelEngine.WorldGen
                         { boxes.Add(math.max(l0 - 1, 0)); boxes.Add(math.min(l1 + 1, 127)); }
                 var job = new ShellFillJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, toEngine = _toEngine, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, toEngine = _toEngine, spec = Spec, o = O,
                     origin = origin, shift = k, half = half,
                     colS = output.colS, colCd = output.colCd,
                     mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
@@ -185,6 +185,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> toEngine;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -233,6 +234,7 @@ namespace VoxelEngine.WorldGen
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
                     landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
 

@@ -289,6 +289,7 @@ namespace TerrainGen
             int mc = spec.mapCells, cv = spec.mapCellVoxels;
             var zone = new bool[mc * mc];
             if (rec == null) return zone;
+            if (spec.Towns) { map.EnsureSites(); Towns.MarkCells(zone, mc, cv, rec.SiteList); }   // task 190: no pocket in a town
             for (int mild = 0; mild < 2; mild++)
             {
                 if (!PlayStart.Find(map, out var pick, mild == 1)) continue;

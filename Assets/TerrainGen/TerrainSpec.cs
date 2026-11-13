@@ -179,6 +179,13 @@ namespace TerrainGen
         /// ignore it (its weight plane is derived, WorldMap.EnsureLandSigPlane).
         /// Read it through LandSig, never directly. `-landsig 1` sets it.
         public byte landSigOn;
+        /// Task 190 (placement, flag-off): 1 = TOWNS ON THE SITES (Towns.cs): the
+        /// site discs flattened to their pad (ring blended back) and BuildingKit's
+        /// huts / houses / halls laid out on them. Needs the site planner (sitesOn;
+        /// `-towns 1` sets both). 0 (the default) = every byte as before. The map
+        /// and the record's cells ignore it (the plane is derived, WorldMap.EnsureTowns).
+        /// Read it through Towns, never directly.
+        public byte townsOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -267,6 +274,9 @@ namespace TerrainGen
 
         /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
         public bool Sites => mapVersion >= 4 && sitesOn != 0;
+
+        /// Task 190's towns in force (see townsOn): v4 + the site planner, opt-in.
+        public bool Towns => Sites && townsOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

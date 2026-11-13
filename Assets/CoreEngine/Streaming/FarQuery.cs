@@ -225,7 +225,7 @@ namespace VoxelEngine.Streaming
                     points = points, plan = plan, results = results, count = n,
                     ops = _ops, opCount = snap.Count,
                     h = _src.PointHeight, r = _src.PointRough, w = _src.PointWater, cls = _src.PointWaterClass,
-                    flow = _src.PointFlow, routeMask = _src.PointRoute, shoreField = _src.PointShore, pocketPlane = _src.PointPocket, landSigPlane = _src.PointLandSig, ore = _src.PointOre, toEngine = _src.PointToEngine,
+                    flow = _src.PointFlow, routeMask = _src.PointRoute, shoreField = _src.PointShore, pocketPlane = _src.PointPocket, landSigPlane = _src.PointLandSig, townPlane = _src.PointTown, ore = _src.PointOre, toEngine = _src.PointToEngine,
                     treePlane = _src.PointTreePlane,   // task 180
                     oreCellPlane = _src.PointOreCell,   // task 181
                     spec = _src.Spec, o = _src.O,
@@ -252,6 +252,7 @@ namespace VoxelEngine.Streaming
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> treePlane;   // task 180: TreeTable.DensityPlane
             [ReadOnly] public NativeArray<uint> oreCellPlane;   // task 181
             public TerrainGen.TerrainSpec spec;
@@ -268,6 +269,7 @@ namespace VoxelEngine.Streaming
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
                     landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,

@@ -1,0 +1,71 @@
+UPSCALER CLIPS -- 2026-11-12_210015
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 2026, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 45 s; start (3974.8, 596.4, 4018.8)
+map v4 Height FNV 1373BA537FD01248  cell(613,259) -151.95730
+  biome x landform pairs on land (291390 cells = 18.6 km^2):
+    jungle    x dune sea             33453 cells  11.5 %  -> shot
+    forest    x rolling highlands    27167 cells   9.3 %  -> shot
+    snow      x dune sea             26680 cells   9.2 %  -> shot
+    forest    x river plains         18300 cells   6.3 %  -> shot
+    savanna   x rolling highlands    16900 cells   5.8 %  -> shot
+    badlands  x wetland basin        13919 cells   4.8 %  -> shot
+    snow      x river plains         11973 cells   4.1 %  -> shot
+    desert    x rolling highlands    11695 cells   4.0 %  -> shot
+    forest    x volcanic             10769 cells   3.7 %  -> shot
+    snow      x alpine range          9118 cells   3.1 %  -> shot
+    badlands  x rolling highlands     9022 cells   3.1 %  -> shot
+    snow      x rolling highlands     8275 cells   2.8 %  -> shot
+    desert    x dune sea              8143 cells   2.8 %  -> shot
+    savanna   x dune sea              7522 cells   2.6 %  -> shot
+    jungle    x rolling highlands     7265 cells   2.5 %  -> shot
+    desert    x volcanic              7025 cells   2.4 %  -> shot
+    badlands  x river plains          6938 cells   2.4 %  -> shot
+    badlands  x dune sea              6855 cells   2.4 %  -> shot
+    desert    x wetland basin         5665 cells   1.9 %
+    savanna   x volcanic              5511 cells   1.9 %
+    snow      x sea cliffs            5420 cells   1.9 %
+    jungle    x alpine range          5004 cells   1.7 %
+    badlands  x alpine range          4959 cells   1.7 %
+    forest    x sea cliffs            3968 cells   1.4 %
+    forest    x alpine range          3956 cells   1.4 %
+    forest    x dune sea              3535 cells   1.2 %
+    snow      x wetland basin         2864 cells   1.0 %
+    jungle    x river plains          2145 cells   0.7 %
+    desert    x river plains          1965 cells   0.7 %
+    savanna   x river plains          1327 cells   0.5 %
+    forest    x wetland basin         1234 cells   0.4 %
+    savanna   x sea cliffs            1085 cells   0.4 %
+    badlands  x sea cliffs             550 cells   0.2 %
+    badlands  x volcanic               441 cells   0.2 %
+    desert    x sea cliffs             411 cells   0.1 %
+    desert    x alpine range           163 cells   0.1 %
+    jungle    x sea cliffs             138 cells   0.0 %
+    jungle    x wetland basin           30 cells   0.0 %
+  coast: 1977 sun-lit coastal cells (step 2)
+  39 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1964/201/5  s2 605/1562/3  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2569, missing 5429, pending 0; requested 3297, generated 3289 (92 ms each on a worker), dropped stale 8, over-budget frames 0 (of 1504)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 39992/39992/150016 162/162/1540 r0  s2 11897/11897/119296 41/41/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+WSPOSE fixed_town_eye|5164.0,535.6,2983.2|5164.0,536.9,2932.0|fixed pose town_eye (-wsfixed)
+  fixed_town_eye: yaw 180 pitch 1 deg, distance 51 m, 92 s
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1925/241/4  s2 562/1604/4  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2487, missing 5511, pending 0; requested 5914, generated 5906 (102 ms each on a worker), dropped stale 16, over-budget frames 0 (of 2941)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 30016/41143/150016 201/201/1540 r0  s2 8160/13062/119296 38/45/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+WSPOSE fixed_village_eye|4020.0,596.1,4365.6|4020.0,597.4,4340.0|fixed pose village_eye (-wsfixed)
+  fixed_village_eye: yaw 180 pitch 3 deg, distance 26 m, 104 s
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1537/627/6  s2 407/1761/2  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 1944, missing 6054, pending 0; requested 8023, generated 8015 (116 ms each on a worker), dropped stale 24, over-budget frames 0 (of 4571)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 34652/41143/150016 149/212/1540 r0  s2 7912/13062/119296 32/45/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+WSPOSE fixed_town_150m|5164.0,563.9,3082.0|5164.0,536.9,2932.0|fixed pose town_150m (-wsfixed)
+  fixed_town_150m: yaw 180 pitch -10 deg, distance 152 m, 110 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-12_210015_high

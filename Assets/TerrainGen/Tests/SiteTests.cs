@@ -160,11 +160,16 @@ namespace TerrainGen.Tests
         /// Every rule, from the input arrays only. `starts` (map runs): both
         /// start rules' columns (PlayStart.Find), read again here; no disc cell's
         /// nearest point may lie within START_REACH of one.
-        private static List<string> CheckDiscs(SiteInput inp, Site[] sites, int2[] starts)
+        internal static List<string> CheckDiscs(SiteInput inp, Site[] sites, int2[] starts)
         {
             var fails = new List<string>();
             int n = inp.n, cv = inp.cellVoxels;
             var townAreas = new HashSet<int>();
+            // task 190: the town spacing from the land count (sqrt(land / (pi towns)) cells)
+            int landCells = 0;
+            for (int i = 0; i < inp.h.Length; i++) if (!inp.rec[i].IsSea && inp.h[i] > 0) landCells++;
+            int townTarget = landCells > 0 ? math.max(1, (landCells + Sites.TOWN_LAND_CELLS / 2) / Sites.TOWN_LAND_CELLS) : 0;
+            double townSep = townTarget > 0 ? math.sqrt(landCells / (math.PI_DBL * townTarget)) * cv : 0;
             for (int a = 0; a < sites.Length; a++)
             {
                 var s = sites[a]; string who = Describe(s);
@@ -210,10 +215,15 @@ namespace TerrainGen.Tests
                     fails.Add($"{who}: ground step {s.groundStepVox} vox over {Sites.GROUND_STEP} (steeper than 30 deg)");
                 if (s.padLevelY < inp.seaLevelY + lo || s.padLevelY > inp.seaLevelY + hi) fails.Add($"{who}: pad {s.padLevelY} outside the disc's heights");
                 // the kind's own rule
-                if (s.kind == Site.TOWN)
+                if (s.kind == Site.TOWN && s.easyArea >= 0)
                 {
-                    if (!c0.IsEasy || s.easyArea < 0 || Array.IndexOf(inp.easyCells[s.easyArea], ci) < 0) fails.Add($"{who}: town centre not on its easy area");
+                    if (!c0.IsEasy || Array.IndexOf(inp.easyCells[s.easyArea], ci) < 0) fails.Add($"{who}: town centre not on its easy area");
                     if (!townAreas.Add(s.easyArea)) fails.Add($"{who}: second town on area {s.easyArea}");
+                }
+                else if (s.kind == Site.TOWN)   // task 190 tier 2: Walk ground (band checked above) near a route
+                {
+                    if (scr > 0) fails.Add($"{who}: tier-2 town with Scramble cells");
+                    if (NearestRouteCellVox(inp, ccx, ccz) > Sites.ROUTE_FAR * 1.08) fails.Add($"{who}: tier-2 town with no route corridor within {Sites.ROUTE_FAR} vox");
                 }
                 else if (s.kind == Site.FRONTIER)
                 {
@@ -234,6 +244,8 @@ namespace TerrainGen.Tests
                     double d = math.sqrt((double)(s.centre.x - o.centre.x) * (s.centre.x - o.centre.x) + (double)(s.centre.y - o.centre.y) * (s.centre.y - o.centre.y));
                     int sep = s.kind == Site.VILLAGE ? Sites.VILLAGE_SEP : s.kind == Site.OUTPOST ? Sites.OUTPOST_SEP : 0;
                     if (d < math.max(sep, s.radius + o.radius + Sites.SITE_GAP)) fails.Add($"{who}: {d:F0} vox from {Describe(o)}");
+                    // task 190: no town inside another town's fair share of the land (re-derived in double)
+                    if (s.kind == Site.TOWN && o.kind == Site.TOWN && townSep > 0 && d < townSep - 1) fails.Add($"{who}: {d:F0} vox from town {Describe(o)} (spacing {townSep:F0})");
                 }
                 // the route join
                 if (inp.routeLines != null && inp.routeLines.Length > 0)
@@ -388,7 +400,7 @@ namespace TerrainGen.Tests
         /// start zone yellow, route corridors cyan; site discs filled by kind
         /// (town orange, frontier red, village yellow-green, outpost white),
         /// outlined black. Labels: tools/sites187.py.
-        private static void WriteMap(string path, WorldMap map, SiteInput inp, Site[] sites)
+        internal static void WriteMap(string path, WorldMap map, SiteInput inp, Site[] sites, BuildingFootprint[] prints = null)
         {
             int n = inp.n, cv = inp.cellVoxels;
             var rec = inp.rec;
@@ -425,6 +437,11 @@ namespace TerrainGen.Tests
                     px[z * n + x] = d2 > (rr - 1) * (rr - 1) ? new Color32(0, 0, 0, 255) : fill;
                 }
             }
+            if (prints != null)   // task 190: every building box, dark brown (>= 1 px)
+                foreach (var b in prints)
+                    for (int z = b.min.z / cv; z <= (b.max.z - 1) / cv; z++)
+                    for (int x = b.min.x / cv; x <= (b.max.x - 1) / cv; x++)
+                        if (x >= 0 && z >= 0 && x < n && z < n) px[z * n + x] = new Color32(70, 35, 10, 255);
             var tex = new Texture2D(n, n, TextureFormat.RGB24, false);
             tex.SetPixels32(px); tex.Apply();
             File.WriteAllBytes(path, tex.EncodeToPNG());

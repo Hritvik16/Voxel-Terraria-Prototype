@@ -1,0 +1,8 @@
+tile 0 (row 0, col 0; image row 0 is the BOTTOM): town #16 at (51640, 29320)
+tile 1 (row 0, col 1; image row 0 is the BOTTOM): town #17 at (38680, 49320)
+tile 2 (row 0, col 2; image row 0 is the BOTTOM): town #18 at (46360, 61720)
+tile 3 (row 0, col 3; image row 0 is the BOTTOM): frontier #19 at (51960, 35880)
+tile 4 (row 1, col 0; image row 0 is the BOTTOM): village #20 at (40200, 43400)
+tile 5 (row 1, col 1; image row 0 is the BOTTOM): village #21 at (33320, 57160)
+tile 6 (row 1, col 2; image row 0 is the BOTTOM): village #22 at (47080, 24600)
+tile 7 (row 1, col 3; image row 0 is the BOTTOM): village #23 at (28200, 33960)

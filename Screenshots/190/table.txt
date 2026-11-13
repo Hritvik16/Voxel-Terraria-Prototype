@@ -1,0 +1,82 @@
+Task 190 towns on the sites (-towns 1), map v4, 4 seeds. Spacing = the fair-share radius sqrt(land / (pi towns)); 'before' = task 187's plan (no spacing). Buildings from Towns.Build (hall / house / hut).
+
+| seed | towns (tier 2) | frontier | villages | outposts | buildings (hall/house/hut) | min town dist before -> after m | spacing m | rings shortened | plan + layout ms |
+|---|---|---|---|---|---|---|---|---|---|
+| 42 | 3 (0) | 1 | 6 | 4 | 102 (4/46/52) | 1533 -> 1533 | 1363 | 6 of 14 | 1243 |
+| 7 | 3 (2) | 1 | 4 | 6 | 96 (4/40/52) | 739 -> 1359 | 1349 | 2 of 14 | 1082 |
+| 2026 | 3 (1) | 1 | 4 | 6 | 95 (4/39/52) | 1361 -> 1459 | 1374 | 1 of 14 | 1378 |
+| 31337 | 3 (1) | 1 | 2 | 8 | 84 (4/34/46) | 899 -> 2363 | 1348 | 3 of 14 | 861 |
+
+seed 42: land 273847 cells; targets town 3 frontier 1 village+outpost 10; placed town 3 (tier 2: 0) frontier 1 village 6 outpost 4; town spacing 1363 m (rejected 0, tier-2 candidates 0); candidates town 5688 frontier 1411 village 3420 outpost 10045; hard cells 84789; ground check rejected 408 (step rule 408); town discs rejected: sea/feature gap 2848, off map 0, sea 0, wet 7751, blocked 4242, not easy 6023, band 0, range 996
+  towns: 14 sites, 102 buildings (hall 4, house 46, hut 52) of 104 in the programs; ring shortened at 6 sites; slots refused by the ground 962; plane 3728 B; buildings checked 102
+  before (187): towns 3 at (27240,32680) (36680,20600) (53240,51080)
+  #16 town     (27240, 32680) r 64 m ring 9 m (lake/river) pad 6337 cut/fill 0.2/0.4 m: 17 buildings
+  #17 town     (36680, 20600) r 64 m ring 20 m (lake/river) pad 5382 cut/fill 1.1/1.7 m: 17 buildings
+  #18 town     (53240, 51080) r 64 m ring 30 m (lake/river) pad 5313 cut/fill 1.0/1.9 m: 17 buildings
+  #19 frontier (43400, 57480) r 48 m ring 24 m (-) pad 5232 cut/fill 1.9/2.3 m: 9 buildings
+  #20 village  (32520, 46840) r 32 m ring 7 m (lake/river) pad 5145 cut/fill 0.6/0.8 m: 6 buildings
+  #21 village  (51000, 58040) r 32 m ring 16 m (-) pad 5235 cut/fill 0.6/0.9 m: 6 buildings
+  #22 village  (19000, 50760) r 32 m ring 5 m (lake/river) pad 5134 cut/fill 0.6/0.3 m: 6 buildings
+  #23 village  (29880, 27240) r 32 m ring 13 m (lake/river) pad 6319 cut/fill 1.0/0.9 m: 6 buildings
+  #24 village  (58600, 48040) r 32 m ring 16 m (-) pad 5292 cut/fill 1.0/1.9 m: 6 buildings
+  #25 village  (58280, 34920) r 32 m ring 16 m (-) pad 5627 cut/fill 0.9/2.1 m: 6 buildings
+  #26 outpost  (45800, 54120) r 16 m ring 8 m (-) pad 5271 cut/fill 0.1/0.2 m: 0 buildings
+  #27 outpost  (28680, 36600) r 16 m ring 8 m (-) pad 6330 cut/fill 0.0/0.1 m: 2 buildings
+  #28 outpost  (26040, 28840) r 16 m ring 8 m (-) pad 6324 cut/fill 0.0/0.2 m: 2 buildings
+  #29 outpost  (37640, 24600) r 16 m ring 8 m (-) pad 5392 cut/fill 0.5/0.5 m: 2 buildings
+
+seed 7: land 268211 cells; targets town 3 frontier 1 village+outpost 10; placed town 3 (tier 2: 2) frontier 1 village 4 outpost 6; town spacing 1349 m (rejected 3, tier-2 candidates 55); candidates town 5391 frontier 108 village 2715 outpost 7916; hard cells 77936; ground check rejected 20 (step rule 20); town discs rejected: sea/feature gap 2382, off map 0, sea 0, wet 6104, blocked 5128, not easy 5132, band 0, range 2851
+  towns: 14 sites, 96 buildings (hall 4, house 40, hut 52) of 96 in the programs; ring shortened at 2 sites; slots refused by the ground 0; plane 3536 B; buildings checked 96
+  before (187): towns 3 at (33000,26680) (37640,20440) (25800,28360)
+  #16 town     (33000, 26680) r 64 m ring 32 m (-) pad 5312 cut/fill 0.4/0.8 m: 17 buildings
+  #17 town     (48520, 27480) r 64 m ring 19 m (lake/river) pad 5678 cut/fill 2.7/4.5 m: 17 buildings (tier 2)
+  #18 town     (19720, 29560) r 64 m ring 32 m (-) pad 5240 cut/fill 3.2/4.3 m: 17 buildings (tier 2)
+  #19 frontier (26600, 37800) r 48 m ring 24 m (-) pad 5740 cut/fill 3.0/4.2 m: 9 buildings
+  #20 village  (37880, 20920) r 32 m ring 16 m (-) pad 5242 cut/fill 0.2/0.3 m: 6 buildings
+  #21 village  (32920, 32760) r 32 m ring 7 m (lake/river) pad 5306 cut/fill 0.6/0.5 m: 6 buildings
+  #22 village  (41160, 29080) r 32 m ring 16 m (-) pad 5437 cut/fill 1.3/1.5 m: 6 buildings
+  #23 village  (26760, 30680) r 32 m ring 16 m (-) pad 5245 cut/fill 1.0/1.3 m: 6 buildings
+  #24 outpost  (33560, 22120) r 16 m ring 8 m (-) pad 5253 cut/fill 0.1/0.1 m: 2 buildings
+  #25 outpost  (36200, 29080) r 16 m ring 8 m (-) pad 5325 cut/fill 0.1/0.2 m: 2 buildings
+  #26 outpost  (24120, 27000) r 16 m ring 8 m (-) pad 5254 cut/fill 0.2/0.3 m: 2 buildings
+  #27 outpost  (43640, 24200) r 16 m ring 8 m (-) pad 5566 cut/fill 0.7/0.8 m: 2 buildings
+  #28 outpost  (33640, 18120) r 16 m ring 8 m (-) pad 5233 cut/fill 0.2/0.5 m: 2 buildings
+  #29 outpost  (29000, 26360) r 16 m ring 8 m (-) pad 5264 cut/fill 0.4/1.3 m: 2 buildings
+
+seed 2026: land 278303 cells; targets town 3 frontier 1 village+outpost 10; placed town 3 (tier 2: 1) frontier 1 village 4 outpost 6; town spacing 1374 m (rejected 2, tier-2 candidates 51); candidates town 1603 frontier 1137 village 292 outpost 2908; hard cells 81941; ground check rejected 8 (step rule 8); town discs rejected: sea/feature gap 2119, off map 0, sea 0, wet 7858, blocked 2679, not easy 5710, band 0, range 8003
+  towns: 14 sites, 95 buildings (hall 4, house 39, hut 52) of 96 in the programs; ring shortened at 1 sites; slots refused by the ground 1951; plane 3504 B; buildings checked 95
+  before (187): towns 3 at (51640,29320) (38680,49320) (27080,42200)
+  #16 town     (51640, 29320) r 64 m ring 32 m (-) pad 5339 cut/fill 0.7/1.9 m: 17 buildings
+  #17 town     (38680, 49320) r 64 m ring 32 m (-) pad 5613 cut/fill 2.7/4.7 m: 17 buildings
+  #18 town     (46360, 61720) r 64 m ring 32 m (-) pad 5198 cut/fill 3.5/4.3 m: 17 buildings (tier 2)
+  #19 frontier (51960, 35880) r 48 m ring 24 m (-) pad 5948 cut/fill 0.8/1.5 m: 9 buildings
+  #20 village  (40200, 43400) r 32 m ring 16 m (-) pad 5944 cut/fill 1.1/1.7 m: 5 buildings
+  #21 village  (33320, 57160) r 32 m ring 12 m (lake/river) pad 5178 cut/fill 0.6/1.1 m: 6 buildings
+  #22 village  (47080, 24600) r 32 m ring 16 m (-) pad 5361 cut/fill 0.6/1.2 m: 6 buildings
+  #23 village  (28200, 33960) r 32 m ring 16 m (-) pad 5598 cut/fill 0.9/1.1 m: 6 buildings
+  #24 outpost  (25560, 44520) r 16 m ring 8 m (-) pad 5656 cut/fill 0.4/0.7 m: 2 buildings
+  #25 outpost  (33160, 48280) r 16 m ring 8 m (-) pad 5744 cut/fill 0.7/1.0 m: 2 buildings
+  #26 outpost  (35720, 41960) r 16 m ring 8 m (-) pad 5874 cut/fill 0.8/0.6 m: 2 buildings
+  #27 outpost  (54120, 25080) r 16 m ring 8 m (-) pad 5324 cut/fill 0.4/0.5 m: 2 buildings
+  #28 outpost  (22120, 48520) r 16 m ring 8 m (-) pad 5665 cut/fill 0.6/0.4 m: 2 buildings
+  #29 outpost  (25320, 38760) r 16 m ring 8 m (-) pad 5669 cut/fill 0.5/1.0 m: 2 buildings
+
+seed 31337: land 267828 cells; targets town 3 frontier 1 village+outpost 10; placed town 3 (tier 2: 1) frontier 1 village 2 outpost 8; town spacing 1348 m (rejected 1, tier-2 candidates 4007); candidates town 435 frontier 543 village 370 outpost 3669; hard cells 90235; ground check rejected 7 (step rule 7); town discs rejected: sea/feature gap 5761, off map 0, sea 0, wet 5222, blocked 5121, not easy 7106, band 2728, range 7282
+  towns: 14 sites, 84 buildings (hall 4, house 34, hut 46) of 88 in the programs; ring shortened at 3 sites; slots refused by the ground 440; plane 3152 B; buildings checked 84
+  before (187): towns 3 at (37480,21880) (25720,45880) (33160,50920)
+  #16 town     (37480, 21880) r 64 m ring 26 m (lake/river) pad 5446 cut/fill 1.2/1.7 m: 17 buildings
+  #17 town     (25720, 45880) r 64 m ring 32 m (-) pad 5713 cut/fill 2.7/4.4 m: 17 buildings
+  #18 town     (48200, 53160) r 64 m ring 32 m (-) pad 5500 cut/fill 0.7/1.1 m: 17 buildings (tier 2)
+  #19 frontier (41560, 40920) r 48 m ring 24 m (-) pad 5857 cut/fill 2.4/4.1 m: 9 buildings
+  #20 village  (20200, 27560) r 32 m ring 7 m (lake/river) pad 5128 cut/fill 1.2/0.5 m: 6 buildings
+  #21 village  (41640, 48680) r 32 m ring 7 m (lake/river) pad 5372 cut/fill 1.3/0.8 m: 6 buildings
+  #22 outpost  (26040, 27480) r 16 m ring 8 m (-) pad 5135 cut/fill 0.8/0.1 m: 0 buildings
+  #23 outpost  (31880, 46280) r 16 m ring 8 m (-) pad 5670 cut/fill 0.4/0.5 m: 2 buildings
+  #24 outpost  (43320, 35480) r 16 m ring 8 m (-) pad 5966 cut/fill 0.2/0.4 m: 0 buildings
+  #25 outpost  (45640, 48680) r 16 m ring 8 m (-) pad 5474 cut/fill 0.3/0.4 m: 2 buildings
+  #26 outpost  (22200, 32280) r 16 m ring 8 m (-) pad 5157 cut/fill 0.6/1.0 m: 2 buildings
+  #27 outpost  (35960, 46840) r 16 m ring 8 m (-) pad 5660 cut/fill 0.4/1.2 m: 2 buildings
+  #28 outpost  (33880, 52360) r 16 m ring 8 m (-) pad 5713 cut/fill 0.6/0.5 m: 2 buildings
+  #29 outpost  (29960, 49800) r 16 m ring 8 m (-) pad 5591 cut/fill 1.1/0.7 m: 2 buildings
+
+every rule holds

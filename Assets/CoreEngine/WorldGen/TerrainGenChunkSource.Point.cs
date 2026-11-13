@@ -76,6 +76,8 @@ namespace VoxelEngine.WorldGen
                 col.x = x; col.z = z; col.valid = true;
                 col.treesValid = false;
             }
+            // Task 190: a building part wins (OverlayBuildings runs last in the chunk pass).
+            if (spec.Towns && map.town != null && TerrainGen.Towns.VoxelAt(map.town, v, out byte bg)) return toEngine[bg];
             // The brick's origin: (v >> 3) << 3 by mask, negatives included.
             var cr = TerrainGen.DetailField.CullBrick(in spec, in o, v.x & ~7, v.y & ~7, v.z & ~7);
             byte g = TerrainGen.DetailField.Material(in spec, in o, in col.c, in col.cd, col.st, v.x, v.y, v.z, in cr);

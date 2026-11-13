@@ -38,6 +38,12 @@
 //             same area, if no fully easy disc fits). Score: range, fresh-water
 //             steps, base danger. Count: land / TOWN_LAND_CELLS (a ~6 km island,
 //             ~28 km^2 of land, gets 3), capped by the areas that fit.
+//             TOWN SPACING (task 190): no town inside another town's fair share
+//             of the land (TownSep2: a disc of area land / towns round it). An
+//             easy-area town closer than that is dropped; the towns still missing
+//             go on Walk ground anywhere (TIER 2: the whole disc Walk, every disc
+//             rule, the ground check, within ROUTE_FAR of a route). Where no such
+//             ground lies far enough away there are simply fewer towns.
 //   FRONTIER  R 48 m, range <= 8 m, Scramble <= 1/4. Centre on HARD ground
 //             within FOOT_REACH of its edge (the foot of the volcano, the snow
 //             line), not easy. Score: range, fresh water, route distance; HIGHER
@@ -131,6 +137,7 @@ namespace TerrainGen
         public byte[] waterClass;     // Hydrology.DRY / LAKE / RIVER
         public RecordCell[] rec;
         public bool[] blocked;        // start zone + stamp discs
+        public bool[] start;          // task 190: the start zone alone (null = unknown)
         public int[][] easyCells;     // per easy area: its cell indices
         public float2[][] routeLines; // per route: centre line, voxels
         /// The real ground: top solid voxel Y of column (x, z). Null = no ground
@@ -172,11 +179,15 @@ namespace TerrainGen
             public int landCells, townTarget, frontierTarget, settleTarget;
             public int towns, frontiers, villages, outposts;
             public int hardCells, candTown, candFrontier, candVillage, candOutpost, groundRejects, stepRejects;
+            /// Task 190: THE TOWN SPACING (voxels; TownSep2), the easy-area towns it
+            /// rejected, the tier-2 (Walk ground off the easy areas) candidates and towns.
+            public int townSep, sepRejects, candTown2, towns2;
             /// Town discs rejected, by the first rule that failed (REJ_*).
             public int[] townReject;
             public string Line() =>
                 $"land {landCells} cells; targets town {townTarget} frontier {frontierTarget} village+outpost {settleTarget}; " +
-                $"placed town {towns} frontier {frontiers} village {villages} outpost {outposts}; " +
+                $"placed town {towns} (tier 2: {towns2}) frontier {frontiers} village {villages} outpost {outposts}; " +
+                $"town spacing {townSep / 10} m (rejected {sepRejects}, tier-2 candidates {candTown2}); " +
                 $"candidates town {candTown} frontier {candFrontier} village {candVillage} outpost {candOutpost}; hard cells {hardCells}; ground check rejected {groundRejects} (step rule {stepRejects})" +
                 (townReject == null ? "" : $"; town discs rejected: sea/feature gap {townReject[REJ_GAP]}, off map {townReject[REJ_OFF]}, " +
                  $"sea {townReject[REJ_SEA]}, wet {townReject[REJ_WET]}, blocked {townReject[REJ_BLOCKED]}, not easy {townReject[REJ_EASY]}, " +
@@ -200,6 +211,7 @@ namespace TerrainGen
                 h = new int[N], waterClass = map.WaterClass, rec = rec.Data,
                 blocked = StartDiscs(map),
             };
+            inp.start = (bool[])inp.blocked.Clone();
             for (int i = 0; i < N; i++) inp.h[i] = (int)math.round(map.Height[i]);
             // the stamp discs Routes keeps out of (voxel-only steps the map does not see)
             var o = Offsets.Compute(in spec);
@@ -253,7 +265,8 @@ namespace TerrainGen
         // The plan
         // ------------------------------------------------------------------
 
-        public static Site[] Plan(SiteInput inp, out Stats st)
+        /// spread false (tests / the before map only): task 187's towns, no spacing, no tier 2.
+        public static Site[] Plan(SiteInput inp, out Stats st, bool spread = true)
         {
             st = default;
             if (inp == null) return new Site[0];
@@ -312,11 +325,45 @@ namespace TerrainGen
                     }
                 }
             townCands.Sort((p, q) => Better(p, q, n, cv) ? -1 : Better(q, p, n, cv) ? 1 : 0);
+            long sep2 = spread ? TownSep2(land, st.townTarget, cv) : 0;
+            st.townSep = (int)math.sqrt((double)sep2);
             for (int k = 0; k < townCands.Count && st.towns < st.townTarget; k++)
             {
                 var s = townCands[k];
                 if (!StillFree(inp, s, taken)) continue;
+                if (!FarFromTowns(s.centre, sites, sep2)) { st.sepRejects++; continue; }
                 Take(inp, ref s, taken, sites); st.towns++;
+            }
+            // Task 190, TIER 2: the easy areas lie together on many islands (the
+            // routes join only them), so the spacing leaves towns unplaced; the rest
+            // go on WALK ground anywhere (every disc rule of a town, the whole disc
+            // Walk, never Scramble or steeper; ground check) within ROUTE_FAR of a
+            // route corridor and TownSep of every town. None fits = fewer towns.
+            if (spread && st.towns < st.townTarget)
+            {
+                var t2 = new List<Site>();
+                for (int i = 0; i < N; i++)
+                {
+                    var c = rec[i];
+                    if (c.IsSea || c.MoveBand != 0 || inp.h[i] <= 0) continue;
+                    int rd = ToVox(dRoute[i]);
+                    if (rd > ROUTE_FAR) continue;
+                    int2 ctr = new int2((i % n) * cv + cv / 2, (i / n) * cv + cv / 2);
+                    if (!FarFromTowns(ctr, sites, sep2)) continue;   // cheap: before the disc
+                    if (!Disc(inp, i, TOWN_R, Site.TOWN, false, dSea, dFeat, taken, out var s)) continue;
+                    st.candTown2++;
+                    s.score = s.rangeVox * 4 + c.freshWater * 8 + s.danger * 32 + rd / 1000 * ROUTE_W;
+                    t2.Add(s);
+                }
+                t2.Sort((p, q) => Better(p, q, n, cv) ? -1 : Better(q, p, n, cv) ? 1 : 0);
+                foreach (var c2 in t2)
+                {
+                    if (st.towns >= st.townTarget) break;
+                    var s = c2;
+                    if (!StillFree(inp, s, taken) || !FarFromTowns(s.centre, sites, sep2)) continue;
+                    if (!GroundOk(inp, ref s)) { st.groundRejects++; if (StepTooSteep(s.groundStepVox)) st.stepRejects++; continue; }
+                    Take(inp, ref s, taken, sites); st.towns++; st.towns2++;
+                }
             }
 
             // --- frontier: hard ground near its edge ---
@@ -367,6 +414,26 @@ namespace TerrainGen
                 Join(inp, ref arr[k]);
             }
             return arr;
+        }
+
+        /// THE TOWN SPACING (task 190, owner 2026-11-12: "spread the towns apart"):
+        /// no town lies inside another town's FAIR SHARE of the land -- a disc of
+        /// area land / townTarget round it, radius sqrt(land / (pi townTarget)).
+        /// Squared, in voxels, integer (pi = 355 / 113): land cells x cell^2 x 113 /
+        /// (355 x towns). A ~17 km^2 island with 3 towns: 1.35 km. Derived from the
+        /// island alone; no seed or place constant.
+        public static long TownSep2(int landCells, int townTarget, int cv)
+            => landCells > 0 && townTarget > 0 ? (long)landCells * cv * cv * 113 / (355L * townTarget) : 0;
+
+        private static bool FarFromTowns(int2 c, List<Site> sites, long sep2)
+        {
+            foreach (var o in sites)
+            {
+                if (o.kind != Site.TOWN) continue;
+                long dx = c.x - o.centre.x, dz = c.y - o.centre.y;
+                if (dx * dx + dz * dz < sep2) return false;
+            }
+            return true;
         }
 
         /// Lower score first, then lower cell index (centre z, then x).

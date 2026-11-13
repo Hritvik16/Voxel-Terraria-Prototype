@@ -59,6 +59,9 @@ namespace TerrainGen
         /// Task 189: the landform-signature weight plane (LandSig.BuildPlane, LandSig.PLANE_BYTES
         /// per cell). OPTIONAL: null = no signatures, whatever TerrainSpec.LandSig says.
         public byte* landSig;
+        /// Task 190: the town plane (Towns.Build: site discs to flatten + the
+        /// buildings). OPTIONAL: null = no towns, whatever TerrainSpec.Towns says.
+        public int* town;
         public int cells;
         public float cellVoxels;
     }
@@ -101,7 +104,7 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk, _hLs;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk, _hLs, _hTn;
         /// Task 189: LandSig's weight plane, once EnsureLandSigPlane ran (else null).
         public byte[] LandSigPlane { get; private set; }
 
@@ -138,14 +141,37 @@ namespace TerrainGen
         /// site bytes (once; well under a second). Only while TerrainSpec.Sites
         /// is on; changes no terrain. Never call it on a shared test map (it
         /// writes the record): tests call Sites.Plan(Sites.FromMap(map)).
-        public void EnsureSites()
+        public void EnsureSites(bool force = false)
         {
-            if (_sitesPlanned || Record == null || !Spec.Sites) return;
+            if (_sitesPlanned || Record == null || (!Spec.Sites && !force)) return;
             var list = TerrainGen.Sites.Plan(TerrainGen.Sites.FromMap(this), out var st);
             TerrainGen.Sites.Mark(Record, list);
             Record.SiteList = list;
             SiteStats = st;
             _sitesPlanned = true;
+        }
+        /// Task 190: the town plane (Towns.Build), once EnsureTowns ran (else null).
+        public int[] TownPlane { get; private set; }
+        /// Task 190: every placed building (the plane's order) and its stats.
+        public Building[] Buildings { get; private set; }
+        public Towns.Stats TownStats { get; private set; }
+
+        /// Task 190: plan the sites (EnsureSites), lay the kit out on them and
+        /// build + pin the town plane; fills Record.BuildingList. Only while
+        /// TerrainSpec.Towns is on (once). Read only through MapView.town, which
+        /// Sample uses only while Towns is on. The layout reads the NATURAL ground
+        /// (the plane is pinned after it). Never call it on a shared test map.
+        public void EnsureTowns(bool force = false)
+        {
+            if (TownPlane != null || Record == null || (!Spec.Towns && !force)) return;
+            EnsureSites(force);
+            var inp = TerrainGen.Sites.FromMap(this);
+            var plane = TerrainGen.Towns.Build(inp, Record.SiteList, out var st, out var all, out var prints);
+            Record.BuildingList = prints;
+            Buildings = all;
+            TownStats = st;
+            _hTn = GCHandle.Alloc(plane, GCHandleType.Pinned);
+            TownPlane = plane;
         }
         /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
         public ushort[] ShoreField { get; private set; }
@@ -188,6 +214,7 @@ namespace TerrainGen
             shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
             pocket = _hPk.IsAllocated ? (int*)_hPk.AddrOfPinnedObject() : null,
             landSig = _hLs.IsAllocated ? (byte*)_hLs.AddrOfPinnedObject() : null,
+            town = _hTn.IsAllocated ? (int*)_hTn.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -230,6 +257,7 @@ namespace TerrainGen
             if (_hSh.IsAllocated) _hSh.Free();
             if (_hPk.IsAllocated) _hPk.Free();
             if (_hLs.IsAllocated) _hLs.Free();
+            if (_hTn.IsAllocated) _hTn.Free();
         }
 
         /// Task 178b: set once by the build (FromCore) with the record; derives
