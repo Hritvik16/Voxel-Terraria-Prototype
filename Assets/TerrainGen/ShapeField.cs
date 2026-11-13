@@ -166,11 +166,25 @@ namespace TerrainGen
             float2 p = new float2(x, z);
             float detail = 0f;
             int oct = OctavesFor(texelVoxels);
-            for (int i = 0; i < oct; i++)
-                detail += Amplitude(i) * OctaveNoise(in o, p, i);
+            bool landSig = spec.LandSig && map.landSig != null;   // task 189 (-landsig 1)
+            float3 lsw = float3.zero;
+            if (!landSig)
+            {
+                for (int i = 0; i < oct; i++)
+                    detail += Amplitude(i) * OctaveNoise(in o, p, i);
+            }
+            else
+            {
+                // Task 189: in a signature landform the broad isotropic octaves give
+                // way to the landform's own meso shape (LandSig.OctaveKeep).
+                lsw = LandSig.Weights(in map, p);
+                for (int i = 0; i < oct; i++)
+                    detail += LandSig.OctaveKeep(lsw, i) * Amplitude(i) * OctaveNoise(in o, p, i);
+            }
             var c = new ColumnSample();
             float hRel = macro + detail * rough;
             bool scree = false;
+            if (landSig) hRel = LandSig.Relief(in spec, in map, in o, p, hRel, texelVoxels, lsw);   // task 189
             if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, spec.seed, spec.seaLevelY, p, macro, hRel, texelVoxels, out scree);   // task 178
             c.height = spec.seaLevelY + (int)math.floor(hRel);
             c.height = math.max(c.height, spec.worldBottomY + 1);
@@ -440,6 +454,7 @@ namespace TerrainGen
         public static float BandLimitBound(in TerrainSpec spec, int texelVoxels, float rough)
         {
             float b = BandLimitBound(texelVoxels, rough);
+            if (spec.LandSig && texelVoxels > 1) b = LandSig.BandBound(b);   // task 189: before the face relief, as in Sample
             return spec.Cliffs && texelVoxels > 1 ? b / (1f - LEDGE_TREAD) + RELIEF_BAND_BOUND : b;
         }
 

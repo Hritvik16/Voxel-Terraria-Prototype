@@ -1335,3 +1335,22 @@ columns, same slot / cover / ground, skin == main entry; near == far slots at te
 BeforeAfter` writes `Logs/TerrainGen/188a/share188a.txt` (surface share per material per biome, 4 seeds, and the palette's variant-only
 materials). Shots: `Logs/overnight/188a_shots.sh` (187's frontier + town poses, 180's desert + savanna flats, two seed-42 forest river banks;
 default vs `-matvariant 0`). Result: HANDOFF 188a.
+
+**Task 189 -- world gen C6, landform signatures at walking scale (`-landsig 1` = `TerrainSpec.landSigOn` / `LandSig`, v4 only, DEFAULT OFF; the owner picks from the pictures).**
+`Assets/TerrainGen/LandSig.cs`, applied in `ShapeField.Sample` before the face relief: each landform gets a 20-200 m shape from the
+landform weight and the ground's own data, never the biome. DUNES: the map's own dune train (`WorldMap.DuneField`, 160 m, the seed's
+wind) sharpened IN PHASE at the column (`DUNE_GAIN` 0.5 of its height as a straight stoss, sharp brink and straight slip face); the 16 m /
+8 m generic octaves are damped in dune fields too (wind-sorted ground). CANYONLANDS: benches on the rock layers (`DetailField.LayerBoundary`,
+flat tread + `BENCH_RISER` riser) and slot canyons (zero lines of a noise stretched along the 200 m regional downslope, flat floor, steep
+walls, in patches, drawn at footprints <= 8 voxels). ALPINE: ridgelines and side valleys (a ridged noise stretched down the regional slope,
+scaled by the slope, mostly carved). Stretched noise uses 4 FIXED frames (0/45/90/135 deg) blended by orientation (no rotating frame, no
+shear). In every signature landform the 64 m / 32 m generic octaves give way (`MESO_GIVE` 0.75). WHERE: a per-cell weight plane
+(`WorldMap.EnsureLandSigPlane`, 3 bytes per map cell, built only when the flag is on): `Regions.Weights` x a fade (16-48 m chamfer) from sea,
+lake, river, easy areas and route corridors; bilinear, so heights stay continuous. Plumbed through every MapView (near chunks, point
+queries, shells, shell fill, FarField, FarQuery); `BandLimitBound` widened by `LandSig.BandBound`. Tests `LandSigTests` (12): OFF == the
+188a FNV pins with the plane built, and a landform-column FNV; dune slip face downwind, ~3x the stoss, < 45 deg; dune phase == the map's
+`DuneField` (to 1 mm); oriented noise continuous across bins and the 180-deg wrap; slots / ridges run down the slope; bench continuous at
+layers; plane 0 on keep-out; adversarial one-cell patch and biome border; Slow band limit, no new needle (`StampTests.NEEDLE_DROP`), and
+`ShapeStatistic_PerLandform_FourSeeds` -> `Logs/TerrainGen/189/shape189.txt` (OFF vs ON per landform, 4 seeds). Shots:
+`Logs/overnight/189_shots.sh` (task 173's `pair_jungle_dune-sea`, `pair_desert_canyonlands`, `range_200up`; default vs `-landsig 1`).
+Result: HANDOFF 189.

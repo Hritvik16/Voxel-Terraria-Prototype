@@ -171,6 +171,14 @@ namespace TerrainGen
         /// it, and trees keep reading the noise (c.cover's variant bit is unchanged).
         /// Read it through MatVariant, never directly.
         public byte matVariantOff;
+        /// Task 189 (WORLD_GEN_LOOK_PLAN C6, flag-off): 1 = landform signatures at
+        /// walking scale (LandSig.cs): meso (20-200 m) shapes per landform, never
+        /// per biome -- dune ridges with a steep lee side, canyonland slot canyons
+        /// and benches, alpine ridgelines and side valleys along the slope. 0 (the
+        /// default) = every byte as before. Columns only: the map and the record
+        /// ignore it (its weight plane is derived, WorldMap.EnsureLandSigPlane).
+        /// Read it through LandSig, never directly. `-landsig 1` sets it.
+        public byte landSigOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -253,6 +261,9 @@ namespace TerrainGen
         /// Task 185's stamp fit in force (see stampFitOff): v4 only, ON by default
         /// since task 187a.
         public bool StampFit => mapVersion >= 4 && stampFitOff == 0;
+
+        /// Task 189's landform signatures in force (see landSigOn): v4 only, opt-in.
+        public bool LandSig => mapVersion >= 4 && landSigOn != 0;
 
         /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
         public bool Sites => mapVersion >= 4 && sitesOn != 0;

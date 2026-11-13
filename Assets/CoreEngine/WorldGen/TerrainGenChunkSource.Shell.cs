@@ -218,7 +218,7 @@ namespace VoxelEngine.WorldGen
                 output.trees.Ensure(maxTrees);
                 new ShellColumnJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, ore = _ore, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, ore = _ore, spec = Spec, o = O,
                     origin = origin, shift = shell, half = half,
                     colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
                     treePlane = _treePlane, oreCellPlane = _oreCell, gatherTrees = maxTrees > 0,
@@ -301,6 +301,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
+            [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -327,6 +328,7 @@ namespace VoxelEngine.WorldGen
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
+                    landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,

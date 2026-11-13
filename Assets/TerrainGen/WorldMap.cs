@@ -56,6 +56,9 @@ namespace TerrainGen
         /// FluidPockets.STRIDE ints per 51.2 m cell). OPTIONAL: null = no
         /// pockets, whatever TerrainSpec.Pockets says.
         public int* pocket;
+        /// Task 189: the landform-signature weight plane (LandSig.BuildPlane, LandSig.PLANE_BYTES
+        /// per cell). OPTIONAL: null = no signatures, whatever TerrainSpec.LandSig says.
+        public byte* landSig;
         public int cells;
         public float cellVoxels;
     }
@@ -98,7 +101,20 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk, _hLs;
+        /// Task 189: LandSig's weight plane, once EnsureLandSigPlane ran (else null).
+        public byte[] LandSigPlane { get; private set; }
+
+        /// Task 189: build the landform-signature weight plane (once; about a second).
+        /// Read only through MapView.landSig, which Sample uses only while
+        /// TerrainSpec.LandSig is on: building it never changes an OFF world.
+        public void EnsureLandSigPlane()
+        {
+            if (LandSigPlane != null || RegionLayout == null) return;
+            var f = LandSig.BuildPlane(this);
+            _hLs = GCHandle.Alloc(f, GCHandleType.Pinned);
+            LandSigPlane = f;
+        }
         /// Task 183: FluidPockets' site plane, once EnsurePocketPlane ran (else null).
         public int[] PocketPlane { get; private set; }
         public FluidPockets.PlaneStats PocketStats { get; private set; }
@@ -171,6 +187,7 @@ namespace TerrainGen
             route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
             shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
             pocket = _hPk.IsAllocated ? (int*)_hPk.AddrOfPinnedObject() : null,
+            landSig = _hLs.IsAllocated ? (byte*)_hLs.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -212,6 +229,7 @@ namespace TerrainGen
             if (_hRt.IsAllocated) _hRt.Free();
             if (_hSh.IsAllocated) _hSh.Free();
             if (_hPk.IsAllocated) _hPk.Free();
+            if (_hLs.IsAllocated) _hLs.Free();
         }
 
         /// Task 178b: set once by the build (FromCore) with the record; derives

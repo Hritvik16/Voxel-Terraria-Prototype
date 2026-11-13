@@ -216,6 +216,7 @@ namespace VoxelEngine.Rendering
         private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
         private NativeArray<byte> _tgRoute; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
+        private NativeArray<byte> _tgLandSig; // task 189: LandSig's weight plane (length 1 = none)
         private NativeArray<ushort> _tgShore; // task 180b: GroundRules' shore field (length 1 = none)
         private NativeArray<int> _tgPocket;   // task 183: FluidPockets' site plane (length 1 = none)
         /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
@@ -317,6 +318,7 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOff = 1; Tg2Spec = ts; }   // task 180b / 186: ON unless -matrules 0
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOff = 1; Tg2Spec = ts; }   // task 185 / 187a: ON unless -stampfit 0
                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatVariantArg()) { var ts = Tg2Spec; ts.matVariantOff = 1; Tg2Spec = ts; }   // task 188a: spray ON unless -matvariant 0
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.LandSigArg()) { var ts = Tg2Spec; ts.landSigOn = 1; Tg2Spec = ts; }   // task 189
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.SitesArg()) { var ts = Tg2Spec; ts.sitesOn = 1; Tg2Spec = ts; }   // task 187 (records only)
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
@@ -329,6 +331,8 @@ namespace VoxelEngine.Rendering
                 _tgRoute = new NativeArray<byte>(Tg2Map.RouteMask ?? new byte[1], Allocator.Persistent);
                 if (Tg2Spec.MatRules) Tg2Map.EnsureShoreField();   // task 180b
                 _tgShore = new NativeArray<ushort>(Tg2Map.ShoreField ?? new ushort[1], Allocator.Persistent);
+                if (Tg2Spec.LandSig) Tg2Map.EnsureLandSigPlane();   // task 189
+                _tgLandSig = new NativeArray<byte>(Tg2Spec.LandSig && Tg2Map.LandSigPlane != null ? Tg2Map.LandSigPlane : new byte[1], Allocator.Persistent);
                 if (Tg2Spec.Pockets) Tg2Map.EnsurePocketPlane();   // task 183
                 _tgPocket = new NativeArray<int>(Tg2Spec.Pockets && Tg2Map.PocketPlane != null ? Tg2Map.PocketPlane : new int[1], Allocator.Persistent);
                 if (Tg2Map.FlowDir != null)
@@ -588,7 +592,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, shoreField = _tgShore, pocketPlane = _tgPocket, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, shoreField = _tgShore, pocketPlane = _tgPocket, landSigPlane = _tgLandSig, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                     ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
@@ -1029,6 +1033,7 @@ namespace VoxelEngine.Rendering
             if (_tgFlow.IsCreated) _tgFlow.Dispose();
             if (_tgRoute.IsCreated) _tgRoute.Dispose();
             if (_tgShore.IsCreated) _tgShore.Dispose();
+            if (_tgLandSig.IsCreated) _tgLandSig.Dispose();
             if (_tgPocket.IsCreated) _tgPocket.Dispose();
             RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
@@ -1105,6 +1110,7 @@ namespace VoxelEngine.Rendering
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b (length 1 = none)
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
+            [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -1139,6 +1145,7 @@ namespace VoxelEngine.Rendering
                     route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(shoreField) : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane) : null,   // task 183
+                    landSig = landSigPlane.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(landSigPlane) : null,   // task 189
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
