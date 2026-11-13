@@ -1,55 +1,83 @@
-# 191-placement-preview-all-on: DONE (pictures only). ALL ON (`-trees 1 -ores 1 -fluidpockets 1 -sites 1 -towns 1`) vs today's defaults, seeds 42 + 7, 16 pose pairs + trees / towns alone. Viewer: `Screenshots/191/viewer.html` (Space = ON / OFF / alone, arrows = pose, Z = full size).
+# 192-look-trees-unique-open-crowns: DONE. Trees are now unique and their crowns are open: a skeleton (trunk, limbs, twigs) with leaf clumps and sky between them. Still behind `-trees 1` (default OFF). The owner picks a leaf fill: 30, 45 (proposed default) or 60.
 
-## What changed (commit b182509)
-- Capture only: the world survey prints a `[mem]` line per pose (CPU / GPU body pool peak + refused, process peak). No default, generator or engine change.
-- Reused the first (auth-killed) run's finished shots (01:00-02:21, same build); reran only the 400 m wide shots with a 90 s wait (35 s left shells 2-3 empty: no distant trees). The seed-7 OFF 90 s shot came out facing a different view with the same logged pose (camera likely moved by input while the owner used the Mac); retaken once (`lookreview_wideoff7b.txt`).
-- `TASKS.md` paragraph 191. Fast suite **PASS 987 FAIL 0 SKIP 19** (`Logs/overnight/191/fast.out`).
+## What to compare
+Open `Screenshots/192/viewer.html`: Space cycles TODAY (180) / fill 30 / 45 / 60, the arrows change pose, S shows the contact sheets, Z shows full size.
 
-## Memory / pools from the run logs (no timing arms; `Screenshots/191/lookreview_*.txt`)
-| run | process peak MB | GPU body pool (near, cap 254,400) peak / refused | shell body peak (s1 / s2 / s3, % of cap) | POOL FULL |
+## What changed (commit 36a9425, plus a commit for the logs and this handoff)
+- `Assets/TerrainGen/Trees.cs`: the "3 families x jitter" design is gone. `Pick` draws every number of a tree from its cell hash, inside ranges that its biome and cover slot set:
+  - age: saplings / mature / old;
+  - size, crown base, crown radius, limb and twig counts, rise, droop, flatness;
+  - lean, out over the foot's downhill side;
+  - leaf shade: one per tree, chosen from the existing leaf GenMats (no new materials).
+- `EmitLook` builds each tree:
+  - forest: broadleaf (with conifers mixed in on high and steep ground);
+  - jungle: emergents with buttresses, plus palms in hollows;
+  - savanna: flat acacias, plus bottle-trunked giants;
+  - snow: a range from spruce to pine (lobed whorls with a bark limb under each);
+  - desert: cacti with 0-3 arms, or barrels.
+- `MAX_PRIMS` 14 -> 28. Flags (TerrainSpec): `-leaffill N` (`treeLeafFill`) and `-treestyle 0` (`treeStyle180` = task 180's trees, byte for byte, diagnostic).
+- Tests:
+  - new `TreeTests.Look_FillSkyUniqueness_Sheets` (Slow) and `Poses_UnderCrown` (Explicit);
+  - `Cost_OnVsOff` runs both looks;
+  - `TreePoolTests` pose arms: OFF / ON-180 / ON-30 / ON-45 / ON-60 / ADV-x60;
+  - the tree logs and sheets now go to `Logs/TerrainGen/trees192` and `Screenshots/192`.
+- TASKS.md: task 192 paragraph.
+
+## Evidence
+- **Whole suite PASS 1060 FAIL 0 SKIP 28** (`Logs/overnight/192/all.out`).
+- `FourSeeds_Rules_Sheets` passes on the new default: 4 seeds, 0 rejected (nothing floating, every trunk on the ground, crown < 2 % in rock, every voxel 6-connected) (`trees192/rules.txt`).
+- The look test also checks every fill arm on seeds 42 and 7: 0 rejected.
+- `Chunks_Deterministic_Border_PointAndShellsAgree` is green: the near chunk, FarQuery points and shells 1-3 agree byte for byte (`trees192/chunks.txt`).
+- `-trees 0` is untouched: no trees are gathered.
+
+| seed 42, 30 trees/biome (`trees192/look.txt`) | 180 today | fill 30 | fill 45 | fill 60 |
 |---|---|---|---|---|
-| seed 42 ALL ON (10 poses) | 2,601.6 | 254,400 / **23,020** | 48 / 60 / 38 % | 0 |
-| seed 42 ALL OFF | 2,470.1 | 254,400 / 94 | 31 / 41 / 14 % | 0 |
-| seed 7 ALL ON (4 poses) | 2,608.3 | 254,400 / **4,450** | 32 / 44 / 33 % | 0 |
-| seed 7 ALL OFF | 2,529.2 | 246,855 / 0 | 27 / 23 / 13 % | 0 |
-| seed 42 trees alone (2) | 2,511.1 | 254,400 / 6,199 | 39 / 51 / 36 % | 0 |
-| seed 42 towns alone (2) | 2,582.9 | 254,400 / 90 | 26 / 34 / 11 % | 0 |
-- Memory: ALL ON +80 to +130 MB process peak, all under the 3,000 MB cap. Shell pools never refuse (r0 everywhere; task 188's packing holds). Wide 90 s: shell 3 pages peak 247/320 ON vs 195/320 OFF.
-- **The NEAR GPU body pool is the one that overflows**: already ~98-100 % in OFF, trees push it to thousands of refused chunks. A refused chunk is cleared to air and handed to shell 1 (`TerrainClipmap.GpuPool.cs` header). **Likely visible as rectangular PITS**: `towns42_town_150m.png` (2 pits, front) and `on7_town_150m.png` (3 pits) show sunken boxes with straight walls in front of the towns; never in an OFF shot; they appear right after the refused count rose (seed 7: 4,073 -> 4,450). Correlation only -- NOT proven; needs a look before trees go default.
+| leaf fill, forest / jungle / savanna / snow | 75 / 64 / 60 / 81 % | 34 / 32 / 32 / 32 % | 48 / 45 / 47 / 45 % | 59 / 57 / 61 / 52 % |
+| sky through the crown, forest / savanna | 11 / 12 % | 19 / 30 % | 13 / 18 % | 12 / 14 % |
+| "twin" IoU vs most similar of 12 neighbours, forest / snow (1 = clones) | 0.76 / 0.89 | 0.55 / 0.54 | 0.61 / 0.59 | 0.66 / 0.61 |
+| leaf voxels per forest tree | 132 k | 32 k | 50 k | 70 k |
 
-## What the pictures show (all looked at)
-- `on42_forest.png` vs `off42_forest.png`: eye level, meadow becomes dense broadleaf forest. The ground under canopies is PITCH BLACK (no sky light under leaves).
-- `on42_forest_far.png` (~200 m): forest blocks on green, savanna trees on yellow, none on rock / sand banks / rivers. Placement reads right.
-- `on42_jungle.png`: huge canopies, almost everything under them black (worst case of the lighting point above).
-- `on42_snow.png`: conifers on snow, black disc shadows. Looks good.
-- `on42_town_eye.png`, `on7_town_eye.png`: towns on flattened pads (OFF = stepped terraces / dunes at the same spot); camera-facing house walls nearly BLACK.
-- `on7_village_eye.png`: red roofs close up; shaded walls pure black, windows show sky. No buildings on slopes, none floating, in any shot.
-- `on42_tall_cliff.png` (crop right half): ORE WALL VEINS, thin tilted green and orange-brown lenses on the vertical face, as task 181 specifies; none on flat ground.
-- `on42_surface_lava.png`: a round lava pool with straight vertical walls in a snow conifer forest (volcanic-landform rule; looks cut, not natural).
-- `on42_wide_400m_90s.png` / `on7_wide_400m_90s.png`: the filled-in region. Dense forest on green, sparse dots on savanna, nothing on rock / water. Good.
+**Shell pools** (`trees192/pools_{forest,jungle}.txt`; bodies as % of PoolCap, worst shell):
 
-## Per switch
-- **trees**: looks ready on placement; needs work on LIGHTING (black under canopies, jungle worst) and the near GPU pool overflow (pits?).
-- **ores**: looks ready (only visible as wall veins; caves not posed).
-- **fluidpockets**: needs work on look -- the surface pool has sheer cylinder walls; at rest and in the right place.
-- **sites**: invisible by itself (planner only); ready if towns go on.
-- **towns**: placement / flatten ready; house walls in shade render black; 90 refused near chunks alone, pits seen once.
+| pose | 180 | fill 30 | fill 45 | fill 60 | adversarial at 60 |
+|---|---|---|---|---|---|
+| forest | 53 % | 53 % | 53 % | 53 % | 86 % |
+| jungle | 68 % | 70 % | 71 % | 71 % | 92 % |
+
+- Every arm fits, with 0 refusals in every launch.
+- Full vs compact bricks (shell 1, from bricks - bodies): the forest compact share goes from ~60 % (180) to ~45 % (new), because twigs inside clumps make 3-value bricks. The net cost is +4.8 k bodies (forest s1) and +7.6 k (jungle s1).
+
+**LOD 0** (`trees192/cost.txt`): new trees add fewer dense bricks in every biome. Forest +9,727 -> +8,009, jungle +2,448 -> +1,601. Generation time is the same (+12 % vs +13 %).
+
+**Memory, jungle-only launches** (`Screenshots/192/lookreview_jungle_*.txt`): near-pool refusals 5,270 (180) vs 3,446 / 3,910 / 4,876; process peak 2,591 vs 2,511 / 2,514 / 2,589 MB. In the 6-pose launches the order differed and the peaks were 2,418 / 2,591 / 2,474 / 2,582 MB (noise). All are under 3,000.
+
+## Pictures I looked at
+- `forest_180.png` vs `forest_30.png`: today is a wall of solid blobs with black underneath. Fill 30 shows separate trees with visible trunks and limbs, clumped crowns, and sunlit ground with dappled shade.
+- `forest_60.png`: the crowns close up and get darker; the trunks still show.
+- `snow_45.png`: layered spruces of varied height and width, gaps between the whorls.
+- `savanna_45.png`: flat-topped acacias in pads plus a bottle-trunked giant (front left); no two alike.
+- `jungle_high_45.png` vs `jungle_high_180.png`: clumpy crowns in three greens with lit ground between them, vs today's flat umbrellas.
+- **Rectangular orange/white boxes appear in BOTH** jungle_high shots. These are 191's near-pool "pits"; they existed before this task and are not caused by it.
+- `under_crown_30.png`: looking up, sky shows between the clumps, a limb is visible, and the leaf undersides are black (that is task 193's lighting).
+- Mean luminance, 180 -> 45: forest 57 -> 67, snow 92 -> 109, under the crown 11 -> 30.
+- `jungle_30/45/60.png` are BLACK because 180's jungle eye sits inside a taller new crown. They are retaken as `jungle_high_*` (same target, eye 20 m higher).
+
+## Not done / notes
+- Crown width is a little narrower than 180's flat jungle umbrellas.
+- No new leaf colours yet: one or two per biome via `palette_defs.py` would add variety. That needs 5 table edits, so it is a separate small task if wanted.
+- Launches ran ~20 min each, over the 10-min budget: 6 poses, plus load time on a warm Mac.
 
 ## Next step
-Owner answers the question below. Suggested follow-ups (named, not queued; need owner OK): (1) find out whether the rectangular pits are refused near-pool chunks (a bug task: count `GpuPoolRefusedNow` at those poses); (2) sky/ambient light on shaded vertical walls and under canopies (a lighting task).
-
-## Question for the owner: which switches become default ON?
-- trees: (a) ON now (b) ON after the pits/near-pool check (c) ON after the canopy-lighting fix too -- recommended (b)
-- ores: (a) ON now -- recommended (b) stay OFF
-- fluidpockets: (a) ON now (b) ON after softening the basin walls -- recommended (c) stay OFF
-- sites + towns (together): (a) ON now (b) ON after the pits check -- recommended (c) stay OFF
+The owner picks the fill: (a) 30, (b) 45 (recommended), or (c) 60. Then task 193 (shade lighting).
 
 ## For the doc
-- Process memory peak, ALL ON vs ALL OFF: seed 42 **2,470 -> 2,602 MB**, seed 7 **2,529 -> 2,608 MB** (cap 3,000) (`Screenshots/191/lookreview_{on,off}{42,7}.txt`).
-- Near GPU body pool refused chunks, OFF -> ON: seed 42 **94 -> 23,020**, seed 7 **0 -> 4,450** (cap 254,400, full in both).
-- Shell pools: **0 refusals** in every run; peak shell 2 ON 60 % / OFF 41 % of cap (seed 42).
-- POOL FULL lines: **0** in all 11 launches.
-Images (open `Screenshots/191/viewer.html`; Space flips ON / OFF):
-- `Screenshots/191/on42_wide_400m_90s.png` vs `off42_wide_400m_90s.png`: the whole region filled in -- dark forest across the green middle, scattered trees on the yellow plateau at right.
-- `Screenshots/191/on42_snow.png` vs `off42_snow.png`: bare snow becomes a conifer forest; the best-looking switch result.
-- `Screenshots/191/on7_town_150m.png`: a desert town on the savanna; look at the three rectangular pits in front of it (the open problem).
+- Leaf fill per forest crown: **75 % (today) -> 34 / 48 / 59 %** at `-leaffill 30 / 45 / 60` (`Logs/TerrainGen/trees192/look.txt`).
+- Neighbour likeness ("twin" silhouette IoU): forest **0.76 -> 0.61**, snow **0.89 -> 0.59** at fill 45 (lower = more unique).
+- Leaf voxels per forest tree: **132 k -> 50 k** at fill 45. Sky through a savanna crown: **12 % -> 18 %**.
+- Worst shell pool with trees: jungle **68 % -> 71 %** of cap, adversarial 92 %, 0 refusals. LOD-0 dense bricks added by trees in the forest: **9,727 -> 8,009**.
+- Whole suite PASS 1060 FAIL 0.
+
+Images (open `Screenshots/192/viewer.html`; Space flips 180 / 30 / 45 / 60):
+- `Screenshots/192/forest_180.png` vs `forest_30.png`: solid blobs over black ground become separate trees with trunks, limbs, clumps and sunlit gaps.
+- `Screenshots/192/look_42_forest.png`: the same 12 neighbouring trees. Rows 1-2 are today (clone poplars and blobs); rows 3-8 are the new trees at fill 30 / 45 / 60, each tree different.
+- `Screenshots/192/under_crown_45.png`: looking up under a forest tree, sky between the leaf clumps (the black undersides are for task 193).

@@ -1,0 +1,27 @@
+06:46:33 lock is free; waiting for the Mac to be clear of Unity for 45 s
+06:47:19 waiting for the Unity lock: held by voxel-terraria-1-byte since 06:47:14 (pid 43024: ./run-look-review.sh) -- your command starts when it is free
+06:48:22 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:47:14 (pid 43024: ./run-look-review.sh)
+06:49:24 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:47:14 (pid 43024: ./run-look-review.sh)
+06:50:26 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:47:14 (pid 43024: ./run-look-review.sh)
+06:51:29 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:47:14 (pid 43024: ./run-look-review.sh)
+06:52:00 lock is free; waiting for the Mac to be clear of Unity for 45 s
+06:52:46 waiting for the Unity lock: held by voxel-terraria-1-byte since 06:52:45 (pid 46876: ./run-look-review.sh) -- your command starts when it is free
+06:53:49 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:52:45 (pid 46876: ./run-look-review.sh)
+06:54:50 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:52:45 (pid 46876: ./run-look-review.sh)
+06:55:52 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:52:45 (pid 46876: ./run-look-review.sh)
+06:56:53 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:52:45 (pid 46876: ./run-look-review.sh)
+06:57:39 lock is free; waiting for the Mac to be clear of Unity for 45 s
+06:58:25 waiting for the Unity lock: held by voxel-terraria-1-byte since 06:58:20 (pid 50803: ./run-look-review.sh) -- your command starts when it is free
+06:59:29 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:58:20 (pid 50803: ./run-look-review.sh)
+07:00:31 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:58:20 (pid 50803: ./run-look-review.sh)
+07:01:33 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:58:20 (pid 50803: ./run-look-review.sh)
+07:02:35 still waiting for the Unity lock: held by voxel-terraria-1-byte since 06:58:20 (pid 50803: ./run-look-review.sh)
+07:03:10 lock is free; waiting for the Mac to be clear of Unity for 45 s
+07:03:56 waiting for the Unity lock: held by voxel-terraria-1-byte since 07:03:54 (pid 54716: ./run-look-review.sh) -- your command starts when it is free
+07:05:00 still waiting for the Unity lock: held by voxel-terraria-1-byte since 07:03:54 (pid 54716: ./run-look-review.sh)
+07:06:01 still waiting for the Unity lock: held by voxel-terraria-1-byte since 07:03:54 (pid 54716: ./run-look-review.sh)
+07:07:03 still waiting for the Unity lock: held by voxel-terraria-1-byte since 07:03:54 (pid 54716: ./run-look-review.sh)
+07:08:05 still waiting for the Unity lock: held by voxel-terraria-1-byte since 07:03:54 (pid 54716: ./run-look-review.sh)
+07:08:46 lock is free; waiting for the Mac to be clear of Unity for 45 s
+PASS 1  FAIL 0  SKIP 0  suite=fast  wall=1m45s
+  fast suite left out 1086 of 1086 cases (Category Slow; vs TestResults_all.xml of 2026-11-13 00:44)
