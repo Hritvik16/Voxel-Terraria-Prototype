@@ -214,6 +214,7 @@ Play starts with FSR 3 dynamic (task 52, owner Q38 (a): 1080p from 540-720 rows)
 `EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"` or `-renderpreset quality`
 override it. Rigs and capture modes are unchanged (no upscaler unless they pass the flags).
 Torches in play use the torch flood (task 175: dir 2, I 1.6 k 0.35; `-torchflood 0` / F6 "Point lights" = the old torches).
+Play starts with sky fill mode 2 (task 194a; task 193's shade light: sky + ground bounce; `-skyfill 0|1` / F6 "Shade light").
 F6 in play opens the settings menu (task 58): saved to `PlaySettings.json` beside
 `PlayerConfig.json`, flags override it per field for one run; rigs/capture runs (and `-fluidprobe`) never read it.
 Per-task feature notes (tasks 64-105+: survival, movement, rivers, see-through liquids, shells, far edits/ops,

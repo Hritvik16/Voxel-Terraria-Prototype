@@ -1477,3 +1477,15 @@ dropped at the refused column's entry; earlier hits kept; a streaming-only colum
 once the chunk lands; twin = a fine column walk on 500 rays). Not covered: a refused chunk inside shell 1's hole still has no shell
 data (ABSENT -> far band), and sun shadows across a handed-over column may differ slightly. Shots: `Logs/overnight/194_proof2.sh`,
 `Screenshots/194/` (`refused_*.txt`, `diff194.txt`). Result: HANDOFF 194.
+
+**Task 194a (play default; owner Q-Z (a), 2026-11-13: "Mode 2 ON in play now; the performance stage makes it cheaper"): PLAY STARTS
+WITH SKY FILL MODE 2.** `PlaySettings.skyFill` (int, default 2; 0 off / 1 sky / 2 sky + ground bounce; out of range -> 2; a file saved
+before 194a gets 2), `-skyfill 0|1|2` overrides it for one run (last match wins; a bad value keeps the saved one). `SettingsMenu.LoadAndApply`
+sets `RaymarchFeature.SkyFill`; F6 row "Shade light" (Sky + bounce / Sky / Off), live, saved (panel 1152 -> 1226 px, ui scale 1158 -> 1232).
+`tools/play-flags.sh` PLAY_SETTINGS_FLAGS gains `-skyfill 2`, so `run-tg2world.sh MODE=playwalk` (the play-like capture run) matches play.
+RIGS DO NOT CHANGE: only `Playground.IsPlaySettingsRun()` (not a capture run, not `-fluidprobe`) reads PlaySettings; every other run keeps
+`RaymarchFeature.SkyFill`'s own flag read, default 0. Checked: `run-tg2world.sh:83` (MODE=orbit, `-sustained`) and `:93` (`-fluidprobe`)
+pass no `-skyfill`; `run-acceptance-rig.sh` launches the Phase 4 scene, which has no SettingsMenu. Test
+`PlaySettingsTests.SkyFill_PlayDefaultIs2_OldFileGets2_FlagOverridesForTheRun`; `PlayFlagsFileMatchesPlaySettingsDefaults` now pins
+`-skyfill 2`. No F6 screenshot: the menu shows only in an interactive run (`-settingsopen` + `-playshot`), not in a capture mode.
+Result: HANDOFF 194a.

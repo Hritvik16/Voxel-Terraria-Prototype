@@ -215,6 +215,34 @@ public class PlaySettingsTests
     }
 
     [Test]
+    public void SkyFill_PlayDefaultIs2_OldFileGets2_FlagOverridesForTheRun()
+    {
+        // Task 194a (owner Q-Z (a)): play starts with task 193's sky fill mode 2 (sky + ground bounce).
+        Assert.AreEqual(2, new PlaySettings().skyFill);
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"torchFlood\":true}", out string e);
+        Assert.IsNull(e, "a file saved before 194a has no skyFill field: it gets the default, no clamp note");
+        Assert.AreEqual(2, old.skyFill);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-skyfill", "1", "-skyfill", "0" }, over);
+        Assert.AreEqual(0, run.skyFill, "last match wins; -skyfill 0 turns it off for one run");
+        Assert.AreEqual(2, old.skyFill, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "skyFill");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-skyfill", "3" }, over);
+        Assert.AreEqual(2, run.skyFill, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-skyfill: bad value '3'");
+
+        // Every choice round-trips; an out-of-range saved value is clamped back to the default.
+        for (int m = 0; m <= 2; m++)
+            Assert.AreEqual(m, PlaySettings.Parse(new PlaySettings { skyFill = m }.ToJson(), out _).skyFill);
+        var bad = PlaySettings.Parse("{\"skyFill\":7}", out string be);
+        Assert.AreEqual(2, bad.skyFill);
+        StringAssert.Contains("skyFill 7 -> 2", be);
+    }
+
+    [Test]
     public void TorchFlood_PlayDefaults_AreDir2_I16_K035_AndOffKeepsThem()
     {
         // Task 175: play's flood look (owner Q105 dir 2, 174b S3 = the point lights' I 1.6 k 0.35).
@@ -345,7 +373,7 @@ public class PlaySettingsTests
         {
             upscaler = "none", rows = "540", shadowLevel = 3, roofSkip = !d.roofSkip, shadowRes = "half", gameMode = "creative",
             underwaterFog = !d.underwaterFog, seeThroughLiquids = !d.seeThroughLiquids, riverLook = !d.riverLook,
-            farShade = !d.farShade, shells = !d.shells, torchFlood = !d.torchFlood,
+            farShade = !d.farShade, shells = !d.shells, torchFlood = !d.torchFlood, skyFill = 0,
             // no flag for these: the playwalk run keeps the engine's own value, which IS the default.
             softShadows = d.softShadows, perfOverlay = d.perfOverlay, minimap = d.minimap,
         };
