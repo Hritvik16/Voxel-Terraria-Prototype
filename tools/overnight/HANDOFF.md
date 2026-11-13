@@ -33,7 +33,6 @@ Open `Screenshots/192/viewer.html`: Space cycles TODAY (180) / fill 30 / 45 / 60
 **LOD 0** (`trees192/cost.txt`): new trees add fewer dense bricks in every biome. Forest +9,727 -> +8,009, jungle +2,448 -> +1,601. Generation time is the same (+12 % vs +13 %).
 
 **Memory, jungle-only launches** (`Screenshots/192/lookreview_jungle_*.txt`): near-pool refusals 5,270 (180) vs 3,446 / 3,910 / 4,876; process peak 2,591 vs 2,511 / 2,514 / 2,589 MB. In the 6-pose launches the order differed and the peaks were 2,418 / 2,591 / 2,474 / 2,582 MB (noise). All are under 3,000.
-
 ## Pictures I looked at
 - `forest_180` vs `forest_30`: a wall of solid blobs over black ground becomes separate trees with trunks, limbs, clumps and sunlit, dappled ground. At `forest_60` the crowns close up and darken; trunks still show.
 - `snow_45`: varied spruces with gaps between the whorls. `savanna_45`: flat acacia pads plus a bottle-trunked giant; no two alike.
@@ -47,7 +46,6 @@ Open `Screenshots/192/viewer.html`: Space cycles TODAY (180) / fill 30 / 45 / 60
 - Launches ran ~20 min each, over the 10-min budget (6 poses, load time on a warm Mac).
 ## Next step
 The owner picks the fill: (a) 30, (b) 45 (recommended), or (c) 60. Then task 193 (shade lighting).
-
 ## For the doc
 - Leaf fill per forest crown: **75 % (today) -> 34 / 48 / 59 %** at `-leaffill 30 / 45 / 60` (`Logs/TerrainGen/trees192/look.txt`).
 - Neighbour likeness ("twin" silhouette IoU): forest **0.76 -> 0.61**, snow **0.89 -> 0.59** at fill 45 (lower = more unique).
