@@ -129,6 +129,14 @@ namespace TerrainGen
         /// tree cell that passes the physical rules (land, dry, no stamp / ledge,
         /// foot, clearance) gets a biome-b tree, density and the plane ignored.
         public byte treesOn;
+        /// Task 192 (trees' look; read through Trees.LeafFill, never directly): the
+        /// leaf FILL target, percent of a crown's envelope. 0 = Trees.DEFAULT_LEAF_FILL.
+        /// `-leaffill 30|45|60` sets it (the owner's three arms). Columns only.
+        public byte treeLeafFill;
+        /// Task 192 (diagnostic): 1 = task 180's tree families byte for byte (3 shapes
+        /// per biome, one solid crown), `-treestyle 0`. 0 (the default) = 192's open
+        /// crowns on a branch skeleton. Columns only.
+        public byte treeStyle180;
         /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
         /// = the simple material rules (GroundRules.cs: one palette row per biome
         /// paints skin, soil, subsoil and stone; a short slot list over local

@@ -36,7 +36,7 @@ using VoxelEngine.WorldGen;
 
 public class TreePoolTests
 {
-    private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "trees188");
+    private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "trees192");   // task 192 (188's run: trees188)
     /// Task 180's poses (Logs/overnight/180_poses.txt, WSPOSE fixed_forest / fixed_jungle): the eye, metres.
     public static readonly float3 ForestEye = new float3(3366.4f, 544.2f, 4973.0f);
     public static readonly float3 JungleEye = new float3(5772.8f, 546.3f, 5024.2f);
@@ -221,7 +221,7 @@ public class TreePoolTests
 
     private static string Pct(long n, int cap) => $"{100.0 * n / cap,4:F0} %{(n > cap ? " OVER" : "")}";
 
-    private static void RunPose(string pose, float3 eye, (string name, byte mode)[] arms)
+    private static void RunPose(string pose, float3 eye, (string name, byte mode, byte fill, bool style180)[] arms)
     {
         Directory.CreateDirectory(LogDir);
         string path = Path.Combine(LogDir, $"pools_{pose}.txt");
@@ -230,6 +230,7 @@ public class TreePoolTests
         var log = new StringBuilder();
         log.AppendLine($"task 188: seed 42, High, camera at 180's {pose} pose {eye} m. Every chunk each shell STORES (the streamer's box minus the hole), generated.");
         log.AppendLine("arms: OFF (-trees 0), ON (-trees 1), ADV-F / ADV-J (adversarial: every tree cell that passes the physical rules gets a forest / jungle tree).");
+        log.AppendLine("task 192: ON-180 = task 180's trees (-treestyle 0); ON-30 / ON-45 / ON-60 = 192's open crowns at -leaffill 30 / 45 / 60; ADV-x60 = adversarial at fill 60.");
         log.AppendLine("bricks = dense bricks = 512 B bodies BEFORE task 188; bodies = AFTER (ShellBrickPack: <= 2-value bricks packed 7 to a body); cap = PoolCap (bodies).");
         log.AppendLine("pages = non-uniform chunks (cap PageCap). tree+ = dense bricks that are uniform with trees OFF; 2mat = dense tree bricks holding <= 2 values;");
         log.AppendLine("hidden = dense tree bricks with no air voxel. upload MB = the stored set's upload bytes before -> after. ms = this test's Editor (Burst) time, summed.");
@@ -245,6 +246,7 @@ public class TreePoolTests
                 foreach (var arm in arms)
                 {
                     src.SetTreesMode(arm.mode);
+                    src.SetTreeLook(arm.fill, arm.style180);   // task 192: the leaf fill arm / task 180's trees
                     var t = new Tally();
                     var sw = Stopwatch.StartNew();
                     int2 col = new int2(int.MinValue, int.MinValue);
@@ -288,7 +290,7 @@ public class TreePoolTests
                             CountOn(sc, off[c].bits, t);
                         }
                     }
-                    log.AppendLine($"  {arm.name,-5} bricks {t.bricks,7} ({Pct(t.bricks, S.PoolCap)}) -> bodies {t.bodies,7} ({Pct(t.bodies, S.PoolCap)}); " +
+                    log.AppendLine($"  {arm.name,-7} bricks {t.bricks,7} ({Pct(t.bricks, S.PoolCap)}) -> bodies {t.bodies,7} ({Pct(t.bodies, S.PoolCap)}); " +
                                    $"pages {t.pages,5} ({Pct(t.pages, S.PageCap)}); upload {t.bytesOld / 1048576.0:F1} -> {t.bytesNew / 1048576.0:F1} MB; " +
                                    $"tree+ {t.treeDense}, 2mat {t.twoMat}, hidden {t.solidHidden}, tree voxels {t.treeVox}, trees gathered {t.trees} in {t.columns} column passes; " +
                                    $"generated {t.generated}: column {t.colMs:F0} + voxel {t.voxMs:F0} + fill {t.fillMs:F0} ms" +
@@ -303,9 +305,11 @@ public class TreePoolTests
 
     [Test, Explicit, Category("Slow"), Timeout(3600000)]
     public void Pools_ForestPose() =>
-        RunPose("forest", ForestEye, new (string, byte)[] { ("OFF", 0), ("ON", 1), ("ADV-F", (byte)(2 + GenBiome.Forest)), ("ADV-J", (byte)(2 + GenBiome.Jungle)) });
+        RunPose("forest", ForestEye, new (string, byte, byte, bool)[] { ("OFF", 0, 0, false), ("ON-180", 1, 0, true), ("ON-30", 1, 30, false),
+            ("ON-45", 1, 45, false), ("ON-60", 1, 60, false), ("ADV-F60", (byte)(2 + GenBiome.Forest), 60, false) });
 
     [Test, Explicit, Category("Slow"), Timeout(3600000)]
     public void Pools_JunglePose() =>
-        RunPose("jungle", JungleEye, new (string, byte)[] { ("OFF", 0), ("ON", 1), ("ADV-J", (byte)(2 + GenBiome.Jungle)) });
+        RunPose("jungle", JungleEye, new (string, byte, byte, bool)[] { ("OFF", 0, 0, false), ("ON-180", 1, 0, true), ("ON-30", 1, 30, false),
+            ("ON-45", 1, 45, false), ("ON-60", 1, 60, false), ("ADV-J60", (byte)(2 + GenBiome.Jungle), 60, false) });
 }

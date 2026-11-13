@@ -1,0 +1,1 @@
+seed 42 savanna fill30: the 12 trees nearest float2(20608f, 49280f), side view along +z

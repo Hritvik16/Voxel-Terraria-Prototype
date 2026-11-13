@@ -35,8 +35,10 @@ using VoxelEngine.WorldGen;
 
 public class TreeTests
 {
-    private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "trees180");
-    private static readonly string ShotDir = Path.Combine("Screenshots", "180");
+    // task 192: the default trees are 192's open crowns now; their logs / sheets go to 192
+    // (task 180's own sheets stay in Screenshots/180 as the "before")
+    private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "trees192");
+    private static readonly string ShotDir = Path.Combine("Screenshots", "192");
 
     // ------------------------------------------------------------------
     // One seed's source + the map arrays the test jobs read
@@ -264,12 +266,12 @@ public class TreeTests
     // ------------------------------------------------------------------
     private const int PANEL_W = 132, PANEL_H = 262, SHEET_COLS = 6, SHEET_ROWS = 5;
 
-    private static void WriteSheet(string path, List<TreeVox> vox, string title)
+    private static void WriteSheet(string path, List<TreeVox> vox, string title, int rows = SHEET_ROWS)
     {
-        int W = PANEL_W * SHEET_COLS, H = PANEL_H * SHEET_ROWS;
+        int W = PANEL_W * SHEET_COLS, H = PANEL_H * rows;
         var px = new UnityEngine.Color32[W * H];
         for (int i = 0; i < px.Length; i++) px[i] = new UnityEngine.Color32(196, 214, 232, 255);
-        for (int k = 0; k < vox.Count && k < SHEET_COLS * SHEET_ROWS; k++)
+        for (int k = 0; k < vox.Count && k < SHEET_COLS * rows; k++)
         {
             var v = vox[k];
             int ox = (k % SHEET_COLS) * PANEL_W, oyTop = (k / SHEET_COLS) * PANEL_H;
@@ -538,7 +540,7 @@ public class TreeTests
 
             // land cells per biome in the scanned windows (record, at each tree cell's centre)
             var land = new int[GenBiome.Count]; var count = new int[GenBiome.Count];
-            var shapes = new int[GenBiome.Count * 3]; var slots = new int[Cover.SlotCount];
+            var shapes = new int[GenBiome.Count * Trees.FORM_COUNT]; var slots = new int[Cover.SlotCount];
             foreach (var win in windows)
                 for (int cz = win.y; cz <= win.w; cz++)
                 for (int cx = win.x; cx <= win.z; cx++)
@@ -550,7 +552,7 @@ public class TreeTests
             for (int i = 0; i < s.trees.Length; i++)
             {
                 var t = s.trees[i];
-                count[t.biome]++; shapes[t.biome * 3 + t.shape]++; slots[Cover.Slot((byte)s.info[i].x)]++;
+                count[t.biome]++; shapes[t.biome * Trees.FORM_COUNT + t.shape]++; slots[Cover.Slot((byte)s.info[i].x)]++;
                 var rc = rec.At(t.root.x, t.root.z);
                 if (rc.IsSea || rc.IsRoute || rc.IsFeature || rc.MoveBand == Danger.Sheer)
                     fails.Add($"seed {seed} tree {t.root}: on a sea/route/feature/sheer record cell");
@@ -565,7 +567,7 @@ public class TreeTests
             {
                 double km2 = land[b] * (Trees.CELL * 0.1) * (Trees.CELL * 0.1) / 1e6;
                 log.AppendLine($"  {BiomeName(b),-8} land cells {land[b],7}  trees {count[b],6}  per land cell {(land[b] > 0 ? (double)count[b] / land[b] : 0):F3}"
-                             + $"  per km2 {(km2 > 0 ? count[b] / km2 : 0),6:F0}  shapes {shapes[b * 3]}/{shapes[b * 3 + 1]}/{shapes[b * 3 + 2]}");
+                             + $"  per km2 {(km2 > 0 ? count[b] / km2 : 0),6:F0}  forms broad/conifer/palm/cactus {shapes[b * 4]}/{shapes[b * 4 + 1]}/{shapes[b * 4 + 2]}/{shapes[b * 4 + 3]}");
             }
             log.AppendLine($"  root cover slot: flat {slots[0]} steep {slots[1]} hollow {slots[2]} high {slots[3]} shore {slots[4]}");
 
@@ -605,6 +607,234 @@ public class TreeTests
     }
 
     // ==================================================================
+    // Task 192: the look -- leaf FILL, sky through the crown, uniqueness of
+    // neighbours, brick values; task 180's trees vs 192's at fill 30 / 45 / 60
+    // ==================================================================
+    private static readonly (string name, byte fill, bool style180)[] LookArms =
+        { ("180", 0, true), ("fill30", 30, false), ("fill45", 45, false), ("fill60", 60, false) };
+
+    /// Leaf fill and sky of one voxelised tree. ENVELOPE (same rule for every style):
+    /// the shape inscribed in the box of the tree's leaf voxels -- an upright cone for a
+    /// conifer, else an ellipsoid. fill = leaf voxels inside / envelope voxels; sky =
+    /// columns under the envelope's widest ellipse holding no tree voxel at all.
+    private static bool LeafFill(TreeVox v, bool cone, out double fill, out double sky)
+    {
+        fill = sky = 0;
+        int nx = v.dim.x, ny = v.dim.y, nz = v.dim.z;
+        int3 lo = new int3(int.MaxValue), hi = new int3(int.MinValue);
+        for (int y = 0; y < ny; y++) for (int z = 0; z < nz; z++) for (int x = 0; x < nx; x++)
+        {
+            if (!GenMat.IsTreeLeaf(v.mats[(y * nz + z) * nx + x])) continue;
+            var q = new int3(x, y, z); lo = math.min(lo, q); hi = math.max(hi, q);
+        }
+        if (lo.x > hi.x) return false;
+        float3 c = (float3)(lo + hi) * 0.5f, a = (float3)(hi - lo + 1) * 0.5f;
+        long env = 0, inside = 0; int cols = 0, open = 0;
+        for (int z = lo.z; z <= hi.z; z++)
+        for (int x = lo.x; x <= hi.x; x++)
+        {
+            float ex = (x - c.x) / a.x, ez = (z - c.z) / a.z, e2 = ex * ex + ez * ez;
+            if (e2 > 1f) continue;
+            cols++;
+            bool any = false;
+            for (int y = 0; y < ny && !any; y++) any = v.mats[(y * nz + z) * nx + x] != 0;
+            if (!any) open++;
+            for (int y = lo.y; y <= hi.y; y++)
+            {
+                bool inEnv;
+                if (cone) { float t = (y - lo.y + 0.5f) / (hi.y - lo.y + 1); inEnv = e2 <= (1f - t) * (1f - t); }
+                else { float ey = (y - c.y) / a.y; inEnv = e2 + ey * ey <= 1f; }
+                if (!inEnv) continue;
+                env++;
+                if (GenMat.IsTreeLeaf(v.mats[(y * nz + z) * nx + x])) inside++;
+            }
+        }
+        if (env == 0 || cols == 0) return false;
+        fill = (double)inside / env; sky = (double)open / cols;
+        return true;
+    }
+
+    /// Side silhouette (along z), root-aligned: keys of the occupied (x, y) cells.
+    private static HashSet<int> Silhouette(TreeVox v)
+    {
+        var h = new HashSet<int>();
+        int nx = v.dim.x, ny = v.dim.y, nz = v.dim.z;
+        for (int y = 0; y < ny; y++) for (int x = 0; x < nx; x++)
+            for (int z = 0; z < nz; z++)
+                if (v.mats[(y * nz + z) * nx + x] != 0) { h.Add(((v.lo.x + x - v.t.root.x + 256) << 10) | (v.lo.y + y - v.t.root.y + 64)); break; }
+        return h;
+    }
+
+    /// Tree bricks (world-aligned 8^3 holding a tree voxel) and how many hold <= 2 values (air counts).
+    private static void BrickValues(TreeVox v, out int bricks, out int two)
+    {
+        var vals = new Dictionary<int3, HashSet<byte>>();
+        int nx = v.dim.x, ny = v.dim.y, nz = v.dim.z;
+        for (int y = 0; y < ny; y++) for (int z = 0; z < nz; z++) for (int x = 0; x < nx; x++)
+        {
+            var w = v.lo + new int3(x, y, z);
+            var b = w >> 3;
+            byte m = v.mats[(y * nz + z) * nx + x];
+            if (!vals.TryGetValue(b, out var set)) { set = new HashSet<byte>(); vals[b] = set; }
+            set.Add(m);
+        }
+        bricks = 0; two = 0;
+        foreach (var kv in vals)
+        {
+            bool tree = false; foreach (byte m in kv.Value) if (m != 0) tree = true;
+            if (!tree) continue;
+            bricks++;
+            var b0 = kv.Key << 3;   // brick voxels outside the tree's box are air
+            bool partial = math.any(b0 < v.lo) || math.any(b0 + 7 > v.lo + v.dim - 1);
+            int n = kv.Value.Count + (partial && !kv.Value.Contains(0) ? 1 : 0);
+            if (n <= 2) two++;
+        }
+    }
+
+    [Test, Category("Slow")]
+    public void Look_FillSkyUniqueness_Sheets()
+    {
+        var log = new StringBuilder();
+        var fails = new List<string>();
+        log.AppendLine("task 192: per biome, the 30 trees nearest the biome's densest 25.6 m block (seed 42 / 7); sheets = the 12 nearest.");
+        log.AppendLine("fill = leaf voxels / envelope voxels (envelope = cone (conifers) or ellipsoid inscribed in the leaf box); sky = envelope columns with no tree voxel;");
+        log.AppendLine("twin = mean over the 12 of the side-silhouette IoU with its most similar neighbour (1 = clones, lower = more unique);");
+        log.AppendLine("2val = tree bricks (world 8^3) holding <= 2 values incl. air (task 188 packs those 7 to a body); prims = primitives per tree.");
+        log.AppendLine($"{"seed",4} {"biome",-8} {"arm",-7} {"trees",5} {"fill %",7} {"(min-max)",11} {"sky %",6} {"twin",5} {"2val %",6} {"leaf vox",9} {"height m",8} {"prims",5} {"rej",3}");
+        foreach (uint seed in new uint[] { 42u, 7u })
+        {
+            using var c = new Ctx(seed);
+            var anchors = new Dictionary<byte, float2>();
+            var sheets = new Dictionary<byte, List<TreeVox>>();
+            foreach (var arm in LookArms)
+            {
+                c.src.SetTreeLook(arm.fill, arm.style180);
+                using var s = RunScan(c, SparseWindows(c.src.Spec));
+                foreach (byte b in new byte[] { GenBiome.Forest, GenBiome.Jungle, GenBiome.Savanna, GenBiome.Snow, GenBiome.Desert })
+                {
+                    if (!anchors.ContainsKey(b))
+                    {   // the densest 25.6 m block of this biome, from the first (180) arm
+                        var per = new Dictionary<int2, int>();
+                        for (int i = 0; i < s.trees.Length; i++)
+                            if (s.trees[i].biome == b) { var k = s.trees[i].root.xz >> 8; per[k] = per.TryGetValue(k, out int nn) ? nn + 1 : 1; }
+                        if (per.Count == 0) continue;
+                        int2 best = default; int bn = -1;
+                        foreach (var kv in per) if (kv.Value > bn) { bn = kv.Value; best = kv.Key; }
+                        anchors[b] = (float2)(best * 256 + 128);
+                    }
+                    float2 an = anchors[b];
+                    var idx = new List<int>();
+                    for (int i = 0; i < s.trees.Length; i++) if (s.trees[i].biome == b) idx.Add(i);
+                    idx.Sort((i, j) => math.lengthsq((float2)s.trees[i].root.xz - an).CompareTo(math.lengthsq((float2)s.trees[j].root.xz - an)));
+                    if (idx.Count > 30) idx.RemoveRange(30, idx.Count - 30);
+                    var vox = new List<TreeVox>();
+                    double fSum = 0, skySum = 0, fMin = 1, fMax = 0; int fN = 0, rej = 0; long leafVox = 0, bricks = 0, two = 0, prims = 0; double hSum = 0;
+                    foreach (int i in idx)
+                    {
+                        var v = Voxelise(c, s, i);
+                        vox.Add(v);
+                        prims += v.t.primCount; hSum += (v.t.hi.y - v.t.root.y) * 0.1;
+                        if (v.Rejected) { rej++; if (!arm.style180) fails.Add($"seed {seed} {BiomeName(b)} {arm.name} tree {v.t.root} form {v.t.shape}: {v.Why}"); }
+                        bool cone = arm.style180 ? b == GenBiome.Snow : v.t.shape == Trees.FORM_CONIFER;
+                        if (LeafFill(v, cone, out double f, out double sk))
+                        { fSum += f; skySum += sk; fN++; fMin = math.min(fMin, f); fMax = math.max(fMax, f); }
+                        for (int k = 0; k < v.mats.Length; k++) if (GenMat.IsTreeLeaf(v.mats[k])) leafVox++;
+                        BrickValues(v, out int bb, out int tw); bricks += bb; two += tw;
+                    }
+                    // uniqueness over the 12 neighbours
+                    int m12 = math.min(12, vox.Count);
+                    var sil = new List<HashSet<int>>();
+                    for (int k = 0; k < m12; k++) sil.Add(Silhouette(vox[k]));
+                    double twin = 0;
+                    for (int k = 0; k < m12; k++)
+                    {
+                        double best = 0;
+                        for (int j = 0; j < m12; j++)
+                        {
+                            if (j == k) continue;
+                            int inter = 0; foreach (int key in sil[k]) if (sil[j].Contains(key)) inter++;
+                            int uni = sil[k].Count + sil[j].Count - inter;
+                            if (uni > 0) best = math.max(best, (double)inter / uni);
+                        }
+                        twin += best;
+                    }
+                    twin = m12 > 1 ? twin / m12 : 0;
+                    int nT = idx.Count;
+                    log.AppendLine($"{seed,4} {BiomeName(b),-8} {arm.name,-7} {nT,5} {(fN > 0 ? 100 * fSum / fN : 0),7:F1} {(fN > 0 ? $"{100 * fMin:F0}-{100 * fMax:F0}" : "-"),11} "
+                                 + $"{(fN > 0 ? 100 * skySum / fN : 0),6:F1} {twin,5:F2} {(bricks > 0 ? 100.0 * two / bricks : 0),6:F1} {(nT > 0 ? leafVox / nT : 0),9} "
+                                 + $"{(nT > 0 ? hSum / nT : 0),8:F1} {(nT > 0 ? (double)prims / nT : 0),5:F1} {rej,3}");
+                    if (seed == 42u)
+                    {
+                        WriteSheet(Path.Combine(ShotDir, $"look_{seed}_{BiomeName(b)}_{arm.name}.png"), vox.GetRange(0, m12),
+                                   $"seed {seed} {BiomeName(b)} {arm.name}: the 12 trees nearest {anchors[b]}, side view along +z", 2);
+                        if (!sheets.TryGetValue(b, out var all)) { all = new List<TreeVox>(); sheets[b] = all; }
+                        for (int k = 0; k < 12; k++) if (k < m12) all.Add(vox[k]); else all.Add(null);
+                    }
+                }
+            }
+            foreach (var kv in sheets)
+            {   // one image per biome: 180 | fill30 | fill45 | fill60, two rows of six each
+                var l = kv.Value;
+                var keep = new List<TreeVox>();
+                foreach (var v in l) keep.Add(v);
+                WriteSheetNullable(Path.Combine(ShotDir, $"look_{seed}_{BiomeName(kv.Key)}.png"), keep,
+                    $"seed {seed} {BiomeName(kv.Key)}: rows 1-2 task 180, 3-4 fill 30, 5-6 fill 45, 7-8 fill 60 (the same 12 nearest trees' cells)");
+            }
+        }
+
+        Directory.CreateDirectory(LogDir);
+        log.AppendLine($"FAILS {fails.Count}");
+        foreach (var f in fails) log.AppendLine("  " + f);
+        File.WriteAllText(Path.Combine(LogDir, "look.txt"), log.ToString());
+        UnityEngine.Debug.Log(log.ToString());
+        Assert.IsEmpty(fails, string.Join("\n", fails.GetRange(0, math.min(20, fails.Count))));
+    }
+
+    // Task 192 (explicit, for the look launch): a mature broadleaf tree near 180's forest pose; the
+    // eye 2.5 m from its trunk (+z side), 1.6 m over the ground, looking up into the crown.
+    [Test, Explicit("writes Logs/TerrainGen/trees192/undercrown.txt for -wsfixed")]
+    public void Poses_UnderCrown()
+    {
+        using var c = new Ctx(42u);
+        var spec = c.src.Spec; var view = c.src.Map.View; var o = c.src.O;
+        float2 aim = new float2(33664f, 49280f);   // 180's forest pose target, voxels
+        var win = new List<int4> { new int4(((int)aim.x >> Trees.CELL_SHIFT) - 8, ((int)aim.y >> Trees.CELL_SHIFT) - 8,
+                                            ((int)aim.x >> Trees.CELL_SHIFT) + 8, ((int)aim.y >> Trees.CELL_SHIFT) + 8) };
+        using var s = RunScan(c, win);
+        int pick = -1; float bestD = float.MaxValue;
+        for (int i = 0; i < s.trees.Length; i++)
+        {
+            var t = s.trees[i];
+            if (t.biome != GenBiome.Forest || t.shape != Trees.FORM_BROAD || t.hi.y - t.root.y < 100) continue;
+            float d = math.length((float2)t.root.xz - aim);
+            if (d < bestD) { bestD = d; pick = i; }
+        }
+        Assert.GreaterOrEqual(pick, 0, "no mature broadleaf near the forest pose");
+        var tr = s.trees[pick];
+        float2 e = (float2)tr.root.xz + new float2(0.5f, 25.5f);
+        float gE = ShapeField.Sample(in spec, in view, in o, e.x, e.y, 1).height;
+        string F(float v) => (v * 0.1f).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        string pose = $"under_crown|{F(e.x)},{F(gE + 16f)},{F(e.y)}|{F(tr.root.x + 0.5f)},{F(tr.root.y + (tr.hi.y - tr.root.y) * 0.8f)},{F(tr.root.z - 15f)}";
+        Directory.CreateDirectory(LogDir);
+        File.WriteAllText(Path.Combine(LogDir, "undercrown.txt"), pose + "\n");
+        UnityEngine.Debug.Log($"tree {tr.root} lo {tr.lo} hi {tr.hi}: {pose}");
+    }
+
+    /// WriteSheet with empty panels for null entries (rows of 6).
+    private static void WriteSheetNullable(string path, List<TreeVox> vox, string title)
+    {
+        var dense = new List<TreeVox>();
+        foreach (var v in vox) dense.Add(v ?? EmptyVox);
+        WriteSheet(path, dense, title, (vox.Count + SHEET_COLS - 1) / SHEET_COLS);
+    }
+
+    private static readonly TreeVox EmptyVox = new TreeVox
+    {
+        t = new Tree { root = new int3(0, 0, 0) }, lo = new int3(0, 0, 0), dim = new int3(1, 1, 1),
+        ground = new[] { int.MinValue }, mats = new byte[1], trunkGrounded = true,
+    };
+
+    // ==================================================================
     // Cost: dense bricks + generation time, ON vs OFF (LOD 0 and shells 1-5)
     // ==================================================================
     [Test, Category("Slow")]
@@ -617,6 +847,11 @@ public class TreeTests
         var log = new StringBuilder();
         log.AppendLine("seed 42. LOD 0: a 3 x 3 chunk-column patch round the densest tree spot of each biome; every layer from the lowest ground - 1 to the top.");
         log.AppendLine("Dense = non-uniform 8^3 bricks (a 512-byte body each on CPU + GPU). Times: this test's own Generate calls, ON and OFF interleaved (not a warm rig).");
+        // task 192: both looks on the same patches -- task 180's trees (-treestyle 0), then 192's default
+        foreach (bool style180 in new[] { true, false })
+        {
+        src.SetTreeLook(0, style180);
+        log.AppendLine(style180 ? "== task 180's trees (-treestyle 0)" : $"== task 192's trees (default, leaf fill {Trees.DEFAULT_LEAF_FILL})");
         foreach (byte b in new byte[] { GenBiome.Forest, GenBiome.Jungle, GenBiome.Snow, GenBiome.Savanna })
         {
             // the chunk column holding the most trees of this biome
@@ -671,6 +906,8 @@ public class TreeTests
             }
             src.SetTrees(true);
         }
+        }
+        src.SetTreeLook(0, false);
         Directory.CreateDirectory(LogDir);
         File.WriteAllText(Path.Combine(LogDir, "cost.txt"), log.ToString());
         UnityEngine.Debug.Log(log.ToString());

@@ -268,6 +268,8 @@ namespace VoxelEngine.WorldGen
             if (RockMixOffArg()) spec.rockMixOff = 1;
             if (RiverShapeOffArg()) spec.riverShapeOff = 1;
             if (TreesArg()) spec.treesOn = 1;   // task 180
+            spec.treeLeafFill = LeafFillArg();   // task 192
+            if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183

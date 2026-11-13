@@ -1,0 +1,12 @@
+<html><body style="background:#111;color:#ddd;font-family:sans-serif"><h3>Task 192 trees: Space = next arm (180 today / fill 30 / fill 45 / fill 60), arrows = pose, S = contact sheets, Z = full size</h3><div id=t style="font-size:18px;margin:6px 0"></div><img id=i style="max-width:100%"><script>
+var poses=['forest','jungle_high','savanna','snow','desert','under_crown','jungle'],sheets=['forest','jungle','savanna','snow','desert'];
+var arms=['180','30','45','60'],names={'180':'TODAY: task 180 trees (-treestyle 0)','30':'NEW, -leaffill 30 (sparsest)','45':'NEW, -leaffill 45 (proposed default)','60':'NEW, -leaffill 60 (densest)'};
+var k=0,a=0,z=0,sh=0;
+function s(){var im=document.getElementById('i'),t=document.getElementById('t');
+ if(sh){im.src='look_42_'+sheets[k%sheets.length]+'.png';t.textContent='SHEET '+sheets[k%sheets.length]+': 12 neighbouring trees, rows 1-2 today (180), 3-4 fill 30, 5-6 fill 45, 7-8 fill 60';}
+ else{im.src=poses[k]+'_'+arms[a]+'.png';t.textContent=poses[k]+' -- '+names[arms[a]];}
+ im.style.maxWidth=z?'none':'100%';}
+document.onkeydown=function(e){var n=sh?sheets.length:poses.length;
+ if(e.key==' '){a=(a+1)%arms.length;}else if(e.key=='ArrowRight'){k=(k+1)%n;}else if(e.key=='ArrowLeft'){k=(k+n-1)%n;}
+ else if(e.key=='z'||e.key=='Z'){z=1-z;}else if(e.key=='s'||e.key=='S'){sh=1-sh;k=0;}s();e.preventDefault();};s();
+</script></body></html>

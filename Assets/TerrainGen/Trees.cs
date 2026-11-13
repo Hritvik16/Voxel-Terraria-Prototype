@@ -71,7 +71,9 @@ namespace TerrainGen
         public const int MAX_HEIGHT = 240;
         /// Trunks reach this far below the lowest ground round them (they only fill air).
         public const int ROOT_DEPTH = 6;
-        public const int MAX_PRIMS = 14;
+        /// Task 192: a skeleton tree (trunk + buttress + 5 limbs + 10 twigs + 10 leaf
+        /// clumps + a top clump) takes at most this many (task 180's families: 14).
+        public const int MAX_PRIMS = 28;
         /// Shells above this draw no trees (3.2 m voxels; beyond 2.2 km on High).
         public const int MAX_SHELL = 5;
 
@@ -89,6 +91,13 @@ namespace TerrainGen
 
         /// Per-mille density of biome `b` (0 for unknown / badlands).
         public static int Density(byte b) => b < GenBiome.Count ? DENSITY[b] : 0;
+
+        // ---- task 192: the look (leaf fill, forms) ----
+        /// The leaf FILL target (percent of the crown envelope) when the spec leaves it 0.
+        public const int DEFAULT_LEAF_FILL = 45;
+        public static int LeafFill(in TerrainSpec spec) => spec.treeLeafFill == 0 ? DEFAULT_LEAF_FILL : math.clamp((int)spec.treeLeafFill, 10, 90);
+        /// Tree.shape under 192's style: the FORM (task 180's style: the family 0-2).
+        public const byte FORM_BROAD = 0, FORM_CONIFER = 1, FORM_PALM = 2, FORM_CACTUS = 3, FORM_COUNT = 4;
 
         // ---- materials ----
         public static byte Wood(byte biome)
@@ -201,13 +210,27 @@ namespace TerrainGen
 
             var root = new int3(tx, c.height, tz);
             int start = n;
-            byte shape = (byte)Span(Ores.Hash(seed, cx, 2, cz) & 0xFFFFu, 3);
             var rng = new Rng { seed = seed, cx = cx, cz = cz, k = 16 };
-            Emit(biome, shape, root, ref rng, prims, ref n);
-            if (n == start) return false;
+            bool style180 = spec.treeStyle180 != 0;
+            byte shape;
+            float trunkR;
+            var P = default(Look);
+            if (style180)
+            {   // task 180's families, byte for byte (-treestyle 0)
+                shape = (byte)Span(Ores.Hash(seed, cx, 2, cz) & 0xFFFFu, 3);
+                Emit(biome, shape, root, ref rng, prims, ref n);
+                if (n == start) return false;
+                trunkR = prims[start].kind == CAPSULE ? math.max(prims[start].r0, prims[start].r1) : prims[start].b.x;
+            }
+            else
+            {   // task 192: this tree's own numbers, drawn inside its biome x slot ranges
+                P = Pick(biome, slot, LeafFill(in spec), ref rng);
+                if (P.form == 255) return false;
+                shape = P.form;
+                trunkR = P.footR;
+            }
 
             // FOOTPRINT: no tree on a sheer foot (> 45 deg across the trunk + 2 voxels).
-            float trunkR = prims[start].kind == CAPSULE ? math.max(prims[start].r0, prims[start].r1) : prims[start].b.x;
             int d = (int)math.ceil(trunkR) + 2;
             int hE = HeightAt(in spec, in map, in o, tx + d, tz), hW = HeightAt(in spec, in map, in o, tx - d, tz);
             int hN = HeightAt(in spec, in map, in o, tx, tz + d), hS = HeightAt(in spec, in map, in o, tx, tz - d);
@@ -215,6 +238,11 @@ namespace TerrainGen
                                 math.max(math.abs(hN - c.height), math.abs(hS - c.height)));
             if (dmax > d) { n = start; return false; }
             int minH = math.min(math.min(math.min(hE, hW), math.min(hN, hS)), c.height);
+            if (!style180)
+            {   // the skeleton, leaning out over the downhill side (the foot's own gradient)
+                EmitLook(in P, root, new float2(hW - hE, hS - hN), 2 * d, ref rng, prims, ref n);
+                if (n == start) return false;
+            }
             // ROOTS: prim 0 is always the trunk; it reaches ROOT_DEPTH under the lowest ground round it.
             prims[start].a.y = minH - ROOT_DEPTH - root.y;
             Bounds(ref prims[start]);
@@ -454,6 +482,325 @@ namespace TerrainGen
 
                 default:
                     break;   // badlands: none (its density is 0 anyway)
+            }
+        }
+
+        // ==================================================================
+        // Task 192 (owner 2026-11-12: "very generic and not unique ... the density
+        // of the leaves is too much"): no families. Every tree draws its OWN numbers
+        // from the cell's hash INSIDE ranges its biome and cover slot set (so no two
+        // trees match while a biome still reads as one kind of woodland), then grows
+        // a SKELETON -- trunk -> limbs -> twigs -- and puts its leaves as CLUMPS on
+        // the twig ends (conifers: lobed whorls round the trunk), sized so the
+        // leaves fill LeafFill % of the crown envelope; the rest is sky. One leaf
+        // material per tree (a shade picked per tree), so a canopy brick holds
+        // <= 2 values and task 188's compact shell bricks keep working.
+        // ==================================================================
+
+        /// One tree's own numbers (fine voxels, relative to its root).
+        private struct Look
+        {
+            public byte form, wood, leaf;
+            public float H;            // crown top over the root's ground (cactus / barrel: body height)
+            public float rt, footR;    // trunk base radius; the foot test's radius
+            public float cb;           // crown base: lowest limb / lowest tier
+            public float wr;           // broad: crown radius / tree height; conifer: base radius / crown height
+            public float leader;       // broad: trunk top inside the crown (0 = forks at the base, 0.6 = a leader)
+            public float rise, flat, droop;
+            public int limbs, twigs;   // palm: limbs = fronds; cactus: limbs = arms
+            public bool buttress, barrel;
+            public float lean, leanSlope;  // lean (fraction of H) on flat ground; extra per unit of foot slope
+            public float fill;         // the leaf fill target, 0-1
+            public float spacing, curve;   // conifer: tier spacing, radius profile exponent; palm: curve = bend
+        }
+
+        private static float SlotScale(int slot) => slot == Cover.Steep || slot == Cover.High ? 0.85f : slot == Cover.Hollow ? 1.1f : 1f;
+        private static int Int(ref Rng r, int lo, int hi) => math.min(hi, lo + (int)(r.Next() * (hi - lo + 1)));
+
+        /// This tree's numbers (form 255 = none). The draw ORDER is fixed per biome.
+        private static Look Pick(byte biome, int slot, int fillPct, ref Rng r)
+        {
+            var P = new Look { form = 255, fill = fillPct * 0.01f };
+            // AGE: saplings, mature trees, a few old ones (size, girth, limb count)
+            float u = r.Next();
+            int age = u < 0.15f ? 0 : u < 0.82f ? 1 : 2;
+            float s = (age == 0 ? r.Range(0.42f, 0.6f) : age == 1 ? r.Range(0.85f, 1.05f) : r.Range(1.05f, 1.15f)) * SlotScale(slot);
+            float girth = age == 2 ? 1.25f : 1f;
+            float formRoll = r.Next(), leafRoll = r.Next();
+            switch (biome)
+            {
+                case GenBiome.Forest:
+                {   // broad deciduous; conifers mix in on high and steep ground
+                    float conifer = slot == Cover.High ? 0.5f : slot == Cover.Steep ? 0.2f : 0.05f;
+                    if (formRoll < conifer) { Conifer(ref P, ref r, s * 0.8f, girth); break; }
+                    P.form = FORM_BROAD; P.wood = GenMat.ForestWood;
+                    P.leaf = leafRoll < 0.6f ? GenMat.ForestLeaves : leafRoll < 0.85f ? GenMat.JungleLeaves : GenMat.SavannaLeaves;
+                    P.H = r.Range(100f, 160f) * s;
+                    P.cb = P.H * r.Range(0.2f, 0.42f);
+                    P.wr = r.Range(0.24f, 0.4f);
+                    P.leader = r.Range(0.1f, 0.6f);
+                    P.limbs = math.min(5, (age == 0 ? Int(ref r, 2, 3) : Int(ref r, 3, 5)) + (age == 2 ? 1 : 0));
+                    P.twigs = age == 0 ? Int(ref r, 1, 2) : Int(ref r, 2, 3);
+                    P.rise = r.Range(0.35f, 0.75f); P.flat = r.Range(0.65f, 0.9f); P.droop = r.Range(0f, 0.3f);
+                    P.rt = math.max(1.6f, P.H * r.Range(0.033f, 0.048f) * girth);
+                    P.lean = r.Range(0f, 0.05f); P.leanSlope = 0.12f;
+                    break;
+                }
+                case GenBiome.Jungle:
+                {   // tall emergents with wide high crowns, palms in the hollows
+                    float palm = slot == Cover.Hollow ? 0.35f : slot == Cover.Flat ? 0.15f : slot == Cover.Steep ? 0.1f : 0.05f;
+                    if (formRoll < palm)
+                    {
+                        P.form = FORM_PALM; P.wood = GenMat.JungleWood; P.leaf = leafRoll < 0.75f ? GenMat.JungleLeaves : GenMat.ForestLeaves;
+                        P.H = r.Range(80f, 140f) * s;
+                        P.rt = 3.2f * math.clamp(s, 0.6f, 1.1f);
+                        P.curve = r.Range(6f, 24f) * s;
+                        P.limbs = Int(ref r, 5, 6);
+                        P.droop = r.Range(0.3f, 0.55f);
+                        P.lean = r.Range(0f, 0.02f); P.leanSlope = 0.05f;
+                        break;
+                    }
+                    P.form = FORM_BROAD; P.wood = GenMat.JungleWood; P.leaf = leafRoll < 0.7f ? GenMat.JungleLeaves : GenMat.ForestLeaves;
+                    float h0 = r.Range(110f, 200f);
+                    P.H = h0 * s;
+                    P.cb = P.H * math.clamp(math.lerp(0.45f, 0.72f, (h0 - 110f) / 90f) + r.Range(-0.05f, 0.05f), 0.35f, 0.8f);
+                    P.wr = r.Range(0.26f, 0.36f);
+                    P.leader = r.Range(0f, 0.25f);
+                    P.limbs = Int(ref r, 3, 5); P.twigs = age == 0 ? Int(ref r, 1, 2) : Int(ref r, 2, 3);
+                    P.rise = r.Range(0.2f, 0.5f); P.flat = r.Range(0.45f, 0.7f); P.droop = r.Range(0.1f, 0.35f);
+                    P.rt = math.max(1.8f, P.H * r.Range(0.03f, 0.042f) * girth);
+                    P.buttress = age != 0 && (h0 > 150f || age == 2);
+                    P.lean = r.Range(0f, 0.03f); P.leanSlope = 0.08f;
+                    break;
+                }
+                case GenBiome.Savanna:
+                {   // flat-topped acacias; now and then a bottle-trunked giant
+                    P.form = FORM_BROAD; P.wood = GenMat.AcaciaWood; P.leaf = leafRoll < 0.7f ? GenMat.SavannaLeaves : GenMat.ForestLeaves;
+                    if (formRoll < 0.12f)
+                    {
+                        P.H = r.Range(60f, 85f) * s;
+                        P.rt = P.H * r.Range(0.12f, 0.17f);
+                        P.cb = P.H * r.Range(0.6f, 0.75f);
+                        P.wr = r.Range(0.3f, 0.45f); P.leader = 0f;
+                        P.limbs = Int(ref r, 4, 5); P.twigs = 1;
+                        P.rise = r.Range(0.5f, 0.8f); P.flat = 0.6f; P.droop = 0f;
+                        P.lean = 0f; P.leanSlope = 0.03f;
+                        break;
+                    }
+                    P.H = r.Range(60f, 95f) * s;
+                    P.cb = P.H * r.Range(0.5f, 0.68f);
+                    P.wr = r.Range(0.45f, 0.65f);
+                    P.leader = r.Range(0f, 0.1f);
+                    P.limbs = Int(ref r, 2, 4); P.twigs = age == 0 ? Int(ref r, 1, 2) : Int(ref r, 2, 3);
+                    P.rise = r.Range(0.45f, 0.75f); P.flat = r.Range(0.3f, 0.45f); P.droop = r.Range(0f, 0.1f);
+                    P.rt = math.max(1.6f, P.H * r.Range(0.045f, 0.06f) * girth);
+                    P.lean = r.Range(0f, 0.06f); P.leanSlope = 0.12f;
+                    break;
+                }
+                case GenBiome.Snow:
+                    Conifer(ref P, ref r, s, girth);
+                    break;
+                case GenBiome.Desert:
+                {
+                    P.form = FORM_CACTUS; P.wood = GenMat.Cactus;
+                    float cs = math.clamp(s, 0.6f, 1.1f);
+                    if (formRoll < 0.22f)
+                    {
+                        P.barrel = true;
+                        P.rt = r.Range(6f, 10f) * cs; P.H = r.Range(8f, 13f) * cs;
+                        P.footR = P.rt * 0.8f;
+                        return P;
+                    }
+                    P.H = r.Range(28f, 70f) * s;
+                    P.rt = r.Range(3.8f, 6f) * math.clamp(s, 0.7f, 1.1f);
+                    P.limbs = math.clamp((int)(r.Next() * 1.6f * (P.H - 25f) / 14f), 0, 3);
+                    break;
+                }
+                default:
+                    return P;   // badlands: none (its density is 0 anyway)
+            }
+            if (P.form == FORM_BROAD) P.twigs = math.min(P.twigs, 10 / P.limbs);
+            P.H = math.min(P.H, 200f);
+            P.footR = P.rt;
+            return P;
+        }
+
+        /// A conifer: tiers of lobed whorls round a straight trunk; q = 0 spruce-like
+        /// (crown to the ground, broad), q = 1 pine-like (long bare trunk, narrow top).
+        private static void Conifer(ref Look P, ref Rng r, float s, float girth)
+        {
+            P.form = FORM_CONIFER; P.wood = GenMat.PineWood; P.leaf = GenMat.PineNeedles;
+            float q = r.Next();
+            P.H = r.Range(100f, 180f) * s;
+            P.cb = P.H * math.clamp(math.lerp(0.06f, 0.42f, q) + r.Range(-0.03f, 0.03f), 0.03f, 0.5f);
+            P.wr = math.lerp(0.28f, 0.2f, q) * r.Range(0.85f, 1.15f);
+            P.spacing = r.Range(13f, 20f) * math.clamp(s, 0.6f, 1.1f);
+            P.curve = r.Range(0.8f, 1.15f);
+            P.rt = math.max(1.6f, P.H * r.Range(0.025f, 0.035f) * girth);
+            P.lean = r.Range(0f, 0.015f); P.leanSlope = 0.03f;
+        }
+
+        private static float3 Axis(float2 lean, float yRef, float y) => new float3(lean.x * y / yRef, y, lean.y * y / yRef);
+
+        /// Grow tree P at root: `down` = the foot's downhill vector (height difference
+        /// over `span` voxels), so trees on slopes lean out over the drop.
+        private static void EmitLook(in Look P, int3 root, float2 down, int span, ref Rng r, TreePrim* p, ref int n)
+        {
+            float th = r.Angle();
+            float dl = math.length(down);
+            float2 dir = dl > 0.5f ? down / dl : new float2(math.cos(th), math.sin(th));
+            float slope = math.min(dl / math.max(span, 1), 1.5f);
+            float2 lean = dir * math.min(P.H * (P.lean + slope * P.leanSlope), 10f);
+            byte W = P.wood, Lf = P.leaf;
+            switch (P.form)
+            {
+                case FORM_BROAD:
+                {
+                    float ch = math.max(P.H - P.cb, 8f);
+                    float Rv = ch * 0.5f, Cy = P.cb + Rv;
+                    float Rh = math.clamp(P.H * P.wr, 6f, 48f - math.length(lean));
+                    float yf = P.cb + ch * P.leader;
+                    float3 top = Axis(lean, Cy, yf);
+                    Capsule(p, ref n, root, new float3(0, 0, 0), top, P.rt, math.max(P.rt * 0.5f, 1.2f), W);   // prim 0: the trunk
+                    if (P.buttress) Capsule(p, ref n, root, new float3(0, 0, 0), new float3(0, math.min(P.rt * 2.5f, 18f), 0), P.rt + math.min(P.rt * 0.9f, 5.5f), P.rt, W);
+                    int Lm = P.limbs, T = P.twigs;
+                    bool topClump = P.leader >= 0.3f;
+                    int N = Lm * T + (topClump ? 1 : 0);
+                    // CLUMP SIZE from the fill target. Clumps overlap more as they grow, so the measured
+                    // fill (leaf voxels / the ellipsoid inscribed in the leaves' box) saturates near 55 %:
+                    // tf = the clump volume asked of the crown ellipsoid (Rh, Rv, Rh) for a measured fill
+                    // of P.fill (task 192's calibration on seeds 42 / 7: 0.30 -> 0.30, 0.45 -> 0.52, 0.60 -> 0.90;
+                    // 1.5 = the densest clump crown, about 66 %). Sparse crowns put their clumps on the upper shell (a dome,
+                    // the interior open); denser ones also fill the inside and the underside.
+                    float tf = math.min(0.3f * math.exp(3.66f * (P.fill - 0.3f)), 1.5f), tf1 = math.min(tf, 1f);
+                    float rc = math.pow(tf * Rh * Rh * Rv / (N * P.flat * 1.6f), 1f / 3f);
+                    rc = math.clamp(rc, 4f, math.min(Rh, Rv / P.flat) * 0.8f);
+                    float Rhs = math.max(Rh - rc, 2f), Rvs = math.max(Rv - rc * P.flat, 1f);
+                    float uLo = 0.95f - 0.45f * tf1, vLo = -0.1f - 0.6f * tf1;
+                    float rl0 = math.max(P.rt * 0.55f * math.rsqrt(Lm / 3f), 1.4f), rl1 = math.max(rl0 * 0.6f, 1.1f), rw = math.max(rl1 * 0.75f, 1f);
+                    float phi0 = r.Angle(), sector = 6.2831853f / Lm;
+                    for (int i = 0; i < Lm; i++)
+                    {
+                        float phi = phi0 + i * sector + r.Range(-0.3f, 0.3f) * sector;
+                        float2 d = new float2(math.cos(phi), math.sin(phi));
+                        float ys = topClump ? P.cb + (yf - P.cb) * (Lm == 1 ? 0f : (float)i / (Lm - 1)) * 0.85f : yf;
+                        ys = math.clamp(ys + r.Range(-2f, 2f), P.cb * 0.9f, yf);
+                        float3 S = Axis(lean, Cy, ys);
+                        float v = math.clamp(math.lerp(-0.35f, 0.45f, P.rise) + r.Range(-0.15f, 0.15f), -0.6f, 0.7f);
+                        float rho = Rhs * math.sqrt(1f - v * v) * (T == 1 ? r.Range(0.6f, 0.85f) : r.Range(0.3f, 0.55f));
+                        var E = new float3(lean.x + d.x * rho, Cy + Rvs * v, lean.y + d.y * rho);
+                        E.y = math.max(E.y, S.y + 2f);
+                        Capsule(p, ref n, root, S, E, rl0, rl1, W);
+                        if (T == 1)
+                        {
+                            float k1 = r.Range(0.85f, 1.15f);
+                            Blob(p, ref n, root, E, new float3(rc * k1, rc * k1 * P.flat, rc * k1), 0.3f, Lf, ref r);
+                            continue;
+                        }
+                        float spread = sector * r.Range(0.5f, 0.85f);
+                        for (int j = 0; j < T; j++)
+                        {
+                            float psi = phi + spread * ((float)j / (T - 1) - 0.5f) + r.Range(-0.15f, 0.15f);
+                            float vv = math.clamp(r.Range(vLo, 0.75f) - P.droop, -0.8f, 0.9f);
+                            float uu = r.Range(uLo, 1f) * math.sqrt(1f - vv * vv);
+                            var Q = new float3(lean.x + math.cos(psi) * Rhs * uu, Cy + Rvs * vv, lean.y + math.sin(psi) * Rhs * uu);
+                            Capsule(p, ref n, root, E, Q, rl1, rw, W);
+                            float k = r.Range(0.8f, 1.15f);
+                            Blob(p, ref n, root, Q, new float3(rc * k, rc * k * P.flat, rc * k), 0.3f, Lf, ref r);
+                        }
+                    }
+                    if (topClump) Blob(p, ref n, root, top + new float3(0, rc * P.flat * 0.4f, 0), new float3(rc, rc * P.flat, rc), 0.3f, Lf, ref r);
+                    break;
+                }
+                case FORM_CONIFER:
+                {
+                    float ch = math.max(P.H - P.cb, 12f);
+                    float R0 = math.min(ch * P.wr, 46f);
+                    var top = new float3(lean.x, P.H * 0.96f, lean.y);
+                    Capsule(p, ref n, root, new float3(0, 0, 0), top, P.rt, 1.2f, W);   // prim 0: the trunk
+                    float topLen = math.clamp(ch * 0.14f, 6f, 20f);
+                    int N = math.clamp((int)((ch - topLen) / P.spacing), 3, 8);
+                    float sp = (ch - topLen) / N;
+                    // TIER HEIGHT from the fill target: a stack of N cones of height g x spacing under a
+                    // straight-sided envelope cone fills about g / 3 of it
+                    float g = math.clamp(3f * P.fill, 0.75f, 2.2f);
+                    float phi0 = r.Angle(), Rlast = R0;
+                    for (int k = 0; k < N; k++)
+                    {
+                        float y = P.cb + k * sp + r.Range(-0.15f, 0.15f) * sp;
+                        float t = math.saturate((y - P.cb) / ch);
+                        float R = math.max(R0 * math.pow(1f - t, P.curve) * r.Range(0.85f, 1.1f), 4f);
+                        float h = math.clamp(g * sp, 3f, R * 1.8f);
+                        float3 c = Axis(lean, P.H, y);
+                        Cone(p, ref n, root, c, R, h, 0.3f, Lf, ref r);
+                        // a limb under the whorl: bark shows between the tiers
+                        float phi = phi0 + k * 2.39996f;
+                        Capsule(p, ref n, root, c + new float3(0, 1f, 0),
+                                c + new float3(math.cos(phi) * R * 0.85f, r.Range(0.5f, 2.5f), math.sin(phi) * R * 0.85f),
+                                math.max(1.4f, P.rt * 0.35f), 1f, W);
+                        Rlast = R;
+                    }
+                    Cone(p, ref n, root, Axis(lean, P.H, P.H - topLen), math.min(Rlast * 0.6f, 7f), topLen + 4f, 0.15f, Lf, ref r);
+                    break;
+                }
+                case FORM_PALM:
+                {
+                    float2 bd = math.normalizesafe(lean, dir);
+                    float bend = P.curve + math.length(lean);
+                    float3 p0 = new float3(0, 0, 0);
+                    float3 p1 = new float3(bd.x * bend * 0.11f, P.H * 0.34f, bd.y * bend * 0.11f);
+                    float3 p2 = new float3(bd.x * bend * 0.44f, P.H * 0.67f, bd.y * bend * 0.44f);
+                    float3 p3 = new float3(bd.x * bend, P.H, bd.y * bend);
+                    float tr = P.rt;
+                    Capsule(p, ref n, root, p0, p1, tr, tr * 0.94f, W);   // prim 0: the trunk's foot
+                    Capsule(p, ref n, root, p1, p2, tr * 0.94f, tr * 0.84f, W);
+                    Capsule(p, ref n, root, p2, p3, tr * 0.84f, tr * 0.75f, W);
+                    float sz = tr / 3.2f;
+                    Blob(p, ref n, root, p3 + new float3(0, 1.5f, 0), new float3(5f, 4f, 5f) * sz, 0.1f, Lf, ref r);
+                    // FRONDS: chains of four flat leaf pads arching out and down, sized from the frond's
+                    // length (successive pads overlap: no detached crumbs); the fill scales their width
+                    float fs = math.pow(P.fill / 0.45f, 1f / 3f);
+                    float phi0 = r.Angle();
+                    for (int f = 0; f < P.limbs; f++)
+                    {
+                        float psi = phi0 + f * 6.2831853f / P.limbs + r.Range(-0.25f, 0.25f);
+                        float2 d = new float2(math.cos(psi), math.sin(psi));
+                        float len = r.Range(26f, 38f) * sz;
+                        float dist = 4f * sz;
+                        for (int k = 0; k < 4; k++)
+                        {
+                            float rad = len * (0.2f - 0.035f * k) * fs;
+                            float t = dist / len;
+                            var c = p3 + new float3(d.x * dist, 1.5f + len * (0.25f * t - P.droop * t * t), d.y * dist);
+                            Blob(p, ref n, root, c, new float3(rad, rad * 0.42f, rad), 0.12f, Lf, ref r);
+                            dist += 0.6f * (rad + len * (0.2f - 0.035f * (k + 1)) * fs);
+                        }
+                    }
+                    break;
+                }
+                case FORM_CACTUS:
+                {
+                    if (P.barrel)
+                    {   // a squat ribbed ball (prim 0 stays a capsule: the root)
+                        Capsule(p, ref n, root, new float3(0, 0, 0), new float3(0, 4, 0), P.rt * 0.8f, P.rt * 0.8f, W);
+                        Blob(p, ref n, root, new float3(0, P.H * 0.7f, 0), new float3(P.rt, P.H, P.rt), 0.08f, W, ref r);
+                        p[n - 1].leaf = 0;
+                        break;
+                    }
+                    Capsule(p, ref n, root, new float3(0, 0, 0), new float3(0, P.H, 0), P.rt, P.rt * r.Range(0.8f, 1f), W);
+                    float phi0 = r.Angle();
+                    for (int a = 0; a < P.limbs; a++)
+                    {
+                        float phi = phi0 + a * 6.2831853f / P.limbs + r.Range(-0.5f, 0.5f);
+                        float2 d = new float2(math.cos(phi), math.sin(phi));
+                        float y = P.H * r.Range(0.3f, 0.6f), len = r.Range(7f, 13f);
+                        float up = math.min(r.Range(10f, 24f), P.H * 1.05f - y - 3f);
+                        var e = new float3(d.x * len, y + 3f, d.y * len);
+                        Capsule(p, ref n, root, new float3(0, y, 0), e, P.rt * 0.72f, P.rt * 0.72f, W);
+                        if (up > 2f) Capsule(p, ref n, root, e, e + new float3(0, up, 0), P.rt * 0.72f, P.rt * 0.65f, W);
+                    }
+                    break;
+                }
             }
         }
 

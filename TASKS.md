@@ -1413,3 +1413,28 @@ with `-lookwait 90` (35 s leaves shells 2-3 empty = no distant trees). Scripts `
 `191_wide_retake.sh`; logs `Logs/overnight/191/`; per-run `lookreview_*.txt` and the flip viewer in `Screenshots/191/` (Space cycles
 ON / OFF / switch alone). Capture change: the world survey prints a `[mem]` line (`MemoryLedger.Step14Line`: CPU / GPU body pool peak,
 refused, process now / peak) after each pose's `[pools]` line. Result: HANDOFF 191.
+
+**Task 192 -- trees look unique, with OPEN crowns (owner 2026-11-12: "very generic and not unique ... the density of the leaves is too much"; trees stay `-trees 1`, default OFF).**
+`Assets/TerrainGen/Trees.cs`: no more "3 families x jitter". `Pick` draws EVERY number of a tree from its cell hash inside RANGES its biome and
+cover slot set (age: 15 % saplings x0.42-0.6, mature x0.85-1.05, 18 % old x1.05-1.15 with thicker trunks and an extra limb; slot scale steep/high
+x0.85, hollow x1.1): forest broad deciduous (H 10-16 m, crown radius 0.24-0.4 H, 3-5 limbs x 2-3 twigs; conifers mix in on HIGH 50 % / steep 20 %),
+jungle tall emergents (H 11-20 m, crown base rising with height, buttress on old / tallest) + palms (hollow 35 %, flat 15 %), savanna flat-topped
+acacias (crown radius 0.45-0.65 H, flat pads) + 12 % bottle-trunked giants, snow conifers (spruce-to-pine continuum q: crown base, radius, 3-8
+lobed whorl tiers + a bark limb under each), desert cacti (arms 0-3 by height, 22 % barrels). `EmitLook` grows a SKELETON -- trunk -> limbs ->
+twigs (capsules, wood, radius >= 1 voxel so 6-connected) -- and puts the leaves as CLUMPS (lumpy blobs, edge noise 0.3) on the twig ends, the
+clump size from the fill target; sparse crowns put clumps on the upper shell (open interior), dense ones also inside. Trees on slopes lean out
+over the foot's own downhill gradient (the 4 foot samples, no extra sample). One leaf GenMat per tree, a shade picked per tree from the existing
+leaf GenMats (forest 60 % forest / 25 % jungle (dark) / 15 % savanna (olive) leaves; jungle 70/30; savanna 70/30; conifers pine needles): no new
+materials. `MAX_PRIMS` 14 -> 28 (tree scratch: a shell-5 chunk's worst-case prim array doubles, ~5 -> ~10 MB per shell scratch). FLAGS:
+`-leaffill 30|45|60` (`TerrainSpec.treeLeafFill`, measured leaf fill = leaf voxels / the ellipsoid (cone for conifers) inscribed in the leaves'
+box; default `Trees.DEFAULT_LEAF_FILL` 45; calibrated so 30 / 45 / 60 measure about 32 / 47 / 59 %, task 180's trees 60-81 %),
+`-treestyle 0` (`treeStyle180`, diagnostic: task 180's families byte for byte). `TerrainGenChunkSource.SetTreeLook(fill, style180)` for tests.
+Tests: `TreeTests.Look_FillSkyUniqueness_Sheets` (Slow; seeds 42 / 7, per biome the 30 trees nearest its densest block, arms 180 / 30 / 45 /
+60: fill, sky through the crown, "twin" = mean side-silhouette IoU with the most similar of 12 neighbours, <= 2-value bricks, prims; every new
+arm passes the physical rules; `Logs/TerrainGen/trees192/look.txt`, sheets `Screenshots/192/look_42_<biome>.png` = 12 neighbours, rows 180 /
+30 / 45 / 60), `FourSeeds_Rules_Sheets` and `Chunks_Deterministic_Border_PointAndShellsAgree` now write to `trees192` / `Screenshots/192`
+(task 180's sheets stay in `Screenshots/180`), `Poses_UnderCrown` (Explicit: the under-crown pose). `TreePoolTests.Pools_ForestPose` /
+`Pools_JunglePose` arms OFF / ON-180 / ON-30 / ON-45 / ON-60 / ADV-x60 -> `Logs/TerrainGen/trees192/pools_<pose>.txt`. Shots:
+`Logs/overnight/192_shots.sh` (180's five poses + `under_crown`, four launches) and `192_jungle_retake.sh` (180's jungle eye sits INSIDE
+the taller new jungle crowns = black frames; `jungle_high` = same target, eye 20 m higher, all four arms), `Screenshots/192/viewer.html`.
+`Cost_OnVsOff` now runs both looks on the same patches (`trees192/cost.txt`). Result: HANDOFF 192.

@@ -43,6 +43,36 @@ namespace VoxelEngine.WorldGen
             return on;
         }
 
+        /// -leaffill N (task 192): the trees' leaf fill target, percent of a crown's
+        /// envelope (the owner's arms 30 / 45 / 60). Absent = 0 = Trees.DEFAULT_LEAF_FILL. Last match wins.
+        public static byte LeafFillArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            byte v = 0;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-leaffill" && int.TryParse(a[i + 1], out int p)) v = (byte)math.clamp(p, 0, 90);
+            return v;
+        }
+
+        /// -treestyle 0 (task 192, diagnostic): task 180's tree families byte for byte.
+        /// Absent or 1 = 192's open crowns. Last match wins.
+        public static bool TreeStyle180Arg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool old = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-treestyle" && int.TryParse(a[i + 1], out int p)) old = p == 0;
+            return old;
+        }
+
+        /// Tests and reports (task 192): the leaf fill target (0 = the default) and
+        /// task 180's style (true) for the chunks generated from now on. Not thread-safe.
+        public void SetTreeLook(byte leafFill, bool style180)
+        {
+            var t = Spec; t.treeLeafFill = leafFill; t.treeStyle180 = style180 ? (byte)1 : (byte)0; Spec = t;
+            _columnTop.Clear(); _specStamp++;
+        }
+
         /// Tests and reports (task 180's on / off): spec.treesOn for the chunks
         /// generated from now on. Not thread-safe: call between Generate calls.
         public void SetTrees(bool on)

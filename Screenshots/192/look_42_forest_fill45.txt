@@ -1,0 +1,1 @@
+seed 42 forest fill45: the 12 trees nearest float2(41088f, 20608f), side view along +z
