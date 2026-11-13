@@ -1,57 +1,41 @@
-# 190-placement-towns-on-sites: DONE. `-towns 1` flattens the 187 sites and places the hut / house / hall kit on them; towns are spread apart. The default stays OFF; the owner decides from the pictures.
+# 190a-matvariant-default-off: DONE. Materials by the rules only, with no random variant spray, are now the DEFAULT everywhere (play, rigs, capture runs, tests). `-matvariant 1` brings back the old spray.
 
-## What changed (commit 32a77e4)
-- **Spacing** (`Sites.TownSep2`): no town sits inside another town's fair share of the land, a disc of area land / towns, about 1.35 km here. An easy-area town that is too close is dropped. The missing towns go on **Walk ground anywhere** ("tier 2": every town disc rule, near a route). If nothing fits, there are fewer towns, never a town on bad ground. DECISION (mine): tier 2 keeps 3 towns per island. "Drop only" would leave seed 7 with 1 town. Easy to switch if the owner prefers.
-- **Flatten** (`Assets/TerrainGen/Towns.cs`, inside `ShapeField.Sample`, so every path agrees):
-  - The disc is set to the pad level, and a ring R/2 wide is blended back to the natural ground.
-  - The ring stops only at water, features or another site. Columns with water, a stamp or a ledge are never moved.
-  - Caves stay 6 m below a town. No trees and no fluid pockets inside towns.
-- **Buildings** (`Towns.Layout`): town = 1 hall + 8 houses + 8 huts; frontier 1 + 4 + 4; village 3 + 3; outpost 2 huts.
-  - The hall goes at the centre, its door toward the route. The rest stand on rings round an 8 m plaza, doors facing the centre, with 4 m lanes.
-  - Never on route, stamp, start, water or feature cells, nor on natural steps steeper than 30 deg.
-  - The footprints go into `WorldRecord.BuildingList`.
-- **Engine** (`TerrainGenChunkSource.Towns.cs`): the town plane reaches every sampling job.
-  - LOD 0 and the point query use the exact kit part.
-  - Shells show the highest solid part in each coarse cell, so far walls and roofs have no holes.
-  - The far band gets the flattened heights only.
-- The world survey now prints task 188's `[pools]` line.
+## What changed (commit 6a549d8)
+- `TerrainSpec.matVariantOff` became `matVariantOn`, following the 186 / 187a pattern. A default spec (byte 0) now has no spray. `MatVariant => matVariantOn != 0`.
+- `TerrainGenChunkSource.MatVariantArg()` now defaults to false. `-matvariant 1` sets `matVariantOn = 1`. `FarField` sets the far band's spec the same way, so near voxels, the far band and shells still agree.
+- Launch log lines now print the setting that is actually in force:
+  - `StreamManager`: "... stamp fit ON (default), material variant spray OFF (default)"
+  - `FarField`: the same wording.
+- Scene-builder landmine: no SerializeField carries this setting. Only the arg and the spec do, and the log lines above show that the flip took effect.
+- Tests (no assertion was loosened):
+  - `MatVariantTests` now checks that the default has no spray. 188a's pins `PIN_42` / `PIN_7` still pass byte for byte, now on the explicit `-matvariant 1` arm.
+  - The new default is pinned too: `PIN_DEFAULT_42 = 0xc6bc4dbe`.
+  - The no-spray checks now run on the default spec (no variant columns; same slot, cover, ground and trees).
+  - `LandSigTests.Off_IsTodayByteForByte` and `TownTests.Flatten_OffPins_OutsideIdentical` (tasks 189 / 190) compare their 188a pins on a `-matvariant 1` copy of the OFF spec. Their other assertions run on the new default and pass.
+- Trees are unchanged: `c.cover` still carries the noise VARIANT bit, and the tree tests are green.
+- TASKS.md has a task 190a paragraph.
 
 ## Evidence
-- Tests:
-  - `TownTests` (fast: an adversarial one-corner island gives 1 town of 2, a layout adversarial, OFF == the 188a pins, every column outside the towns byte-identical; Slow: 4-seed table).
-  - `TownChunkTests`: chunk == kit; ON vs OFF differ only inside site discs + rings; FarQuery == chunks; shell 0 == Generate; shell 1 exact; shells 2-3 have no holes in the hall.
-  - `SiteTests`' checker now knows tier 2 and the spacing.
-- Whole suite: **PASS 1058 FAIL 0 SKIP 27** (`Logs/overnight/190/all.out`, wall 26 min).
-- Counts (`Screenshots/190/table.txt`):
+- Filter run (MatVariant + the 189/190 pin tests): PASS 6 FAIL 0 (`Logs/overnight/190a/filter1.out`). Log: "variant 1: seed 42 fnv 0x6f6c8910 (pin 0x6f6c8910), seed 7 0xeaaad676 (pin 0xeaaad676)". `-matvariant 1` covers 22.4 % of land columns; the default covers 0 %.
+- Whole suite: **PASS 1058 FAIL 0 SKIP 27** (`Logs/overnight/190a/all.out`, wall 25m38s).
+- Launch logs:
+  - `Logs/overnight/190a/player_default.log` shows "material variant spray OFF (default)" from both StreamManager and FarField.
+  - `player_variant1.log` shows "ON (-matvariant 1)".
+- Shots: one build and two launches (the setting is a start-up arg), 45 s wait each, noon (sun behind the camera), 188a's poses (`Logs/overnight/190a_shots.sh`, `Logs/overnight/190a/shots.out`).
+  - Shell 1 was fully stored at all 3 poses (missing 0). Shell 2 was partial (689-1294 missing). Shells 3+ were unfilled.
+  - Because shells 2+ were still filling, small far-horizon differences between the arms come from streaming, not from this change.
 
-| seed | towns (tier 2) | frontier | villages | outposts | buildings (hall/house/hut) | min town distance before -> after |
-|---|---|---|---|---|---|---|
-| 42 | 3 (0) | 1 | 6 | 4 | 102 (4/46/52) | 1533 -> 1533 m |
-| 7 | 3 (2) | 1 | 4 | 6 | 96 (4/40/52) | **739 -> 1359 m** |
-| 2026 | 3 (1) | 1 | 4 | 6 | 95 (4/39/52) | 1361 -> 1459 m |
-| 31337 | 3 (1) | 1 | 2 | 8 | 84 (4/34/46) | **899 -> 2363 m** |
-
-- Cost at load: `[Towns] plan + layout` takes 245-262 ms in the player; the plane is 3.7 KB.
-- Pools (`[pools]`, 4 launches, `Screenshots/190/<seed>/lookreview.txt`):
-  - Shell 1 peak: 39-44 k of 150 k bodies (26-29 %).
-  - Shell 2 peak: 13-31 k of 119 k.
-  - 0 refusals.
-  - One hall's shell-1 chunk: 871 dense bricks ON vs 719 OFF (`chunks.txt`).
-- Not done: no timing (not a performance task). Shells 3+ were mostly unfilled after the 45 s waits.
-
-## Look notes (owner)
-- **Black upper walls** in every eye shot are the eaves' shadow. At noon the sun is 78 deg high, so the 0.4 m eaves shade ~1.9 m of wall, and shade renders black (task 193, sky light in shade, is queued). The gable ends and lower walls are lit.
-- **Grey box in `Screenshots/187/eye_frontier.png` = an ARCH stamp, not a defect.** It is at (4696.5, 5917.1) m, 432 m from the eye, at bearing 23 deg (an exact match). A snow rise hides its opening. The arch is a flat-topped rectangular slab 30-50 m long and 15-30 m tall by design, so it reads as a box. Possible look question: rounder arch tops. The grey slabs on the far hills in `42/ws_fixed_village_eye` look like a stone ring.
+## Unfinished / next
+- Nothing left in this task. Task 191 (the "everything ON vs OFF" preview) will now show the no-spray default.
 
 ## For the doc
-- Seed 7: closest towns 739 m -> 1359 m; seed 31337: 899 -> 2363 m. Every seed keeps 3 towns (`Screenshots/190/table.txt`).
-- 84-102 buildings per island (4 halls, 34-46 houses, 46-52 huts); 0 rule failures in an independent checker.
-- `-towns 0`: byte-identical (the 188a pins); with towns on, every column outside the town discs + rings is unchanged.
-- Shell pools with towns: peak 29 % of shell 1, 0 refusals.
-- `Screenshots/190/spacing_7_before_after.png`: left 187, right 190. The dashed orange circles are the spacing; T16-T18 move from one southwest cluster to west / centre / east.
-- `Screenshots/190/plans_7.png`: 200 m plans. Buildings (hall red, house orange, hut yellow, black = door wall) sit inside the white disc, off the cyan routes.
-- `Screenshots/190/<seed>/ws_fixed_town_eye_native.png`, `ws_fixed_village_eye_native.png`, `ws_fixed_town_150m_native.png`:
-  - 42: forest timber + slate town, savanna adobe + thatch village.
-  - 7 town: centre, the stone hall's front and door between the houses.
-  - 150 m: the town as a compact cluster with no pad edge visible.
-  - 2026 village: mostly at the left edge of the frame.
+- Default material variant spray: **ON -> OFF** (`-matvariant 1` = the old look). Launch log: "material variant spray OFF (default)" (`Logs/overnight/190a/player_default.log`).
+- Variant columns on land: **22.4 % -> 0 %** with the new default (seeds 42 + 7, 3,000 land columns; `MatVariantTests`).
+- Old look is byte for byte unchanged under `-matvariant 1`: FNV seed 42 0x6f6c8910, seed 7 0xeaaad676 == the pre-188a pins.
+- Trees: unchanged (same Cover byte, tree tests green).
+- Whole suite: PASS 1058 FAIL 0 SKIP 27 (`Logs/overnight/190a/all.out`).
+
+Images (full size; open `Screenshots/190a/viewer.html`: Space flips, arrows change the pose, Z zooms). Each `pair_*.png` has `-matvariant 1` (the old spray) on TOP and the NEW DEFAULT BELOW:
+- `Screenshots/190a/pair_desert_flat.png`: on top, the desert sand in the foreground is covered in dark-brown PackedSand blotches. Below, the sand is one even colour. Only the small orange specks stay; they are rule-made and appear in both shots. The green land behind is the same.
+- `Screenshots/190a/pair_savanna_flat.png`: the brown blotches go from the golden grass in the foreground. The pale beach sand along the river and the green bank by the water on the right stay, because the rules make them. The hills and the arch are the same.
+- `Screenshots/190a/pair_forest_bank_a.png`: in the middle of the forest grass, the brighter JungleGrass patches go, and so do the small pale-blue ice spots on the snow at the bottom right. The brown mud collars along the river and the pale ice on the shaded snowy slope (upper left) stay, because the rules make them.
