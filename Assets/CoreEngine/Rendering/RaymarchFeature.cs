@@ -566,6 +566,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// CPU twin SkyFillReference. Costs a 2 x W x H x 8 B history while on (7.4 MB at 1280x720).
     public static int SkyFill = ValidSkyFill(ReadIntArg("-skyfill", 0));
     public static int ValidSkyFill(int v) => v == 1 || v == 2 ? v : 0;
+
+    /// TASK 194 (bug fix, default ON): the REFUSED-CHUNK HAND-OVER (Raymarch.compute, the block of that name):
+    /// while the near GPU body pool holds refused chunks, a tier-0 hit past the ray's entry into a
+    /// non-resident column goes to the shells, which draw the refused chunk. `-refusedhandover 0` = the old
+    /// behaviour (a refused surface chunk shows as a 12.8 m box pit), for before/after pictures only.
+    public static bool RefusedHandOver = ReadIntArg("-refusedhandover", 1) != 0;
     private static GraphicsBuffer _sfA, _sfB, _sfDummyR, _sfDummyW;
     private static int _sfW, _sfH, _sfMode;
     private static bool _sfValid;
@@ -802,6 +808,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int kSunDefer;                   // task 168c: CSSunDeferLean, or -1 (not this frame)
             public TextureHandle sunDeferB;         // task 168c: the blocked outcome's colour
             public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
+            public int tier0Refused;                // task 194
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -1302,6 +1309,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 bool shellsOn = DrawShells && shells != null && !useStripped && !useMemoryProbe;
                 ShellsDrawnLastFrame = shellsOn;
                 passData.shellCount = shellsOn ? shells.Layout.ShellCount : 0;
+                // Task 194: the residency bitmap carries the refused columns only when the far band runs
+                // (Phase4Bootstrapper -> FarField.UpdateResidency), so the hand-over needs both.
+                passData.tier0Refused = RefusedHandOver && shellsOn && passData.farEnabled != 0
+                                        && TerrainClipmap.Active != null && TerrainClipmap.Active.GpuPoolRefusedNow > 0 ? 1 : 0;
                 passData.shellIterCap = Mathf.Max(16, ShellIterCap);
                 passData.shellTint = shellsOn && ShellTint ? 1 : 0;
                 passData.shellPixelAngle = LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH);
@@ -1675,6 +1686,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
                         // 8.14 shells (task 80). Always bound (dummies when off).
                         cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
+                        cmd.SetComputeIntParam(data.compute, "_Tier0Refused", data.tier0Refused);   // task 194
                         cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
                         cmd.SetComputeIntParam(data.compute, "_NearShadowShells", NearShadowShells && data.shellCount > 1 && data.primaryFarShade ? 1 : 0);   // task 133
                         cmd.SetComputeIntParam(data.compute, "_ShellMaskBase", data.shellMaskBase);   // task 93b5

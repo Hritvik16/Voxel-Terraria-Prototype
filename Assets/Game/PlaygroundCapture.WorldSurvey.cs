@@ -415,6 +415,9 @@ public partial class PlaygroundCapture
                 if (lit) LightingConfig.Active.undergroundAmbientFloor = ArgFloat("-wsfloor", 1f);
                 // Task 193: an arm may end in "_sf0|1|2" = RaymarchFeature.SkyFill for that shot ("native_sf2").
                 string baseArm = lit ? "native" : arm;
+                // Task 194: an arm "native_rh0" = the refused-chunk hand-over OFF for that shot (the old pits).
+                bool rh0 = RaymarchFeature.RefusedHandOver;
+                if (baseArm.EndsWith("_rh0")) { RaymarchFeature.RefusedHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
                 int sfAt = baseArm.LastIndexOf("_sf");
                 int sf0 = RaymarchFeature.SkyFill;
                 if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
@@ -428,9 +431,11 @@ public partial class PlaygroundCapture
                 ft.Sort();
                 float ftMean = 0f; foreach (float x in ft) ftMean += x; ftMean /= ft.Count;
                 L($"  [frame] {p.name} {arm}: settle frames mean {ftMean:F1} ms, p50 {ft[ft.Count / 2]:F1} ms, max {ft[ft.Count - 1]:F1} ms (skyfill {RaymarchFeature.SkyFill})");
+                foreach (string rl in RefusedProbeLines(cam, sh)) L($"{rl} [{arm}]");   // task 194: refused near-pool chunks at this shot
                 yield return CaptureTo($"ws_{p.name}_{arm}");
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
                 RaymarchFeature.SkyFill = sf0;
+                RaymarchFeature.RefusedHandOver = rh0;
             }
             float pitch = rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x;
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");

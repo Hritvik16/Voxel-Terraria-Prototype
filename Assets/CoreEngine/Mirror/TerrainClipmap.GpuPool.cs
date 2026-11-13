@@ -99,6 +99,9 @@ public partial class TerrainClipmap
     /// shell hand-over treats its column as missing.
     public bool IsGpuRefused(int3 chunkCoord) => _gpuRefused.Count > 0 && _gpuRefused.Contains(chunkCoord);
 
+    /// The refused chunks now (task 194: capture diagnostics; read-only view).
+    public IReadOnlyCollection<int3> GpuRefusedChunks => _gpuRefused;
+
     /// Writes holder `h`'s new dense set (the chunk's bricks; null / uniform =
     /// none) and releases its previous one. False = refused (pool full): the
     /// holder then holds nothing and must be written as air.

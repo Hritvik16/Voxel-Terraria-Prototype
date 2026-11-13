@@ -1,0 +1,24 @@
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 395,873 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 234,450 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2438.5 MB, peak 2552.8 MB of the 3,000 MB cap
+  [refused] now 0, total 0, in use 221,163 of 254,400 | box chunks int3(249, 33, 204)..int3(264, 48, 219) | shell 1 cam chunk int3(128, 20, 106) hole +-1 (25.6 m chunks: tier-0 x/z 254..259 / 210..215)
+WSPOSE fixed_town_eye|3300.0,532.9,2719.2|3300.0,534.2,2668.0|fixed pose town_eye (-wsfixed)
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 417,524 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 245,161 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2366.1 MB, peak 2552.8 MB of the 3,000 MB cap
+  [refused] now 0, total 0, in use 245,161 of 254,400 | box chunks int3(287, 33, 157)..int3(302, 48, 172) | shell 1 cam chunk int3(147, 20, 82) hole +-1 (25.6 m chunks: tier-0 x/z 292..297 / 162..167)
+WSPOSE fixed_village_eye|3788.0,525.9,2117.6|3788.0,527.2,2092.0|fixed pose village_eye (-wsfixed)
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 481,428 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,131 refused 14 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2366.8 MB, peak 2552.8 MB of the 3,000 MB cap
+  [refused] now 14, total 14, in use 254,131 of 254,400 | box chunks int3(249, 33, 212)..int3(264, 48, 227) | shell 1 cam chunk int3(128, 21, 110) hole +-1 (25.6 m chunks: tier-0 x/z 254..259 / 218..223)
+  [refused] chunk int3(262, 41, 213) world x 3353.6..3366.4 y 524.8..537.6 z 2726.4..2739.2 | dist 104 m | dense 751 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (323, 626)
+  [refused] chunk int3(261, 41, 212) world x 3340.8..3353.6 y 524.8..537.6 z 2713.6..2726.4 | dist 109 m | dense 821 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (521, 595)
+  [refused] chunk int3(263, 41, 213) world x 3366.4..3379.2 y 524.8..537.6 z 2726.4..2739.2 | dist 112 m | dense 774 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (187, 626)
+  [refused] chunk int3(264, 41, 214) world x 3379.2..3392.0 y 524.8..537.6 z 2739.2..2752.0 | dist 112 m | dense 761 | below dense (tier 0 draws it) | shell 1 STORES it | off screen
+  [refused] chunk int3(262, 41, 212) world x 3353.6..3366.4 y 524.8..537.6 z 2713.6..2726.4 | dist 115 m | dense 748 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (402, 595)
+  [refused] chunk int3(264, 41, 213) world x 3379.2..3392.0 y 524.8..537.6 z 2726.4..2739.2 | dist 121 m | dense 774 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (51, 626)
+  [refused] chunk int3(263, 41, 212) world x 3366.4..3379.2 y 524.8..537.6 z 2713.6..2726.4 | dist 122 m | dense 783 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (283, 595)
+  [refused] chunk int3(250, 41, 213) world x 3200.0..3212.8 y 524.8..537.6 z 2726.4..2739.2 | dist 127 m | dense 751 | below dense (tier 0 draws it) | shell 1 STORES it | off screen
+  [refused] chunk int3(251, 41, 212) world x 3212.8..3225.6 y 524.8..537.6 z 2713.6..2726.4 | dist 127 m | dense 743 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1711, 595)
+  [refused] chunk int3(249, 41, 214) world x 3187.2..3200.0 y 524.8..537.6 z 2739.2..2752.0 | dist 129 m | dense 722 | below dense (tier 0 draws it) | shell 1 STORES it | off screen
+  [refused] chunk int3(264, 41, 212) world x 3379.2..3392.0 y 524.8..537.6 z 2713.6..2726.4 | dist 130 m | dense 775 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (164, 595)
+  [refused] chunk int3(250, 41, 212) world x 3200.0..3212.8 y 524.8..537.6 z 2713.6..2726.4 | dist 136 m | dense 732 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1830, 595)
+  [refused] chunk int3(249, 41, 213) world x 3187.2..3200.0 y 524.8..537.6 z 2726.4..2739.2 | dist 136 m | dense 705 | below dense (tier 0 draws it) | shell 1 STORES it | off screen
+  [refused] chunk int3(249, 41, 212) world x 3187.2..3200.0 y 524.8..537.6 z 2713.6..2726.4 | dist 145 m | dense 802 | below dense (tier 0 draws it) | shell 1 STORES it | off screen
+  [refused] of 14: in shell 1's hole 0, chunk below drawn solid by tier 0 14
+WSPOSE fixed_town_150m|3300.0,561.2,2818.0|3300.0,534.2,2668.0|fixed pose town_150m (-wsfixed)

@@ -1458,3 +1458,22 @@ leaving the window sideways counts open (plan S3, not done). CPU twin `SkyFillRe
 GPU contracts (fold, halves, record, entry face = DDA's on 1,765 rays). Capture: WorldSurvey arm suffix `_sfN` (`-wsarms
 native_sf0,native_sf1,native_sf2`), each arm's 60 settle frames logged as `[frame]` mean/p50. Shots: `Logs/overnight/193_shots.sh`,
 `193_trench.sh`; `Screenshots/193/viewer.html`, `black193.txt`. Result: HANDOFF 193.
+
+**Task 194 (bug, default ON): the RECTANGULAR PITS near the full GPU body pool = the refused-chunk hand-over.** Cause: a chunk the
+near GPU body pool refuses (TerrainClipmap.GpuPool.cs, FULL POOL) is held as air in tier 0 and its column marked non-resident so the
+shells draw it -- but tier 0 still drew the rest of the column (the uniform rock under a surface chunk needs no GPU body) and its
+neighbours, and tier 0 marches first: a ray through the refused chunk's air hit that rock = a 12.8 m box pit with straight walls.
+Shell 1 STORES every refused chunk seen (probe: 0 in its +-1-chunk hole at High). Fix (Raymarch.compute, REFUSED-CHUNK HAND-OVER block
+before tVoxelLimit): while `_Tier0Refused` (RaymarchFeature: GpuPoolRefusedNow > 0, shells + far band on), a tier-0 hit past the ray's
+entry into a column holding a REFUSED chunk is dropped; tier 0 ends at that entry and the shell march draws from there. Refused columns
+only: FarField.UpdateResidency writes them as a second bitmap after the residency bits in the same `FarResident` buffer
+(`Tier0ColumnRefused`; `ColumnWalkT` = FarStartT's DDA with a mode flag; `FarField.ColumnResident/ColumnRefused` statics). A first
+version stopped at ANY non-resident column and lost houses at eye level (streaming columns near the camera lie in shell 1's hole:
+`Screenshots/194/seed42_town_eye_after_v1_REJECTED.png`). No pool size, eviction, layout or API change; refused counts unchanged.
+`-refusedhandover 0` = old behaviour (shots only); WorldSurvey arm `native_rh0` = OFF for one shot; capture-only `[refused]` lines per
+shot (PlaygroundCapture.RefusedProbe.cs: count, on-screen refused chunks with distance / chunk below / shell 1 stores / px). CPU twin
+`Tier0HandOverReference`; tests `RefusedHandOverTests` (7: real TerrainClipmap with a 25-body pool reproduces the pit; the floor hit is
+dropped at the refused column's entry; earlier hits kept; a streaming-only column is never handed over; the column is tier 0's again
+once the chunk lands; twin = a fine column walk on 500 rays). Not covered: a refused chunk inside shell 1's hole still has no shell
+data (ABSENT -> far band), and sun shadows across a handed-over column may differ slightly. Shots: `Logs/overnight/194_proof2.sh`,
+`Screenshots/194/` (`refused_*.txt`, `diff194.txt`). Result: HANDOFF 194.

@@ -2762,7 +2762,22 @@ bool FarChunkResident(int2 rc)
 // float point: at x ~ 40000 a float step (0.0039) is wider than a fixed t
 // nudge moves the point, so floor() returned the same chunk after a -x/-z
 // face and the walk stalled to its cap (task 19, the coast black bar).
-float FarStartT(float3 O, float3 D, float tLimit)
+// (FarStartT = ColumnWalkT(.., false), defined below it.)
+
+// TASK 194: is a chunk of this window-relative column refused by the GPU body pool? The refused
+// bits follow the residency bits in FarResident (FarField.UpdateResidency, words [w, 2w)).
+bool Tier0ColumnRefused(int2 rc)
+{
+    int dx = (int)_WindowDimsChunksPacked.x, dz = (int)_WindowDimsChunksPacked.z;
+    if (rc.x < 0 || rc.y < 0 || rc.x >= dx || rc.y >= dz) return false;
+    uint i = (uint)(rc.y * dx + rc.x);
+    uint w = ((uint)(dx * dz) + 31u) >> 5;
+    return ((FarResident[w + (i >> 5)] >> (i & 31u)) & 1u) != 0u;
+}
+
+// FarStartT's walk; refusedOnly (task 194): stop at the first REFUSED column instead of the first
+// non-resident one (Tier0HandOverReference.FirstColumnT is its CPU twin).
+float ColumnWalkT(float3 O, float3 D, float tLimit, bool refusedOnly)
 {
     D = FarSafeDir(D);
     int2 oc = _WindowOriginBricksPacked.xz >> 4;
@@ -2781,7 +2796,7 @@ float FarStartT(float3 O, float3 D, float tLimit)
     [loop]
     for (int i = 0; i < 96; i++)
     {
-        if (!FarChunkResident(rc)) return tEnter;
+        if (refusedOnly ? Tier0ColumnRefused(rc) : !FarChunkResident(rc)) return tEnter;
         float2 bmin = float2((rc + oc) * 128);
         float2 bmax = bmin + 128.0;
         float2 tE = (float2(s.x > 0 ? bmax.x : bmin.x, s.y > 0 ? bmax.y : bmin.y) - O.xz) * invD;
@@ -2792,6 +2807,7 @@ float FarStartT(float3 O, float3 D, float tLimit)
     }
     return tLimit;
 }
+float FarStartT(float3 O, float3 D, float tLimit) { return ColumnWalkT(O, D, tLimit, false); }
 
 // FAR WALL ROCK (2026-10-01): a far column stores ONE surface material, so a
 // side face more than FAR_WALL_LIP voxels below the top would be drawn in the
@@ -3051,6 +3067,10 @@ static const int _ShellHoleLeap = 0;   // task 161: folded
 int    _ShellHoleLeap;
 #endif
 #define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
+// TASK 194: 1 while the near GPU body pool holds refused chunks (TerrainClipmap.GpuPoolRefusedNow > 0, shells
+// and far band on): a tier-0 hit past the ray's entry into a non-resident column is handed to the shells
+// (the REFUSED-CHUNK HAND-OVER block in CSMainBody). 0: that block does nothing.
+int    _Tier0Refused;
 // TASK 153: the COLUMN HEIGHT LEAP (-shellheightbound; RaymarchFeature.ShellHeightBound). Per shell, per
 // ring column, one int in ShellPages from _ShellHeightBase + _ShellBounds[k].w (ShellStore COLUMN HEIGHTS):
 // every chunk of that world column inside the published box and outside the hole is held and holds no
@@ -4821,6 +4841,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
+    // TASK 194: THE REFUSED-CHUNK HAND-OVER. A chunk the full GPU body pool refused is held as AIR in
+    // tier 0 and its column is non-resident (FarField.UpdateResidency), so that the shells draw it
+    // (TerrainClipmap.GpuPool.cs, FULL POOL). But tier 0 still holds the rest of the column (the uniform
+    // rock under a surface chunk needs no body) and the columns around it: a ray through the refused
+    // chunk's air hit the rock below or a neighbour's side -- a 12.8 m box PIT (191's town shots). So a
+    // tier-0 hit past the ray's entry into a column with a REFUSED chunk is not tier 0's: its march ends
+    // at that entry (ColumnWalkT, FarStartT's DDA over the refused bits), and the shell march below takes
+    // over from there (t >= tTier0: shell k by distance, which stores the chunk unless it lies in shell
+    // 1's hole). Refused columns only: a column non-resident because it is still streaming stays tier 0's
+    // (as before) -- near the camera those lie in shell 1's hole, where no shell holds anything.
+    // Tier0HandOverReference is the CPU twin. Only while chunks are refused; else nothing runs.
+    if (_Tier0Refused != 0 && hit && passMat == 0u && _ShellCount > 1)
+    {
+        float tRes = ColumnWalkT(rayStart, rayDir, tVoxelLimit, true);
+        if (tRes < tVoxelLimit) { hit = false; currentDist = tRes; tVoxelLimit = tRes; }
+    }
 #ifdef VE_FAR_SHADE
     // TASK 132 (R1): pass 1 hands the group over when any lane would run the shell march below
     // (the same condition), and returns; pass 2 draws the group (see ShellPre).

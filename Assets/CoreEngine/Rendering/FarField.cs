@@ -422,30 +422,50 @@ namespace VoxelEngine.Rendering
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
             int words = (n + 31) >> 5;
-            if (_residentBits.Length != words) _residentBits = new uint[words];
-            Array.Clear(_residentBits, 0, words);
+            // Task 194: words [words, 2 words) = the REFUSED columns (a chunk of the band the GPU body
+            // pool refused): Raymarch.compute's refused-chunk hand-over reads them (Tier0ColumnRefused).
+            if (_residentBits.Length != 2 * words) _residentBits = new uint[2 * words];
+            Array.Clear(_residentBits, 0, 2 * words);
             for (int rz = 0; rz < windowDimsChunks.z; rz++)
             for (int rx = 0; rx < windowDimsChunks.x; rx++)
             {
-                bool all = true;
-                for (int cy = layerLo; cy <= layerHi && all; cy++)
-                {
-                    int3 c = new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz);
-                    all = store.IsResident(c) && (gpuRefused == null || !gpuRefused.IsGpuRefused(c));
-                }
-                if (!all) continue;
+                int cx = windowOriginChunks.x + rx, cz = windowOriginChunks.z + rz;
                 int i = rz * windowDimsChunks.x + rx;
+                if (gpuRefused != null && ColumnRefused(cx, cz, layerLo, layerHi, gpuRefused))
+                    _residentBits[words + (i >> 5)] |= 1u << (i & 31);
+                if (!ColumnResident(store, cx, cz, layerLo, layerHi, gpuRefused)) continue;
                 _residentBits[i >> 5] |= 1u << (i & 31);
             }
-            if (Resident.count < words)
+            if (Resident.count < 2 * words)
             {
                 Resident.Release();
-                Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, words, sizeof(uint));
+                Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 2 * words, sizeof(uint));
             }
-            Resident.SetData(_residentBits, 0, 0, words);
+            Resident.SetData(_residentBits, 0, 0, 2 * words);
             LastResidencyOrigin = windowOriginChunks; LastResidencyDims = windowDimsChunks;
             LastResidencyLayers = new int2(layerLo, layerHi);
             LastFrame.residencyMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+        }
+
+        /// One column's bit of the residency bitmap (UpdateResidency's rule; task 194 shares it with
+        /// Tier0HandOverReference's tests): every chunk of [layerLo, layerHi] resident and none refused.
+        public static bool ColumnResident(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap gpuRefused = null)
+        {
+            for (int cy = layerLo; cy <= layerHi; cy++)
+            {
+                int3 c = new int3(cx, cy, cz);
+                if (!store.IsResident(c) || (gpuRefused != null && gpuRefused.IsGpuRefused(c))) return false;
+            }
+            return true;
+        }
+
+        /// Task 194: does the column hold a chunk of [layerLo, layerHi] the GPU body pool refused?
+        /// (the refused half of the residency buffer; Tier0HandOverReference's tests use it too).
+        public static bool ColumnRefused(int cx, int cz, int layerLo, int layerHi, TerrainClipmap gpuRefused)
+        {
+            for (int cy = layerLo; cy <= layerHi; cy++)
+                if (gpuRefused.IsGpuRefused(new int3(cx, cy, cz))) return true;
+            return false;
         }
 
         /// Per-frame: finish jobs, issue at most ONE strip scatter, schedule new work.
