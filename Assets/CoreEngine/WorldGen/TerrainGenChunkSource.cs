@@ -217,12 +217,14 @@ namespace VoxelEngine.WorldGen
         /// -stampfit 0 (task 185; default flipped by task 187a): spec.stampFitOff = 1,
         /// the pre-185 stamps. Absent or 1 = stamps that sit in the land
         /// (TerrainGen.Stamps "TASK 185"), the default. Last match wins.
-        /// -matvariant 0 (task 188a): spec.matVariantOff = 1, the material rules
-        /// without the random variant spray. Absent or 1 = today. Last match wins.
+        /// -matvariant 1 (task 188a; default flipped by task 190a): spec.matVariantOn
+        /// = 1, the material rules' random variant spray (the pre-190a look). Absent
+        /// or 0 = no spray, every column its slot's main entry, the default. Last
+        /// match wins.
         public static bool MatVariantArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = true;
+            bool on = false;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-matvariant" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;
@@ -269,7 +271,7 @@ namespace VoxelEngine.WorldGen
             if (OresArg()) spec.oresOn = 1;   // task 181
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
             if (!StampFitArg()) spec.stampFitOff = 1;   // task 185 / 187a: fit ON unless -stampfit 0
-            if (!MatVariantArg()) spec.matVariantOff = 1;   // task 188a: variant spray ON unless -matvariant 0
+            if (MatVariantArg()) spec.matVariantOn = 1;   // task 188a / 190a: variant spray OFF unless -matvariant 1
             if (SitesArg()) spec.sitesOn = 1;   // task 187
             if (LandSigArg()) spec.landSigOn = 1;   // task 189
             if (TownsArg()) { spec.townsOn = 1; spec.sitesOn = 1; }   // task 190 (towns need the sites)

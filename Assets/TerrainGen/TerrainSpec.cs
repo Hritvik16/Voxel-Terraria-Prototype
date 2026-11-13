@@ -163,14 +163,15 @@ namespace TerrainGen
         /// is stored, not applied): the map, the columns and every voxel ignore
         /// it. Read it through Sites, never directly. `-sites 1` sets it.
         public byte sitesOn;
-        /// Task 188a (owner 2026-11-12: "just randomly spraying it is weird ... like
-        /// blotches"): 1 = the material rules give every column its slot's MAIN
-        /// palette entry -- no random variant patches (`-matvariant 0`). 0 (the
-        /// default) = today's ~20-25 % VariantNoise spray, byte for byte. Rules path
-        /// only (MatRules); the old -matrules 0 path, the map and the record ignore
-        /// it, and trees keep reading the noise (c.cover's variant bit is unchanged).
-        /// Read it through MatVariant, never directly.
-        public byte matVariantOff;
+        /// Task 188a / 190a (owner 2026-11-12: "just randomly spraying it is weird
+        /// ... like blotches"; default flipped by task 190a, Q-V (a)): 0 (THE
+        /// DEFAULT since task 190a) = the material rules give every column its
+        /// slot's MAIN palette entry -- no random variant patches. 1 = the
+        /// pre-190a ~20-25 % VariantNoise spray, byte for byte (`-matvariant 1`).
+        /// Rules path only (MatRules); the old -matrules 0 path, the map and the
+        /// record ignore it, and trees keep reading the noise (c.cover's variant
+        /// bit is unchanged). Read it through MatVariant, never directly.
+        public byte matVariantOn;
         /// Task 189 (WORLD_GEN_LOOK_PLAN C6, flag-off): 1 = landform signatures at
         /// walking scale (LandSig.cs): meso (20-200 m) shapes per landform, never
         /// per biome -- dune ridges with a steep lee side, canyonland slot canyons
@@ -256,8 +257,9 @@ namespace TerrainGen
         /// default since task 186.
         public bool MatRules => mapVersion >= 4 && matRulesOff == 0;
 
-        /// Task 188a: the material rules' random variant spray in force (see matVariantOff).
-        public bool MatVariant => matVariantOff == 0;
+        /// Task 188a / 190a: the material rules' random variant spray in force
+        /// (see matVariantOn): OFF by default since task 190a.
+        public bool MatVariant => matVariantOn != 0;
 
         /// Task 181's rule ores in force (see oresOn): v4 only, opt-in.
         public bool Ores2 => mapVersion >= 4 && oresOn != 0;

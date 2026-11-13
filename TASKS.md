@@ -1382,3 +1382,12 @@ shell 0 = Generate, shell 1 exact, shells 2-3 every cell with a part shows one, 
 `chunks.txt`); `SiteTests` checker knows tier 2 + the spacing. Labels: `python3 tools/towns190.py` -> `Screenshots/190/towns_<seed>.png`,
 `spacing_7_before_after.png`, `plans_<seed>.png`. Shots: `Logs/overnight/190_shots.sh` (per seed town / village eye + town from 150 m); the world survey now prints task 188's `[pools]` line after each pose's `[shells]`.
 Result: HANDOFF 190.
+
+**Task 190a -- materials by the rules only, no random variant spray, is the DEFAULT (owner 2026-11-12, Q-V (a); tasks 186 / 187a's pattern).**
+`TerrainSpec.matVariantOff` became `matVariantOn`: 0 = task 188a's no-spray look (every column its slot's MAIN palette entry), so every
+v4 spec -- play, rigs, capture runs, tests -- has no spray; `-matvariant 1` (`TerrainGenChunkSource.MatVariantArg` now defaults to false;
+`FarField` sets the far band's spec the same way) = the pre-190a spray, byte for byte. Trees unchanged (`c.cover` keeps the noise VARIANT
+bit). The effective value is logged by `StreamManager` ("material variant spray OFF (default)") and `FarField`. No SerializeField carries it.
+Tests: `MatVariantTests` pins 188a's FNV (`PIN_42` / `PIN_7`) on the explicit `-matvariant 1` arm and the new default on `PIN_DEFAULT_42`;
+`LandSigTests.Off_IsTodayByteForByte` and `TownTests.Flatten_OffPins_OutsideIdentical` compare their 188a pins on a `-matvariant 1` copy of
+the OFF spec. Shots: `Logs/overnight/190a_shots.sh` (188a's desert flat, savanna flat, forest bank a; default vs `-matvariant 1`). Result: HANDOFF 190a.

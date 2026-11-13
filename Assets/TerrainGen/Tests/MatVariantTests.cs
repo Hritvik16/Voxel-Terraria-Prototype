@@ -1,14 +1,15 @@
 // Assets/TerrainGen/Tests/MatVariantTests.cs
 //
 // Task 188a (owner 2026-11-12, answer (a): "just randomly spraying it is weird
-// ... like blotches"): `-matvariant 0` (TerrainSpec.matVariantOff = 1) drops the
-// material rules' random VARIANT spray (GroundRules.Column: VariantNoise over
-// ~20-25 % of every slot); every column takes its slot's MAIN palette entry.
+// ... like blotches"): the material rules' random VARIANT spray (GroundRules.Column:
+// VariantNoise over ~20-25 % of every slot) is OFF by default since task 190a
+// (owner Q-V (a)); every column takes its slot's MAIN palette entry.
+// `-matvariant 1` (TerrainSpec.matVariantOn = 1) brings the spray back.
 // Pins:
-//   - matVariantOff = 0 (the default, `-matvariant 1`) is today BYTE FOR BYTE:
+//   - matVariantOn = 1 (`-matvariant 1`) is the pre-188a code BYTE FOR BYTE:
 //     an FNV over height, slot, cover, soil / subsoil depths, the top material
 //     and the top 4.8 m of Material, pinned from the pre-188a code (seeds 42, 7);
-//   - matVariantOff = 1 has ZERO variant columns, the same rule slot, the same
+//   - matVariantOn = 0 (the default) has ZERO variant columns, the same rule slot, the same
 //     ground, the same Cover byte (trees keep reading the noise patch), and a
 //     skin that is the slot's main entry;
 //   - near == far on the shape slots at texel <= 22 with the spray off too;
@@ -32,6 +33,8 @@ namespace TerrainGen.Tests
 
         // FNV of PinHash on the pre-188a code (Logs/overnight/188a/pin_before.out).
         private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;
+        // Task 190a: the same FNV on the new default (no spray), seed 42, at commit time.
+        private const uint PIN_DEFAULT_42 = 0xc6bc4dbeu;
 
         private static List<int2> LandPoints(in TerrainSpec spec, WorldMap map, int count, uint rngSeed)
         {
@@ -77,17 +80,21 @@ namespace TerrainGen.Tests
         [Test]
         public void Variant1_IsTodayByteForByte()
         {
-            var s42 = TerrainSpec.SizeClass2(42);
-            var s7 = TerrainSpec.SizeClass2(7);
-            Assert.AreEqual(0, s42.matVariantOff, "the default keeps the spray (owner picks the default later)");
+            var def = TerrainSpec.SizeClass2(42);
+            Assert.AreEqual(0, def.matVariantOn, "task 190a: the default has NO spray");
+            Assert.IsFalse(def.MatVariant);
+            var s42 = def; s42.matVariantOn = 1;   // the explicit -matvariant 1 arm
+            var s7 = TerrainSpec.SizeClass2(7); s7.matVariantOn = 1;
             Assert.IsTrue(s42.MatVariant);
             uint h42 = PinHash(in s42, SharedMaps.Get(s42)), h7 = PinHash(in s7, SharedMaps.Get(s7));
             Debug.Log($"[188a] variant 1: seed 42 fnv 0x{h42:x8} (pin 0x{PIN_42:x8}), seed 7 fnv 0x{h7:x8} (pin 0x{PIN_7:x8})");
             Assert.AreEqual(PIN_42, h42, "seed 42: -matvariant 1 == pre-188a");
             Assert.AreEqual(PIN_7, h7, "seed 7: -matvariant 1 == pre-188a");
-            // and the spray off must actually change something
-            var off = s42; off.matVariantOff = 1;
-            Assert.AreNotEqual(PIN_42, PinHash(in off, SharedMaps.Get(s42)), "-matvariant 0 changes the materials");
+            // and the default (no spray) must actually differ
+            uint d42 = PinHash(in def, SharedMaps.Get(def));
+            Debug.Log($"[190a] default (no spray): seed 42 fnv 0x{d42:x8}");
+            Assert.AreNotEqual(PIN_42, d42, "the default (no spray) changes the materials");
+            Assert.AreEqual(PIN_DEFAULT_42, d42, "seed 42: the no-spray default == task 190a's pin");
         }
 
         // ------------------------------------------------------------------
@@ -97,9 +104,10 @@ namespace TerrainGen.Tests
             int variantOn = 0, total = 0;
             foreach (uint seed in new uint[] { 42, 7 })
             {
-                var on = TerrainSpec.SizeClass2(seed);
-                var map = SharedMaps.Get(on);
-                var off = on; off.matVariantOff = 1;
+                var off = TerrainSpec.SizeClass2(seed);   // the default: no spray
+                Assert.IsFalse(off.MatVariant);
+                var map = SharedMaps.Get(off);
+                var on = off; on.matVariantOn = 1;
                 var o = Offsets.For(in on);
                 var view = map.View;
                 foreach (var p in LandPoints(in on, map, 1500, 0x188a0 + seed))
@@ -127,15 +135,16 @@ namespace TerrainGen.Tests
                 }
             }
             double share = 100.0 * variantOn / math.max(1, total);
-            Debug.Log($"[188a] variant columns: -matvariant 1 {share:F1} % of {total} land columns; -matvariant 0 0");
-            Assert.Greater(share, 5.0, "the spray exists in the default");
+            Debug.Log($"[188a] variant columns: -matvariant 1 {share:F1} % of {total} land columns; default (no spray) 0");
+            Assert.Greater(share, 5.0, "the spray exists with -matvariant 1");
         }
 
         // ------------------------------------------------------------------
         [Test]
         public void Variant0_NearFar_ShapeSlotsAgree_UpToTexel22()
         {
-            var spec = TerrainSpec.SizeClass2(7); spec.matVariantOff = 1;
+            var spec = TerrainSpec.SizeClass2(7);   // the default: no spray (task 190a)
+            Assert.IsFalse(spec.MatVariant);
             var map = SharedMaps.Get(TerrainSpec.SizeClass2(7));
             var o = Offsets.For(in spec);
             var view = map.View;
@@ -168,7 +177,7 @@ namespace TerrainGen.Tests
         }
 
         /// Report + one assertion: the share of ground per material per skin biome,
-        /// before (-matvariant 1) -> after (-matvariant 0), 4 seeds; and the palette's
+        /// before (-matvariant 1) -> after (the default since 190a, no spray), 4 seeds; and the palette's
         /// variant-only materials (they leave the biome's SURFACE with the spray off).
         [Test, Category("Slow")]
         public void FourSeeds_ShareOfGroundPerMaterial_BeforeAfter()
@@ -187,7 +196,7 @@ namespace TerrainGen.Tests
                 foreach (var p in LandPoints(in on, map, 3000, 0x5a4e + seed))
                     for (int arm = 0; arm < 2; arm++)
                     {
-                        var spec = on; spec.matVariantOff = (byte)arm;
+                        var spec = on; spec.matVariantOn = (byte)(1 - arm);   // arm 0 = -matvariant 1, arm 1 = the default
                         var c = ShapeField.Sample(in spec, in view, in o, p.x + 0.5f, p.y + 0.5f, 1);
                         if (c.height < spec.seaLevelY || c.water > c.height) continue;   // water tops: not ground
                         float st = ShapeField.MaxStep(in spec, in view, in o, p.x + 0.5f, p.y + 0.5f, 1, c.height);
@@ -199,7 +208,7 @@ namespace TerrainGen.Tests
             }
             var sb = new StringBuilder();
             sb.AppendLine("Task 188a: share of the SURFACE (DetailField.TopMaterial, land above the sea, no fluid on top) per material per skin biome,");
-            sb.AppendLine("seeds 42 / 7 / 2026 / 31337, 3,000 random land columns each. before = -matvariant 1 (today), after = -matvariant 0 (no spray).");
+            sb.AppendLine("seeds 42 / 7 / 2026 / 31337, 3,000 random land columns each. before = -matvariant 1 (today), after = the default since task 190a (no spray).");
             sb.AppendLine("Stone names are the bare rock showing (steep / crest / sunny faces); stamp, lip and pocket materials are included as they are.");
             for (int b = 0; b < GenBiome.Count; b++)
             {

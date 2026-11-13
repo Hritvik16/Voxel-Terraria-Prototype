@@ -435,7 +435,7 @@ namespace TerrainGen
             float vn = Cover.VariantNoise(in o, p, texel);
             float bn = BiomeNoise(in o, p, skin, texel);
             bool noisePatch = vn > Cover.VARIANT_ABOVE - 0.15f * bn;
-            // Task 188a: -matvariant 0 drops the random spray from the MATERIALS only
+            // Task 188a / 190a: no random spray on the MATERIALS by default (`-matvariant 1` = the spray)
             // (every column takes its slot's MAIN entry); trees keep the noise patch.
             bool variant = noisePatch && spec.MatVariant;
             byte s8 = (byte)(slot | (variant ? VARIANT_BIT : 0));

@@ -182,7 +182,7 @@ namespace TerrainGen.Tests
         // ------------------------------------------------------------------
         // The flatten
         // ------------------------------------------------------------------
-        private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;   // task 188a's (MatVariantTests)
+        private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;   // task 188a's (MatVariantTests), -matvariant 1 arm
 
         private static uint PinHash(in TerrainSpec spec, WorldMap map, in MapView view)
         {
@@ -261,7 +261,8 @@ namespace TerrainGen.Tests
                 using var p = new Plan(seed);
                 Assert.Greater(p.sites.Length, 0);
                 Assert.IsFalse(p.off.Towns, "the default stays OFF");
-                uint pin = PinHash(in p.off, p.map, in p.view);
+                var off1 = p.off; off1.matVariantOn = 1;   // the 188a pins carry the variant spray (task 190a)
+                uint pin = PinHash(in off1, p.map, in p.view);
                 Assert.AreEqual(seed == 42u ? PIN_42 : PIN_7, pin, $"seed {seed}: -towns 0 with the plane in the view == before");
                 // the whole world on a 32 m grid + every site's neighbourhood on a 2 m grid
                 int world = p.off.mapCells * p.off.mapCellVoxels;

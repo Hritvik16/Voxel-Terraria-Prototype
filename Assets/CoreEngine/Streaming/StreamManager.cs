@@ -565,7 +565,7 @@ namespace VoxelEngine.Streaming
             if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS)
             {
                 _tgSource = new TerrainGenChunkSource(meta.seed);
-                Debug.Log($"[StreamManager] tg2 chunk source: map v{_tgSource.Spec.mapVersion}, material rules {(_tgSource.Spec.MatRules ? "ON (default)" : "OFF (-matrules 0)")}, stamp fit {(_tgSource.Spec.StampFit ? "ON (default)" : "OFF (-stampfit 0)")}");   // task 186 / 187a
+                Debug.Log($"[StreamManager] tg2 chunk source: map v{_tgSource.Spec.mapVersion}, material rules {(_tgSource.Spec.MatRules ? "ON (default)" : "OFF (-matrules 0)")}, stamp fit {(_tgSource.Spec.StampFit ? "ON (default)" : "OFF (-stampfit 0)")}, material variant spray {(_tgSource.Spec.MatVariant ? "ON (-matvariant 1)" : "OFF (default)")}");   // task 186 / 187a / 190a
             }
 
             _windowDims = store.WindowDims;

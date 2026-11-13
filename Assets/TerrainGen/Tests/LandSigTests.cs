@@ -75,7 +75,7 @@ namespace TerrainGen.Tests
         // ------------------------------------------------------------------
         // OFF == today
         // ------------------------------------------------------------------
-        // Task 188a's pins (MatVariantTests.PIN_42 / PIN_7, pre-188a and pre-189 code).
+        // Task 188a's pins (MatVariantTests.PIN_42 / PIN_7, pre-188a and pre-189 code; -matvariant 1 since task 190a).
         private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;
 
         private static uint PinHash(in TerrainSpec spec, WorldMap map, in MapView view)
@@ -120,7 +120,9 @@ namespace TerrainGen.Tests
             Assert.AreEqual(0, a.off.landSigOn, "the default stays OFF (the owner picks it from pictures)");
             Assert.IsFalse(a.off.LandSig);
             Assert.IsTrue(a.view.landSig != null, "the plane is built");
-            uint h42 = PinHash(in a.off, a.map, in a.view), h7 = PinHash(in b.off, b.map, in b.view);
+            // the 188a pins were taken with the variant spray: pin the -matvariant 1 arm (task 190a)
+            var a1 = a.off; a1.matVariantOn = 1; var b1 = b.off; b1.matVariantOn = 1;
+            uint h42 = PinHash(in a1, a.map, in a.view), h7 = PinHash(in b1, b.map, in b.view);
             Debug.Log($"[189] OFF with the plane built: seed 42 fnv 0x{h42:x8} (pin 0x{PIN_42:x8}), seed 7 0x{h7:x8} (pin 0x{PIN_7:x8})");
             Assert.AreEqual(PIN_42, h42, "seed 42: -landsig 0 == before");
             Assert.AreEqual(PIN_7, h7, "seed 7: -landsig 0 == before");
