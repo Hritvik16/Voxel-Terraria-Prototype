@@ -1391,3 +1391,16 @@ bit). The effective value is logged by `StreamManager` ("material variant spray 
 Tests: `MatVariantTests` pins 188a's FNV (`PIN_42` / `PIN_7`) on the explicit `-matvariant 1` arm and the new default on `PIN_DEFAULT_42`;
 `LandSigTests.Off_IsTodayByteForByte` and `TownTests.Flatten_OffPins_OutsideIdentical` compare their 188a pins on a `-matvariant 1` copy of
 the OFF spec. Shots: `Logs/overnight/190a_shots.sh` (188a's desert flat, savanna flat, forest bank a; default vs `-matvariant 1`). Result: HANDOFF 190a.
+
+**Task 190b -- landform signatures are the DEFAULT (owner 2026-11-12, Q-W (b): dunes as they are; tasks 187a / 190a's pattern).**
+`TerrainSpec.landSigOn` became `landSigOff`: 0 = task 189's signatures (dunes, canyonland benches + slot canyons, alpine ridges), so every
+v4 spec -- play, rigs, capture runs, tests -- has them; `-landsig 0` (`TerrainGenChunkSource.LandSigArg` now defaults to true; chunk source
++ `FarField`) sets 1 = the pre-189 columns, byte for byte. `WorldMap.Build` now runs `EnsureLandSigPlane` whenever `spec.LandSig` (else
+`ShapeField.Sample` would quietly take the OFF path for a map built without the plane), so every map a default spec builds carries the
+plane (1024^2 x 3 B = 3,072 KB; `WorldMap.LandSigBuildMs`, 34 ms in the player). No SerializeField carries it. Effective value in the
+player log: `[StreamManager] tg2 chunk source: ... landform signatures ON (default; plane 3072 KB in 34 ms)` and the `[FarField] tg2 ...`
+line. Tests: `LandSigTests` builds its world from the default (ON) spec, `off` = `landSigOff = 1`; 188a's pins stay on OFF; new
+`Default_IsOn_Pinned` (`PIN_ON_42` 0x5647ec7f / `PIN_ON_7` 0x08a2a095). `MatVariantTests` pins 188a on `-matvariant 1 -landsig 0`,
+190a's `PIN_DEFAULT_42` on `-landsig 0`, today's default on `PIN_DEFAULT_190B_42`; `TownTests.Flatten_OffPins_OutsideIdentical` pins on
+`-landsig 0` (towns run on the ON default, whole suite green). Shots: `Logs/overnight/190b_shots.sh` (189's canyonlands + range_200up;
+default vs `-landsig 0`), `Screenshots/190b/viewer.html`. Result: HANDOFF 190b.

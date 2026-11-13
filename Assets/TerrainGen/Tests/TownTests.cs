@@ -262,6 +262,7 @@ namespace TerrainGen.Tests
                 Assert.Greater(p.sites.Length, 0);
                 Assert.IsFalse(p.off.Towns, "the default stays OFF");
                 var off1 = p.off; off1.matVariantOn = 1;   // the 188a pins carry the variant spray (task 190a)
+                off1.landSigOff = 1;                       // ... and predate the landform signatures (task 190b)
                 uint pin = PinHash(in off1, p.map, in p.view);
                 Assert.AreEqual(seed == 42u ? PIN_42 : PIN_7, pin, $"seed {seed}: -towns 0 with the plane in the view == before");
                 // the whole world on a 32 m grid + every site's neighbourhood on a 2 m grid

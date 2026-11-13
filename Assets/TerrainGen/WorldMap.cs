@@ -107,6 +107,8 @@ namespace TerrainGen
         private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk, _hLs, _hTn;
         /// Task 189: LandSig's weight plane, once EnsureLandSigPlane ran (else null).
         public byte[] LandSigPlane { get; private set; }
+        /// Task 190b: how long EnsureLandSigPlane took (ms; 0 until it ran).
+        public double LandSigBuildMs { get; private set; }
 
         /// Task 189: build the landform-signature weight plane (once; about a second).
         /// Read only through MapView.landSig, which Sample uses only while
@@ -114,7 +116,9 @@ namespace TerrainGen
         public void EnsureLandSigPlane()
         {
             if (LandSigPlane != null || RegionLayout == null) return;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var f = LandSig.BuildPlane(this);
+            LandSigBuildMs = sw.Elapsed.TotalMilliseconds;
             _hLs = GCHandle.Alloc(f, GCHandleType.Pinned);
             LandSigPlane = f;
         }
@@ -291,7 +295,16 @@ namespace TerrainGen
         /// ENGINE PLAN STEP 1 (owner Q26 (a)): the map is built by ONE compiled
         /// path, a Burst job (MapJob.cs), in the Editor and in the IL2CPP player
         /// alike; it throws rather than fall back to managed code.
-        public static WorldMap Build(TerrainSpec spec) => MapJobs.BuildMap(spec);
+        /// Task 190b: with landform signatures in force (the default) the map also
+        /// carries LandSig's weight plane, so every map a default spec builds --
+        /// engine, rigs, tests -- samples the ON path; without the plane Sample
+        /// would quietly take the OFF path.
+        public static WorldMap Build(TerrainSpec spec)
+        {
+            var map = MapJobs.BuildMap(spec);
+            if (spec.LandSig) map.EnsureLandSigPlane();
+            return map;
+        }
 
         /// The Burst build: fills `map` (its spec set by the caller).
         internal static unsafe void BuildCore(MapArena* A, Diag* dg, in Danger.TiersB tiers, ref MapData map)

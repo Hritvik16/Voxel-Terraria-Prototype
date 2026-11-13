@@ -33,8 +33,11 @@ namespace TerrainGen.Tests
 
         // FNV of PinHash on the pre-188a code (Logs/overnight/188a/pin_before.out).
         private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;
-        // Task 190a: the same FNV on the new default (no spray), seed 42, at commit time.
+        // Task 190a: the same FNV with no spray, seed 42, at 190a's commit (landform signatures OFF then:
+        // since task 190b this is the explicit -landsig 0 arm).
         private const uint PIN_DEFAULT_42 = 0xc6bc4dbeu;
+        // Task 190b: the same FNV on today's default (no spray, landform signatures ON), seed 42.
+        private const uint PIN_DEFAULT_190B_42 = 0x5647ec7fu;
 
         private static List<int2> LandPoints(in TerrainSpec spec, WorldMap map, int count, uint rngSeed)
         {
@@ -83,18 +86,24 @@ namespace TerrainGen.Tests
             var def = TerrainSpec.SizeClass2(42);
             Assert.AreEqual(0, def.matVariantOn, "task 190a: the default has NO spray");
             Assert.IsFalse(def.MatVariant);
-            var s42 = def; s42.matVariantOn = 1;   // the explicit -matvariant 1 arm
-            var s7 = TerrainSpec.SizeClass2(7); s7.matVariantOn = 1;
+            // the pre-188a pins predate task 189: -matvariant 1 AND -landsig 0 (task 190b). The map's
+            // arrays ignore both flags, so the default spec's shared map serves every arm.
+            var s42 = def; s42.matVariantOn = 1; s42.landSigOff = 1;
+            var s7 = TerrainSpec.SizeClass2(7); s7.matVariantOn = 1; s7.landSigOff = 1;
             Assert.IsTrue(s42.MatVariant);
-            uint h42 = PinHash(in s42, SharedMaps.Get(s42)), h7 = PinHash(in s7, SharedMaps.Get(s7));
+            uint h42 = PinHash(in s42, SharedMaps.Get(def)), h7 = PinHash(in s7, SharedMaps.Get(TerrainSpec.SizeClass2(7)));
             Debug.Log($"[188a] variant 1: seed 42 fnv 0x{h42:x8} (pin 0x{PIN_42:x8}), seed 7 fnv 0x{h7:x8} (pin 0x{PIN_7:x8})");
             Assert.AreEqual(PIN_42, h42, "seed 42: -matvariant 1 == pre-188a");
             Assert.AreEqual(PIN_7, h7, "seed 7: -matvariant 1 == pre-188a");
             // and the default (no spray) must actually differ
-            uint d42 = PinHash(in def, SharedMaps.Get(def));
-            Debug.Log($"[190a] default (no spray): seed 42 fnv 0x{d42:x8}");
-            Assert.AreNotEqual(PIN_42, d42, "the default (no spray) changes the materials");
-            Assert.AreEqual(PIN_DEFAULT_42, d42, "seed 42: the no-spray default == task 190a's pin");
+            var def0 = def; def0.landSigOff = 1;   // 190a's default: no spray, landform signatures OFF
+            uint d42 = PinHash(in def0, SharedMaps.Get(def));
+            Debug.Log($"[190a] no spray, -landsig 0: seed 42 fnv 0x{d42:x8}");
+            Assert.AreNotEqual(PIN_42, d42, "no spray changes the materials");
+            Assert.AreEqual(PIN_DEFAULT_42, d42, "seed 42: no spray + -landsig 0 == task 190a's pin");
+            uint dd42 = PinHash(in def, SharedMaps.Get(def));
+            Debug.Log($"[190b] default (no spray, landform signatures ON): seed 42 fnv 0x{dd42:x8} (pin 0x{PIN_DEFAULT_190B_42:x8})");
+            Assert.AreEqual(PIN_DEFAULT_190B_42, dd42, "seed 42: today's default == task 190b's pin");
         }
 
         // ------------------------------------------------------------------

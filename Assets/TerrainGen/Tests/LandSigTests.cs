@@ -1,8 +1,9 @@
 // Assets/TerrainGen/Tests/LandSigTests.cs
 //
 // Task 189 (WORLD_GEN_LOOK_PLAN C6): landform signatures at walking scale,
-// `-landsig 1` (TerrainSpec.landSigOn), default OFF. LandSig.cs.
-//   - OFF is today BYTE FOR BYTE: task 188a's column FNV pins (600 land columns,
+// TerrainSpec.landSigOff; the DEFAULT since task 190b (`-landsig 0` = OFF). LandSig.cs.
+//   - the default is ON and pinned (PIN_ON_42 / PIN_ON_7, task 190b);
+//   - OFF is the pre-189 world BYTE FOR BYTE: task 188a's column FNV pins (600 land columns,
 //     seeds 42 / 7) with the weight plane BUILT on the map, and an FNV over
 //     landform columns with and without the plane;
 //   - per rule: the dune slip face is downwind and steeper than the stoss;
@@ -45,10 +46,10 @@ namespace TerrainGen.Tests
 
         private static W World(uint seed)
         {
-            var off = TerrainSpec.SizeClass2(seed, 4);
-            var on = off; on.landSigOn = 1;
-            var map = SharedMaps.Get(off);   // the map ignores the flag
-            map.EnsureLandSigPlane();        // derived; read only while LandSig is on
+            var on = TerrainSpec.SizeClass2(seed, 4);   // task 190b: the default spec is ON
+            var off = on; off.landSigOff = 1;            // -landsig 0
+            var map = SharedMaps.Get(on);    // the map's arrays ignore the flag; WorldMap.Build adds the plane for ON
+            map.EnsureLandSigPlane();        // derived (a no-op here); read only while LandSig is on
             return new W { off = off, on = on, o = Offsets.For(in off), map = map, view = map.View };
         }
 
@@ -77,6 +78,8 @@ namespace TerrainGen.Tests
         // ------------------------------------------------------------------
         // Task 188a's pins (MatVariantTests.PIN_42 / PIN_7, pre-188a and pre-189 code; -matvariant 1 since task 190a).
         private const uint PIN_42 = 0x6f6c8910u, PIN_7 = 0xeaaad676u;
+        // Task 190b: the DEFAULT world (landform signatures ON, no variant spray), same 600 columns.
+        private const uint PIN_ON_42 = 0x5647ec7fu, PIN_ON_7 = 0x08a2a095u;
 
         private static uint PinHash(in TerrainSpec spec, WorldMap map, in MapView view)
         {
@@ -117,9 +120,10 @@ namespace TerrainGen.Tests
         public void Off_IsTodayByteForByte()
         {
             var a = World(42); var b = World(7);
-            Assert.AreEqual(0, a.off.landSigOn, "the default stays OFF (the owner picks it from pictures)");
-            Assert.IsFalse(a.off.LandSig);
-            Assert.IsTrue(a.view.landSig != null, "the plane is built");
+            Assert.AreEqual(0, a.on.landSigOff, "the default is ON since task 190b (owner Q-W (b))");
+            Assert.IsTrue(a.on.LandSig);
+            Assert.IsFalse(a.off.LandSig, "-landsig 0 turns it off");
+            Assert.IsTrue(a.view.landSig != null, "WorldMap.Build built the plane for the default spec");
             // the 188a pins were taken with the variant spray: pin the -matvariant 1 arm (task 190a)
             var a1 = a.off; a1.matVariantOn = 1; var b1 = b.off; b1.matVariantOn = 1;
             uint h42 = PinHash(in a1, a.map, in a.view), h7 = PinHash(in b1, b.map, in b.view);
@@ -134,6 +138,18 @@ namespace TerrainGen.Tests
             Assert.AreNotEqual(withPlane, on, "ON changes the landform columns");
             // ON with no plane (an older view) is OFF too.
             Assert.AreEqual(without, LandformHash(in a, in a.on, in bare), "ON without a plane changes nothing");
+        }
+
+        /// Task 190b: the default world (ON) is pinned on the same 600 columns as 188a's pins.
+        [Test]
+        public void Default_IsOn_Pinned()
+        {
+            var a = World(42); var b = World(7);
+            uint h42 = PinHash(in a.on, a.map, in a.view), h7 = PinHash(in b.on, b.map, in b.view);
+            Debug.Log($"[190b] default (landsig ON): seed 42 fnv 0x{h42:x8} (pin 0x{PIN_ON_42:x8}), seed 7 0x{h7:x8} (pin 0x{PIN_ON_7:x8})");
+            Assert.AreEqual(PIN_ON_42, h42, "seed 42: the default world");
+            Assert.AreEqual(PIN_ON_7, h7, "seed 7: the default world");
+            Assert.AreNotEqual(PinHash(in a.off, a.map, in a.view), h42, "the default differs from -landsig 0");
         }
 
         // ------------------------------------------------------------------
@@ -265,7 +281,7 @@ namespace TerrainGen.Tests
         {
             foreach (uint seed in Seeds)
             {
-                var spec = TerrainSpec.SizeClass2(seed, 4); spec.landSigOn = 1;
+                var spec = TerrainSpec.SizeClass2(seed, 4);   // ON: the default (190b)
                 var o = Offsets.For(in spec);
                 float2 p = new float2(30000f, 41000f);
                 float prev = float.NaN; int flat = 0, total = 0;
@@ -327,7 +343,7 @@ namespace TerrainGen.Tests
             {
                 for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
                 { int i = z * n + x; hA[i] = 1500f + 30f * x + 6f * z; rA[i] = 0.6f; wA[i] = Hydrology.NO_WATER; }
-                var spec = TerrainSpec.SizeClass2(42, 4); spec.landSigOn = 1;
+                var spec = TerrainSpec.SizeClass2(42, 4);   // ON: the default (190b)
                 var o = Offsets.For(in spec);
                 var v = new MapView
                 {

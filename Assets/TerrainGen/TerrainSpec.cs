@@ -172,14 +172,16 @@ namespace TerrainGen
         /// record ignore it, and trees keep reading the noise (c.cover's variant
         /// bit is unchanged). Read it through MatVariant, never directly.
         public byte matVariantOn;
-        /// Task 189 (WORLD_GEN_LOOK_PLAN C6, flag-off): 1 = landform signatures at
-        /// walking scale (LandSig.cs): meso (20-200 m) shapes per landform, never
-        /// per biome -- dune ridges with a steep lee side, canyonland slot canyons
-        /// and benches, alpine ridgelines and side valleys along the slope. 0 (the
-        /// default) = every byte as before. Columns only: the map and the record
-        /// ignore it (its weight plane is derived, WorldMap.EnsureLandSigPlane).
-        /// Read it through LandSig, never directly. `-landsig 1` sets it.
-        public byte landSigOn;
+        /// Task 189 / 190b (WORLD_GEN_LOOK_PLAN C6; default flipped by task 190b,
+        /// owner 2026-11-12 Q-W (b)): 0 (THE DEFAULT since task 190b) = landform
+        /// signatures at walking scale (LandSig.cs): meso (20-200 m) shapes per
+        /// landform, never per biome -- dune ridges with a steep lee side,
+        /// canyonland slot canyons and benches, alpine ridgelines and side valleys
+        /// along the slope. 1 = the pre-189 columns, byte for byte (`-landsig 0`).
+        /// Columns only: the map's arrays and the record ignore it; its weight
+        /// plane is derived (WorldMap.EnsureLandSigPlane, which WorldMap.Build runs
+        /// whenever LandSig is in force). Read it through LandSig, never directly.
+        public byte landSigOff;
         /// Task 190 (placement, flag-off): 1 = TOWNS ON THE SITES (Towns.cs): the
         /// site discs flattened to their pad (ring blended back) and BuildingKit's
         /// huts / houses / halls laid out on them. Needs the site planner (sitesOn;
@@ -271,8 +273,9 @@ namespace TerrainGen
         /// since task 187a.
         public bool StampFit => mapVersion >= 4 && stampFitOff == 0;
 
-        /// Task 189's landform signatures in force (see landSigOn): v4 only, opt-in.
-        public bool LandSig => mapVersion >= 4 && landSigOn != 0;
+        /// Task 189's landform signatures in force (see landSigOff): v4 only, ON by
+        /// default since task 190b.
+        public bool LandSig => mapVersion >= 4 && landSigOff == 0;
 
         /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
         public bool Sites => mapVersion >= 4 && sitesOn != 0;

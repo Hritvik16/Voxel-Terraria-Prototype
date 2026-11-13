@@ -194,12 +194,13 @@ namespace VoxelEngine.WorldGen
         /// -sites 1 (task 187): spec.sitesOn = 1, the B7 site planner fills the
         /// world record's SiteList (TerrainGen.Sites). No terrain change. Absent or
         /// 0 = no sites. Last match wins.
-        /// -landsig 1 (task 189): spec.landSigOn = 1, landform signatures at walking
-        /// scale (TerrainGen.LandSig). Absent or 0 = as before. Last match wins.
+        /// -landsig 0 (task 189; default flipped by task 190b): spec.landSigOff = 1,
+        /// the pre-189 columns. Absent or 1 = landform signatures at walking scale
+        /// (TerrainGen.LandSig), the default. Last match wins.
         public static bool LandSigArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-landsig" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;
@@ -273,7 +274,7 @@ namespace VoxelEngine.WorldGen
             if (!StampFitArg()) spec.stampFitOff = 1;   // task 185 / 187a: fit ON unless -stampfit 0
             if (MatVariantArg()) spec.matVariantOn = 1;   // task 188a / 190a: variant spray OFF unless -matvariant 1
             if (SitesArg()) spec.sitesOn = 1;   // task 187
-            if (LandSigArg()) spec.landSigOn = 1;   // task 189
+            if (!LandSigArg()) spec.landSigOff = 1;   // task 189 / 190b: ON unless -landsig 0
             if (TownsArg()) { spec.townsOn = 1; spec.sitesOn = 1; }   // task 190 (towns need the sites)
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
