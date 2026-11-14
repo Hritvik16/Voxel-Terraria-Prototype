@@ -17,6 +17,12 @@ APP="Builds/Playground.app"
 DATA="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap"
 mkdir -p Logs
 source tools/unity-lock.sh
+# Task 194b: this rig reads the shadow/shell counters, debug views or the shell probe, which only the dev kernels
+# have; player builds leave those out unless VE_ALL_KERNELS=1 (Assets/Editor/DevKernelStrip.cs).
+export VE_ALL_KERNELS=1
+# ... and CSMainFarShadeDiag alone took 1245 s when all 26 kernels compiled at once (task 194b), past the 30-min
+# timeout once in task 194: give these all-kernel builds 60 min unless the caller set more.
+if [ "${UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES:-0}" -lt 60 ]; then export UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES=60; fi
 unity_lock_acquire
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"

@@ -83,7 +83,9 @@ public class BuildStamp : IPreprocessBuildWithReport, IPostprocessBuildWithRepor
         return $"commit    {commit} ({dirty})\n" +
                $"subject   {subject}\n" +
                $"built     {DateTime.Now.ToString("u", CultureInfo.InvariantCulture)}\n" +
-               $"unity     {Application.unityVersion}";
+               $"unity     {Application.unityVersion}\n" +
+               // Task 194b: which Raymarch kernels this player build left out (RaymarchFeature.KernelStripped).
+               $"kernels   {DevKernelStrip.StampValue}";
     }
 
     private static string Git(string args)

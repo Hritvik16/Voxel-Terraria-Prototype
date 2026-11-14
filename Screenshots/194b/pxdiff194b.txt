@@ -1,0 +1,6 @@
+ws_fixed_forest_native_sf0.png: differing px 46964 of 2073600 (2.265 %), > 8 levels 33928, max channel diff 213, bbox (137, 191, 1888, 691)
+ws_fixed_forest_native_sf2.png: differing px 320977 of 2073600 (15.479 %), > 8 levels 99271, max channel diff 218, bbox (0, 90, 1920, 1080)
+ws_fixed_jungle_high_native_sf0.png: differing px 757423 of 2073600 (36.527 %), > 8 levels 652685, max channel diff 214, bbox (0, 0, 1920, 1047)
+ws_fixed_jungle_high_native_sf2.png: differing px 1224486 of 2073600 (59.051 %), > 8 levels 782915, max channel diff 204, bbox (0, 0, 1920, 1080)
+ws_fixed_under_crown_native_sf0.png: differing px 0 of 2073600 (0.000 %), > 8 levels 0, max channel diff 0, bbox None
+ws_fixed_under_crown_native_sf2.png: differing px 44288 of 2073600 (2.136 %), > 8 levels 0, max channel diff 4, bbox (0, 0, 1803, 1080)

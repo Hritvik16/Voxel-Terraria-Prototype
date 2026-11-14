@@ -1489,3 +1489,22 @@ pass no `-skyfill`; `run-acceptance-rig.sh` launches the Phase 4 scene, which ha
 `PlaySettingsTests.SkyFill_PlayDefaultIs2_OldFileGets2_FlagOverridesForTheRun`; `PlayFlagsFileMatchesPlaySettingsDefaults` now pins
 `-skyfill 2`. No F6 screenshot: the menu shows only in an interactive run (`-settingsopen` + `-playshot`), not in a capture mode.
 Result: HANDOFF 194a.
+
+**Task 194b (build plumbing, owner 2026-11-13 "Yes this next to speed up development"; NO runtime change): player builds leave five dev
+kernels out of Raymarch.compute.** `Assets/Editor/DevKernelStrip.cs` (IPreprocessComputeShaders, only while a player is built) drops
+`CSMainFarShadeDiag`, `CSShellPrepassDiag`, `CSShellProbe`, `CSMainChecker`, `CSMainDetail` -- play never dispatches them. `VE_ALL_KERNELS=1` in
+the build's environment keeps them; `run-cost-split.sh` and `run-farband.sh` set it (their reports read the counters / probe) and give those
+builds a 60-min compiler timeout. Editor play and the EditMode suite always have every kernel. BuildStamp gains a `kernels   all|stripped A,..`
+line; the player reads it (`RaymarchFeature.KernelStripped`, parser `VoxelEngine.Rendering.KernelStripStamp`), and a run that ASKS for a missing
+kernel logs one `[kernels]` warning and draws with play's kernel: `-checker 1` -> plain TAA, `-detailspeed 1` -> CSMain, the *Diag cases (counter
+windows `CollectShadowStats`, debug views, `_DebugShellSkip` arms, `-shelldiet 0`, `-shellmask 1`, `-shellcolleap 1`) -> the lean twins, so
+shadow/shell counters read 0 (look review's `[px]` lines, the walk's end-of-run shadow step count) and debug views 12-14 draw as play: build with
+`VE_ALL_KERNELS=1` for those. Measured (cold, all kernels compiling at once): Raymarch 1503.7 -> 1128.8 s wall, 8179 -> 5551 s of kernel compile;
+slowest kernel now CSMainFlood 1129 s (CSMainFarShadeDiag was 1245 s); whole look-review build 31.0 -> 20.3 min. A rebuild after editing only C#
+reuses every kernel (0.01 s, whole build 4.7 min). The cache is per kernel, keyed on the preprocessed source INCLUDING line numbers: any
+Raymarch.compute edit that adds/removes a line recompiles all kernels; an edit inside one `#ifdef` that keeps line counts recompiles only the
+kernels that see it (task 194's build: 19 hits, 7 compiled); Unity keeps the last 5 source versions (`Library/ShaderCache/compute/Raymarch*/00..04`),
+so reverting an edit is a cache hit. Splitting the file would not help (the shared body is in every kernel). Proof nothing changed: build 2 (same
+source) compiled 0 of 21 kept kernels (byte-identical binaries); stills before vs after differ only as much as two launches of the SAME player do
+(A/A control). Tests `DevKernelStripTests` (list = five real non-play kernels, every one guarded, stamp parses back). Files: `Screenshots/194b/`
+(`compile194b.txt` per-kernel tables + pixel diffs), scripts `Logs/overnight/194b/` (`binmap.sh`, `table.py`, `pxdiff.py`). Result: HANDOFF 194b.

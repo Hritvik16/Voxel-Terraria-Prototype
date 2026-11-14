@@ -114,6 +114,10 @@
 // shell march asks ShellByDistance only when the distance leaves its band. Their *Diag twins are
 // the code as it was before task 134, line for line: RaymarchFeature dispatches them for a counter
 // window, a debug view, a _DebugShellSkip arm, -shellmask 1 / -shellcolleap 1, or -shelldiet 0.
+// TASK 194b (BUILD TIME ONLY, nothing here changed): Assets/Editor/DevKernelStrip.cs leaves CSMainFarShadeDiag,
+// CSShellPrepassDiag, CSShellProbe, CSMainChecker and CSMainDetail out of PLAYER builds (play never dispatches
+// them); build with VE_ALL_KERNELS=1 to keep them. A run that asks for one draws with play's kernel and says so
+// once ([kernels]). Editor play and the EditMode suite always have every kernel.
 #pragma kernel CSMainFarShadeDiag VE_FAR_SHADE VE_SHELL_DIAG
 #pragma kernel CSShellPrepassDiag VE_FAR_SHADE VE_SHELL_DIAG
 // TASK 158 (TORCH_LIGHT_PLAN L2, -torchflood 1, OFF by default): the torch-flood twins of

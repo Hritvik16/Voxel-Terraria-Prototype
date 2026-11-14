@@ -330,6 +330,32 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// (task 134's rule: faster at both poses, raw stills 0 px): warm ABBA p50 69.0 -> 62.1 ms walk_near, 41.8 -> 36.3 ms
     /// walk_open (Logs/costsplit_2026-10-24_141618.txt).
     public static bool ShellKernelDiet = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-shelldiet");
+    // ---- Task 194b: kernels a PLAYER build left out (Assets/Editor/DevKernelStrip.cs, build time only) ----
+    private static string[] _strippedKernels;
+    private static readonly System.Collections.Generic.HashSet<string> _strippedWarned = new System.Collections.Generic.HashSet<string>();
+    /// Did this player build leave `kernel` out of Raymarch.compute? Read once from the build stamp's `kernels` line.
+    /// Always false in the Editor (Editor play and the EditMode suite have every kernel; the stamp file there is stale).
+    public static bool KernelStripped(string kernel)
+    {
+        if (_strippedKernels == null)
+        {
+            TextAsset ta = Application.isEditor ? null : Resources.Load<TextAsset>("BuildStamp");
+            _strippedKernels = VoxelEngine.Rendering.KernelStripStamp.Parse(ta != null ? ta.text : null);
+            Debug.Log(_strippedKernels.Length == 0 ? "[kernels] this build has every Raymarch kernel"
+                : $"[kernels] this player build left out {string.Join(", ", _strippedKernels)} (task 194b; play never uses them; build with VE_ALL_KERNELS=1 to keep them)");
+        }
+        return System.Array.IndexOf(_strippedKernels, kernel) >= 0;
+    }
+    /// KernelStripped, plus ONE warning per kernel the first time a run asks for a missing one.
+    public static bool KernelStrippedWarn(string kernel)
+    {
+        if (!KernelStripped(kernel)) return false;
+        if (_strippedWarned.Add(kernel))
+            Debug.LogWarning($"[kernels] {kernel} was asked for, but this player build left it out (task 194b): drawing with play's kernel" +
+                (kernel == "CSMainFarShadeDiag" ? "; shadow/shell counters read 0 and debug views 12-14 draw as play" : "") +
+                ". Rebuild with VE_ALL_KERNELS=1 to have it.");
+        return true;
+    }
     /// Task 134: does this frame need the far-shading *Diag kernels? A counter window, a debug view, a
     /// _DebugShellSkip arm, the OFF-by-default experiments (-shellmask 1, -shellcolleap 1), or the diet off.
     public static bool ShellDiagKernels(int debugMode) =>
@@ -666,6 +692,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
     public static uint[] ReadShadowStats()
     {
+        KernelStrippedWarn("CSMainFarShadeDiag");   // task 194b: the counters live only in the *Diag kernels
         var d = new uint[STATS_LEN];
         ShadowStatsBuffer?.GetData(d);
         return d;
@@ -1055,10 +1082,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     // jitter per frame a pixel traced on alternate frames would see
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
-                    passData.taaChecker = TaaChecker && !upsIn ? 1 : 0;
-                    if (TaaChecker && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
+                    // Task 194b: a player build without CSMainChecker (DevKernelStrip) runs -checker 1 as plain TAA.
+                    bool checkerK = TaaChecker && !KernelStrippedWarn("CSMainChecker");
+                    passData.taaChecker = checkerK && !upsIn ? 1 : 0;
+                    if (checkerK && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
-                    int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
+                    int hi = (int)((checkerK ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
                     LastTaaJitter = upsIn ? UpsJitter(_taaFrame, dispatchW, dispatchH, cameraData)
                                           : new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     _taaFrame++;
@@ -1218,13 +1247,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
                 // CSMainChecker are the pre-task code, so OFF and a still camera are
                 // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
-                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
+                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0 && !KernelStrippedWarn("CSMainDetail"))
                     passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
                 // Task 85b: far shading is its own kernel (VE_FAR_SHADE), so OFF runs the
                 // pre-task CSMain byte for byte. The checkerboard and the -detailspeed
                 // square keep their kernels (no far shading while they hold the frame).
                 // Task 134: the lean play kernel, or its *Diag twin (ShellDiagKernels).
-                bool shellDiag = ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag");
+                // Task 194b: a player build without the *Diag twins (DevKernelStrip) draws with the play kernels.
+                bool shellDiag = ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag")
+                                 && !KernelStrippedWarn("CSMainFarShadeDiag");
                 string farShadeKernel = shellDiag ? "CSMainFarShadeDiag" : "CSMainFarShade";
                 if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel(farShadeKernel))
                     passData.kPrimary = activeCompute.FindKernel(farShadeKernel);
@@ -1354,7 +1385,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 ShellDiagDrawnLastFrame = passData.primaryFarShade && shellDiag;
                 passData.kShellProbe = -1;
                 passData.shellProbeIO = _shellProbeDummy;
-                if (passData.primaryFarShade && (DebugShellSkip & 32) != 0 && passData.shellCount > 1 && activeCompute.HasKernel("CSShellProbe"))
+                if (passData.primaryFarShade && (DebugShellSkip & 32) != 0 && passData.shellCount > 1 && activeCompute.HasKernel("CSShellProbe")
+                    && !KernelStrippedWarn("CSShellProbe"))
                 {
                     int n = passData.dispatchWidth * passData.dispatchHeight;
                     if (_shellProbeIO == null || _shellProbeIO.count < n)

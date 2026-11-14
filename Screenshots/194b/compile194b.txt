@@ -1,0 +1,77 @@
+TASK 194b -- Raymarch.compute player-build compile time (13 Nov 2026, M1 Air 8 GB, 8 UnityShaderCompiler processes)
+Per kernel: 'compile s' = from the previous job's end on the same compiler process to this kernel's cache .bin write
+(the .bin holds the kernel name; Logs/overnight/194b/binmap.sh). 'done at' = seconds after Raymarch's compile began.
+
+== BEFORE: all 26 kernels, cold (Raymarch.compute lines shifted). Unity: 'finished in 1503.68 seconds ... compiled 26 variants'
+kernel                   process compile s done at +s binary KB
+CSMainFarShadeDiag       proc2        1245       1247      2231
+CSMainFlood              proc4        1183       1183      2180
+CSMainFarShadeFlood      proc5         900       1504      2415
+CSMainDetail             proc1         880        880      1600
+CSMainFarShade           proc3         879        936      1806
+CSMain                   proc0         876        876      1605
+CSMainChecker            proc6         876        877      1606
+CSMainFarShadeLeanSun    proc5         603        604       712
+CSMainFarShadeLean       proc7         338        676       836
+CSMainFarShadeLeanRoof   proc7         328        330       844
+CSShellProbe             proc3          56         57       299
+CSShellPrepassDiag       proc7           6        338       160
+CSShellPrepass           proc2           2          2        73
+CSShellPrepassLean       proc7           2          2        61
+TaaResolve               proc3           1          1        45
+BuildHeightDilateCols    proc5           1          1         4
+BuildHeightLevel         proc6           1          1         3
+CSSunDeferLean           proc7           1        331        50
+BuildHeightRaw           proc7           1        332         3
+TaaSharpen               proc3           0          1         3
+BuildHeightLevelCols     proc5           0          1         4
+HeightVerify             proc5           0          1         1
+FarScatter               proc6           0          1         2
+FarMipBuild              proc6           0          1         3
+BuildHeightRawCols       proc7           0        330         4
+BuildHeightDilate        proc7           0        331         3
+sum of kernel compile s: 8179   last kernel done at +1504 s
+
+== AFTER: DevKernelStrip on (21 of 26), cold (lines shifted again). Unity: 'finished in 1128.82 seconds ... compiled 21 variants'
+kernel                   process compile s done at +s binary KB
+CSMainFlood              proc5        1129       1129      2180
+CSMainFarShadeFlood      proc6        1126       1127      2415
+CSMainFarShade           proc7         898        898      1806
+CSMain                   proc0         893        893      1605
+CSMainFarShadeLeanSun    proc1         654        657       712
+CSMainFarShadeLean       proc2         422        422       836
+CSMainFarShadeLeanRoof   proc3         420        420       844
+CSShellPrepassLean       proc1           2          3        61
+CSShellPrepass           proc4           2          3        73
+TaaResolve               proc1           1          1        45
+TaaSharpen               proc4           1          1         3
+CSSunDeferLean           proc4           1          4        50
+BuildHeightDilateCols    proc4           1          5         4
+BuildHeightDilate        proc6           1          1         3
+HeightVerify             proc1           0          3         1
+FarScatter               proc4           0          0         2
+FarMipBuild              proc4           0          0         3
+BuildHeightLevelCols     proc4           0          5         4
+BuildHeightRawCols       proc4           0          5         4
+BuildHeightRaw           proc4           0          5         3
+BuildHeightLevel         proc6           0          1         3
+sum of kernel compile s: 5551   last kernel done at +1129 s
+
+== Rebuild after editing only C# (build 2, same Raymarch.compute source as BEFORE): '21 of 26 variants left',
+   'finished in 0.01 seconds. Local cache hits 21, remote cache hits 0, compiled 0 variants' -- whole build 4.7 min.
+== Whole build wall (scene step + build, from lock taken): before 31.0 min (14:39:20-15:10:23), after cold 20.3 min (16:03:42-16:23:59).
+
+== Pixel diff, 3 poses x sky fill 0/2, -trees 1, native 1080 (before = build 1 all kernels, after = build 2 stripped):
+ws_fixed_forest_native_sf0.png: differing px 46964 of 2073600 (2.265 %), > 8 levels 33928, max channel diff 213, bbox (137, 191, 1888, 691)
+ws_fixed_forest_native_sf2.png: differing px 320977 of 2073600 (15.479 %), > 8 levels 99271, max channel diff 218, bbox (0, 90, 1920, 1080)
+ws_fixed_jungle_high_native_sf0.png: differing px 757423 of 2073600 (36.527 %), > 8 levels 652685, max channel diff 214, bbox (0, 0, 1920, 1047)
+ws_fixed_jungle_high_native_sf2.png: differing px 1224486 of 2073600 (59.051 %), > 8 levels 782915, max channel diff 204, bbox (0, 0, 1920, 1080)
+ws_fixed_under_crown_native_sf0.png: differing px 0 of 2073600 (0.000 %), > 8 levels 0, max channel diff 0, bbox None
+ws_fixed_under_crown_native_sf2.png: differing px 44288 of 2073600 (2.136 %), > 8 levels 0, max channel diff 4, bbox (0, 0, 1803, 1080)
+== A/A control: build 2's player launched twice, same capture:
+ws_fixed_forest_native_sf0.png: differing px 176890 of 2073600 (8.531 %), > 8 levels 124100, max channel diff 211, bbox (137, 174, 1920, 707)
+ws_fixed_forest_native_sf2.png: differing px 414322 of 2073600 (19.981 %), > 8 levels 99293, max channel diff 229, bbox (0, 88, 1920, 1080)
+ws_fixed_jungle_high_native_sf0.png: differing px 717392 of 2073600 (34.596 %), > 8 levels 624147, max channel diff 214, bbox (0, 0, 1920, 1047)
+ws_fixed_jungle_high_native_sf2.png: differing px 1145332 of 2073600 (55.234 %), > 8 levels 673041, max channel diff 207, bbox (0, 0, 1920, 1080)
+ws_fixed_under_crown_native_sf0.png: differing px 0 of 2073600 (0.000 %), > 8 levels 0, max channel diff 0, bbox None
+ws_fixed_under_crown_native_sf2.png: differing px 27524 of 2073600 (1.327 %), > 8 levels 0, max channel diff 4, bbox (0, 0, 1780, 1080)
