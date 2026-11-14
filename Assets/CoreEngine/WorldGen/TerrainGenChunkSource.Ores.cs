@@ -1,6 +1,7 @@
 // Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Ores.cs
 //
-// Task 181 (placement, resource deposits, `-ores 1`; default OFF): plumbs
+// Task 181 (placement, resource deposits; `-ores`, default ON since task 195,
+// owner 2026-11-13 Q-X (a); `-ores 0` = step 3's placement, byte for byte): plumbs
 // TerrainGen.OreRules' per-map-cell plane (OreRulePlane.CellPlane) into the
 // engine's generators, as the step-3 ore plane and task 180's tree plane are:
 // ColumnJob, ShellColumnJob and PointVoxel (FarQuery) copy the column's cell
@@ -20,12 +21,15 @@ namespace VoxelEngine.WorldGen
     {
         private NativeArray<uint> _oreCell;   // task 181: OreRulePlane.CellPlane; length 1 = none
 
-        /// -ores 1 (task 181): spec.oresOn = 1, the rule ores. Absent or 0 = step 3's
-        /// placement (the default). Last match wins.
+        /// -ores 0 (task 181; default flipped by task 195): spec.oresOn stays 0,
+        /// step 3's placement, byte for byte. Absent or 1 = spec.oresOn = 1, the
+        /// rule ores (the default). Last match wins. Only this chunk source sets it:
+        /// a bare TerrainSpec stays 0, because the rules need the ore cell plane
+        /// this source builds (BuildOreCellPlane).
         public static bool OresArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-ores" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;

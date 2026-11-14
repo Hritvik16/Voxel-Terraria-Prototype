@@ -146,9 +146,11 @@ namespace TerrainGen
         public byte matRulesOff;
         /// Task 181 (placement, resource deposits): 1 = OreRules.cs (harshness-scaled
         /// deposits, wall veins, rich features, the hidden start, latent cobalt and
-        /// emberstone twins). 0 (the default) = step 3's Ores.cs placement, byte for
-        /// byte. Needs a record (v4) and the ore cell plane (ColumnDetail.oreCell).
-        /// Read it through Ores2, never directly. `-ores 1` sets it.
+        /// emberstone twins). 0 = step 3's Ores.cs placement, byte for byte (a bare
+        /// spec's value). Needs a record (v4) and the ore cell plane
+        /// (ColumnDetail.oreCell), so only the engine's TerrainGenChunkSource sets
+        /// it -- ON there by default since task 195 (owner 2026-11-13); `-ores 0`
+        /// leaves it 0. Read it through Ores2, never directly.
         public byte oresOn;
         /// Task 183 (placement, fluid pockets at rest): 1 = FluidPockets.cs (surface
         /// basins by rule, the deep pockets' rule fluids and linings). 0 (the
@@ -271,7 +273,7 @@ namespace TerrainGen
         /// (see matVariantOn): OFF by default since task 190a.
         public bool MatVariant => matVariantOn != 0;
 
-        /// Task 181's rule ores in force (see oresOn): v4 only, opt-in.
+        /// Task 181's rule ores in force (see oresOn): v4 only; the chunk source's default since task 195.
         public bool Ores2 => mapVersion >= 4 && oresOn != 0;
 
         /// Task 183's fluid pockets in force (see fluidPocketsOn): v4 only, opt-in.

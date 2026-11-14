@@ -1508,3 +1508,15 @@ so reverting an edit is a cache hit. Splitting the file would not help (the shar
 source) compiled 0 of 21 kept kernels (byte-identical binaries); stills before vs after differ only as much as two launches of the SAME player do
 (A/A control). Tests `DevKernelStripTests` (list = five real non-play kernels, every one guarded, stamp parses back). Files: `Screenshots/194b/`
 (`compile194b.txt` per-kernel tables + pixel diffs), scripts `Logs/overnight/194b/` (`binmap.sh`, `table.py`, `pxdiff.py`). Result: HANDOFF 194b.
+
+**Task 195 -- rule ores are the DEFAULT (owner 2026-11-13, Q-X (a) "ores ON now"; leaf fill unchanged at 45, Q-Y (b)).**
+`TerrainGenChunkSource.OresArg` now defaults to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build one) runs
+task 181's rule ores; `-ores 0` leaves `spec.oresOn` 0 = step 3's `Ores.cs` placement, the pre-195 world byte for byte (same code path as
+before). Unlike 187a / 190b the SPEC field is NOT flipped: a bare `TerrainSpec` stays OFF, because the rules need the ore cell plane only the
+chunk source builds (`BuildOreCellPlane`, 4,096 KB); a bare spec with `Ores2` would read cell 0. Player log: `[StreamManager] tg2 chunk source:
+... rule ores ON (default; plane 4096 KB)` / `OFF (-ores 0)`. No F6 entry (there never was one); no identity/hash rig uses the tg2 world, so no
+rig needed `-ores 0`. Tests: `TerrainGenChunkSourceTests.RefJob` (the TerrainGen reference) now carries the source's ore cell plane like
+ColumnJob (it failed `AirFastPath_IsExact` at surface - 3 without it); `BrickSkipTests`' plain proofs now cover the rule ores and the
+`_Ores` twins became `_OresOff` (`-ores 0`, reports `brick_skip_*identical_oresoff.txt`), restoring the source's previous value.
+Shots: `Logs/overnight/195_shots.sh` (181's three wall poses, `-tod 12`, default vs `-ores 0`), `Screenshots/195/sheet_*.jpg`.
+Rough cost from that launch (not a timing arm): shell chunk generation 114-129 ms vs 85-91 ms per chunk on a worker. Result: HANDOFF 195.

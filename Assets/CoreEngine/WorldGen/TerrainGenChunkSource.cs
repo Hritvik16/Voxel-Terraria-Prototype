@@ -271,7 +271,7 @@ namespace VoxelEngine.WorldGen
             spec.treeLeafFill = LeafFillArg();   // task 192
             if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
-            if (OresArg()) spec.oresOn = 1;   // task 181
+            if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
             if (!StampFitArg()) spec.stampFitOff = 1;   // task 185 / 187a: fit ON unless -stampfit 0
             if (MatVariantArg()) spec.matVariantOn = 1;   // task 188a / 190a: variant spray OFF unless -matvariant 1

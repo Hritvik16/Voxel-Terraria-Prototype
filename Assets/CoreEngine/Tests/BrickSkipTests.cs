@@ -148,7 +148,7 @@ public class BrickSkipTests
     private static void RunChunks(string file)
     {
         var sites = Sites(_src);
-        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}, matrules {_src.Spec.MatRules}: {sites.Count} sites" };
+        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}, matrules {_src.Spec.MatRules}, ores {_src.Spec.Ores2}: {sites.Count} sites" };
         byte[] oreEng = new byte[5];
         for (int i = 0; i < 5; i++) oreEng[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)(TerrainGen.Ores.Copper + i));
         int chunks = 0, dense = 0, deepDense = 0, oreVoxels = 0, deepAir = 0;
@@ -214,23 +214,27 @@ public class BrickSkipTests
         finally { _src.SetMatRules(true); }
     }
 
-    /// Task 181: the same proofs with the rule ores on (OreMay's rule chance, VeinColumn).
+    /// Task 181 / 195: the same proofs on the OTHER ore path. The rule ores are the
+    /// chunk source's default since task 195, so the plain tests cover OreMay's rule
+    /// chance and VeinColumn; these cover -ores 0 (step 3's Ores.cs placement).
     [Test, Category("Slow")]
     [Category("Nightly")]   // task 184b: test-suite tier
-    public void Chunks_SkipOnAndOff_ByteIdentical_Ores()
+    public void Chunks_SkipOnAndOff_ByteIdentical_OresOff()
     {
-        _src.SetOres(true);
-        try { RunChunks("brick_skip_identical_ores.txt"); }
-        finally { _src.SetOres(false); }
+        bool was = _src.Spec.oresOn != 0;
+        _src.SetOres(false);
+        try { RunChunks("brick_skip_identical_oresoff.txt"); }
+        finally { _src.SetOres(was); }
     }
 
     [Test, Category("Slow")]
     [Category("Nightly")]   // task 184b: test-suite tier
-    public void Shells_SkipOnAndOff_ByteIdentical_Ores()
+    public void Shells_SkipOnAndOff_ByteIdentical_OresOff()
     {
-        _src.SetOres(true);
-        try { RunShells("brick_skip_shells_identical_ores.txt"); }
-        finally { _src.SetOres(false); }
+        bool was = _src.Spec.oresOn != 0;
+        _src.SetOres(false);
+        try { RunShells("brick_skip_shells_identical_oresoff.txt"); }
+        finally { _src.SetOres(was); }
     }
 
     private static void RunShells(string file)

@@ -1,8 +1,9 @@
 // Assets/TerrainGen/OreRules.cs
 //
 // TASK 181 -- RESOURCE DEPOSITS BY RULE (placement plan, owner-approved
-// 2026-11-06 incl. batch 2; behind `-ores 1` = TerrainSpec.oresOn, DEFAULT OFF;
-// map v4 only). OFF keeps Ores.cs's step-3 placement byte for byte.
+// 2026-11-06 incl. batch 2; TerrainSpec.oresOn, the engine chunk source's
+// DEFAULT since task 195 (owner 2026-11-13); `-ores 0` = OFF; map v4 only).
+// OFF keeps Ores.cs's step-3 placement byte for byte.
 //
 // The five-tier ladder is Ores.cs's, unchanged: copper (stone pick), gold
 // (copper pick), iron (gold pick), cobalt (iron pick), emberstone (cobalt pick).
