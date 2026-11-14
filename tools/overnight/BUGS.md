@@ -76,3 +76,4 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
   check `pmset -g batt`, Low Power Mode, and the player log's last lines. See `tools/overnight/done/*133*.HANDOFF.md`.
 | 168 | roof pyramid (cut D) | incremental pyramid differs from a full rebuild on 774 of 3,749 verify checks (transient); only matters if D returns. `-roofinc` default OFF. See 168 handoff "Open bug" | 2026-11-02 |
 | 168c | C1 dropped (not exact, slower); `-sundefer` kernels CSMainFarShadeLeanSun / CSSunDeferLean add shader compile time; remove in a cleanup | tools/overnight/blocked/168c-*.HANDOFF.md | 2026-11-02 |
+| 199 | play draws the torch-flood twin `CSMainFarShadeFlood` since task 175 (`RaymarchFeature.cs` ~1373-1379); diet 2 needs `!floodFarTwin` (~1425), so play likely lost diet 2's -6.0 / -4.5 ms (167). Code reading only; measure in render-steps T0, fixed by T2 (S4 out) | AMENDMENT_8_17_RENDER_STEPS.md | 2026-11-14 |

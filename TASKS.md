@@ -1586,3 +1586,11 @@ shell by distance, never coarser mid-cell), sun-shadow ray by the GPU's 3-cell r
 (`-dashprobe 1` sets `FarField.ShadowTexels`, +20 MB); `-dashwin "pose:x,y;..."` picks 192x108 windows (else the densest) -> `ws_<pose>_cputop*.png`
 (white = predicted dash, cyan = tread averaged away, blue = shadowed tread, red tint = test fails). Debug views could not be used: see
 KNOWN_ISSUES (CSMainFarShade fails in player builds). Driver `Logs/overnight/198/shoot1.sh`; pictures `Screenshots/198/viewer.html`. Result: HANDOFF 198.
+
+**Task 199 (plan only, owner 2026-11-13 topic 3 P1-P4 + R1/R2; no code, no default change, no launch): render steps + frame budget.**
+`AMENDMENT_8_17_RENDER_STEPS.md` (DRAFT, NOT ADOPTED) + owner doc https://claude.ai/artifact/6JF22Hg7USmgb75F19UQgB: Full vs Air
+(M1, 30 fps) presets; a 33.3 ms budget per step for Air from 168b / 146 cost splits (sun ~5, sky ~2, shells ~1.3 ms over share on
+walk_near); seven steps S1 Surface -> S2 Sun -> S3 Sky -> S4 Local light -> S5 Reflections -> S6 Shade + compose -> S7 Post sharing a
+per-pixel hit buffer (+40 B/px: +19.8 MB at 540 rows); ordered tasks T0-T8 with est. ms; R1 water reflections and the R2 per-material
+shine table (no voxel-layout change); cinematic techniques vs shader packs / Lay of the Land; owner questions Q1-Q7. Finding (code
+reading, unmeasured): play draws the torch-flood twin `CSMainFarShadeFlood` since task 175, so diet 2 is bypassed in play. Result: HANDOFF 199.
