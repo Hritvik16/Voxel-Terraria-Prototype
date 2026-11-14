@@ -21,3 +21,8 @@ P1 (a) the M1 Air is the MINIMUM machine (30 fps on a lower preset; full look fo
 drawing into separate render steps now, before reflections / more light (design doc first). P3 (a) a frame budget per
 feature. P4 cinematic references: modded Minecraft shader packs, Lay of the Land (Tooley; 0.1 m cubes; YouTube devlog).
 -> task 199 (plan only: presets, budget, render-steps design, look techniques, owner questions).
+
+## Decided 2026-11-13 (chat), topic 1 trees
+T1: 0.1 m cubes, closer to REAL trees (banyan, massive redwood); 5-6+ types as the biomes need; recognizable but each
+unique. T2: wants to SEE example end products before picking a method. T3 (a) 2-3 species per biome. T4 (a) trees first,
+bushes/grass/flowers later. -> task 200 (examples only, behind a gallery flag; world unchanged; questions after).
