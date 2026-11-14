@@ -49,3 +49,11 @@ would land in the same kernel. So the split is done ONCE, before them, and each 
 ## End
 HANDOFF with the doc link and its `## For the doc` block (one-line result, the questions). No STOP_FOR_OWNER needed:
 the questions go to the supervisor through HANDOFF. Commit the repo copy. No tests needed (no code).
+
+## Added by the supervisor (owner, chat 2026-11-13, R1 / R2)
+- **R1 (a): water reflects the SKY AND THE LAND** (cliffs, trees, towns mirrored in lakes): one extra ray per reflective pixel
+  in our raymarcher. Design it as its own render step; budget share and est. ms for the M1 Air preset and the full preset.
+- **R2: what shines:** ores and metals (gold, iron, copper ...), ICE (smooth: highlight + faint mirror), polished stone in
+  buildings. NOT "wet rock" (owner: water is real 10 cm cubes; dropped unless rain comes later). Say what a material needs
+  (a roughness / shine value per GenMat? where it lives without changing the 1-byte voxel layout -- a per-material table,
+  not per voxel) and how see-through liquids (task 75) combine with reflection (refraction already exists).

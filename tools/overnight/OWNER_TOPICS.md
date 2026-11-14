@@ -29,3 +29,17 @@ bushes/grass/flowers later. -> task 200 (examples only, behind a gallery flag; w
 
 ## Q-AA answered 2026-11-13 (doc): (a) pools ON -> task 201. Owner: "fine for now but these need to be more like ponds"
 -> a LOOK talk item (what makes a pond: outline, shallow edge, reeds/plants, size range) before any shape change.
+
+## Decided 2026-11-13 (chat), topics 2, 4, 6 and ponds
+- Towns (PLACEMENT stage; no build task yet -- goes into the game-design doc 202, then a towns plan):
+  V1 (a) flatten only under each building; slopes get foundations / steps / stilts / terraces.
+  V2 (a) streets first: paths grow from the route along easy ground, buildings line them; city = more rules (square,
+  districts, walls, castle on high ground). V3 (a) buildings made by rules (footprint -> floors -> roof -> biome materials
+  -> details), WFC for facades / interiors; fits any ground (cliff buildings). V4 (a) keep the danger map; routes become
+  the roads between towns; towns are safe stops; land off the roads stays wild.
+- Reflections: R1 (a) water reflects sky AND land. R2: ores + metals, ice, polished stone shine; "wet rock" DROPPED
+  (owner: water is real 10 cm cubes) unless rain comes. -> added to task 199.
+- Ponds W1: (a) irregular natural outlines -> task 203; (e) fed by streams -> task 204 (plan; flowing fluid touches the
+  sim). FOR ALL FLUID POCKETS, every fluid.
+- G1 (a): game-design doc now -> task 202 (plan). Checklist before characters (look -> perf -> placement -> characters)
+  stood without objection.
