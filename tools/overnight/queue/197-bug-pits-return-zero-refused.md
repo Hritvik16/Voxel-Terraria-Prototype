@@ -28,3 +28,11 @@ state was cleared (count back to 0) while tier 0 / the mirror still held the chu
 
 ## End
 Done with HANDOFF + pictures, or STOP_FOR_OWNER as above.
+
+## Second case (task 195, added by the supervisor 2026-11-13)
+195's first `-ores 0` launch drew NO badlands wall at all at 181's `badlands_wall` pose (open sea where a 50 m rock face
+stands; settle frame 137 vs 191 ms = less drawn; refused 0). The same pose relaunched: the wall is there. Generation is
+proven identical (OreRuleTests), so this is a streaming/draw miss in one launch.
+`Screenshots/195/badlands_wall_ores0_BROKEN_first_launch.png`, logs `Logs/overnight/195_shots.sh`, `look_*.out`, `player_*.log`.
+Check whether it shares the cause with the pits (a column treated as resident/air in tier 0 without its body); if it is a
+different cause, fix the pits first and report the wall case in HANDOFF with what you found.
