@@ -29,8 +29,11 @@ Birch bark: add a real pale-bark GenMat with its `FarField.GenToEngine` mapping 
 2. Make method (a) world-ready: build trees on WORKER threads (Burst where it pays), cache the built volume per tree seed so
    chunks share it, and keep the main thread the single writer (CLAUDE.md). Deterministic across chunk borders and runs:
    `TreeTests.Chunks_Deterministic_Border_PointAndShellsAgree` style test for the new path.
-3. Memory budget, the hard part. Pick the density so that, with `-trees2 1`, (i) the 195a memory peak (2,504 MB) grows by
-   at most ~150 MB, and the total stays under 3,000 MB; (ii) GPU body pool refusals do not grow against `-trees2 0` at the same
+3. Memory budget, the hard part. Since 201a (sealed bricks, commit 417f1dd) the GPU pool has free bodies per pose: forest
+   31,375, jungle_high 68,355, town_eye 112,702, badlands 109,050, s_redwood 48,784 (`Screenshots/201a/table201a.txt`); the launch
+   peak was 2,616-2,725 MB (start-up transient). Pick the density so that, with `-trees2 1`, (i) the memory peak grows by at most
+   ~150 MB over the `-trees2 0` arm of the SAME launch set, and the total stays under 3,000 MB; if the forest's 31 k free bodies
+   are not enough, use 201a's named next levers (chunk-border sealed bricks, byte duplicates) before thinning the forest; (ii) GPU body pool refusals do not grow against `-trees2 0` at the same
    poses; (iii) NO pool is made bigger. Fewer, bigger trees: a brick budget per area (e.g. per 51.2 m cell). Giants go on
    their own sparse grid as rare landmarks. Report the budget numbers you chose and why.
 4. Pictures: forest, jungle, savanna, snow and desert at eye height and from ~100 m, `-trees2 1` vs `-trees2 0`, same camera,
