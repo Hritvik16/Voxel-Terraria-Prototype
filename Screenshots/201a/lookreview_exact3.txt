@@ -1,0 +1,143 @@
+UPSCALER CLIPS -- 2026-11-14_125613
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 40 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native_sf0_gs1, native_sf0_gs0, native; shell wait cap 40 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  39 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 2170/0/0  s2 1494/672/4  s3 399/1598/4  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4063, missing 3935, pending 0; requested 4489, generated 4481 (158 ms each on a worker), dropped stale 8, over-budget frames 0 (of 2142)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 63310/63310/150016 257/257/1540 r0  s2 43525/43525/119296 168/168/1392 r0  s3 11220/11220/102400 40/40/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 492,793 (valve 484,500, 278.3 MB) | GPU body pool cap 420,000 peak 269,339 refused 0 (205.1 MB), in use 208,189, sealed 76,474 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2529.5 MB, peak 2760.5 MB of the 3,000 MB cap
+  [gpupool] in use 208,189 of 420,000 (free 211,811), peak 269,339, refused total 0 | box int3(255, 34, 380)..int3(270, 49, 395) cam chunk int3(263, 42, 388) | resident chunks 1,291: uniform 651, dense held 640, refused now 0 | box bodies mapped 208,189 (+ fluid dir / other 0), dense not mapped in held chunks 79 | refused chunks' dense bricks 0 -> demand 208,189 (102 MB)
+  [gpupool] src terrain    107,680 ( 51.7%) | one-value 0, surface 62,754, fluid-mixed 0, solid-mixed 44,926 | hidden inner 0, hidden any 33,967 | refused 0
+  [gpupool] src tree       100,491 ( 48.3%) | one-value 0, surface 96,469, fluid-mixed 0, solid-mixed 4,022 | hidden inner 0, hidden any 1,302 | refused 0
+  [gpupool] src ore             18 (  0.0%) | one-value 0, surface 12, fluid-mixed 0, solid-mixed 6 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] src fluid            0 (  0.0%) | one-value 0, surface 0, fluid-mixed 0, solid-mixed 0 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] hidden (all-opaque brick in an opaque 1-voxel shell): inner 0 (0.0%), incl. chunk-border bricks 35,269 (16.9%) | refused chunks: inner 0, any 0 | demand minus inner-hidden 208,189, minus any-hidden 172,920
+  [gpupool] duplicates: distinct bodies 191,985 of 208,189 (dupes 16,204 = 7.8%) | by kind one-value 0, surface 11,814, fluid-mixed 0, solid-mixed 4,390
+  [gpupool] ring (chunks from cam, xz): 0-2 31,868 (hidden 5,375), 3-5 82,764 (hidden 12,267), 6+ 93,557 (hidden 17,627)
+  [gpupool] layer dy (chunks from cam): -3: 9,943/3,950h  -2: 79,949/18,178h  -1: 87,137/9,629h  0: 25,734/2,940h  +1: 4,806/572h  +2: 620/0h  
+  [gpupool] sealed (task 201a, staged uniform, no body): held chunks 76,474 (not probe-inner-hidden 0), clipmap count 76,474, staged total 551,012 | seal ON
+  [gpupool] probe 1842 ms
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [gpuseal] fixed_forest: seal ON, 1291 box chunks restaged in 12.2 s, still dirty 0, in use 208,266 of 420,000, sealed 76,476, refused now 0, total 0
+  [frame] fixed_forest native_sf0_gs1: settle frames mean 155.2 ms, p50 155.4 ms, max 167.7 ms (skyfill 0)
+  [refused] now 0, total 0, in use 208,266 of 420,000 | box chunks int3(255, 34, 380)..int3(270, 49, 395) | shell 1 cam chunk int3(131, 21, 194) hole +-1 (25.6 m chunks: tier-0 x/z 260..265 / 386..391) [native_sf0_gs1]
+  [gpuseal] fixed_forest: seal OFF, 1291 box chunks restaged in 12.6 s, still dirty 0, in use 284,742 of 420,000, sealed 0, refused now 0, total 0
+  [frame] fixed_forest native_sf0_gs0: settle frames mean 155.2 ms, p50 155.1 ms, max 168.9 ms (skyfill 0)
+  [refused] now 0, total 0, in use 284,742 of 420,000 | box chunks int3(255, 34, 380)..int3(270, 49, 395) | shell 1 cam chunk int3(131, 21, 194) hole +-1 (25.6 m chunks: tier-0 x/z 260..265 / 386..391) [native_sf0_gs0]
+  [gpuseal] fixed_forest: seal ON, 1291 box chunks restaged in 12.1 s, still dirty 0, in use 208,266 of 420,000, sealed 76,476, refused now 0, total 0
+  [frame] fixed_forest native: settle frames mean 155.4 ms, p50 155.5 ms, max 169.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 208,266 of 420,000 | box chunks int3(255, 34, 380)..int3(270, 49, 395) | shell 1 cam chunk int3(131, 21, 194) hole +-1 (25.6 m chunks: tier-0 x/z 260..265 / 386..391) [native]
+WSPOSE fixed_forest|3366.4,544.2,4973.0|3366.4,530.7,4928.0|fixed pose forest (-wsfixed)
+  fixed_forest: yaw 180 pitch -17 deg, distance 47 m, 299 s
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 2170/0/0  s2 1607/558/5  s3 442/1556/3  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4219, missing 3779, pending 0; requested 8716, generated 8708 (158 ms each on a worker), dropped stale 16, over-budget frames 0 (of 4353)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 43354/63310/150016 232/257/1540 r0  s2 36410/43525/119296 124/168/1392 r0  s3 9852/11220/102400 37/40/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 492,793 (valve 484,500, 278.3 MB) | GPU body pool cap 420,000 peak 284,742 refused 0 (205.1 MB), in use 145,906, sealed 136,783 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2538.9 MB, peak 2760.5 MB of the 3,000 MB cap
+  [gpupool] in use 145,906 of 420,000 (free 274,094), peak 284,742, refused total 0 | box int3(204, 41, 251)..int3(219, 56, 266) cam chunk int3(212, 49, 259) | resident chunks 1,790: uniform 661, dense held 1,129, refused now 0 | box bodies mapped 145,906 (+ fluid dir / other 0), dense not mapped in held chunks 0 | refused chunks' dense bricks 0 -> demand 145,906 (71 MB)
+  [gpupool] src terrain    135,487 ( 92.9%) | one-value 0, surface 87,587, fluid-mixed 0, solid-mixed 47,900 | hidden inner 0, hidden any 40,508 | refused 0
+  [gpupool] src tree        10,257 (  7.0%) | one-value 0, surface 10,097, fluid-mixed 0, solid-mixed 160 | hidden inner 0, hidden any 34 | refused 0
+  [gpupool] src ore             52 (  0.0%) | one-value 0, surface 42, fluid-mixed 0, solid-mixed 10 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] src fluid          110 (  0.1%) | one-value 0, surface 69, fluid-mixed 41, solid-mixed 0 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] hidden (all-opaque brick in an opaque 1-voxel shell): inner 0 (0.0%), incl. chunk-border bricks 40,542 (27.8%) | refused chunks: inner 0, any 0 | demand minus inner-hidden 145,906, minus any-hidden 105,364
+  [gpupool] duplicates: distinct bodies 94,512 of 145,906 (dupes 51,394 = 35.2%) | by kind one-value 0, surface 31,435, fluid-mixed 0, solid-mixed 19,959
+  [gpupool] ring (chunks from cam, xz): 0-2 13,412 (hidden 4,442), 3-5 49,641 (hidden 14,490), 6+ 82,853 (hidden 21,610)
+  [gpupool] layer dy (chunks from cam): -3: 4,158/1,896h  -2: 21,107/2,367h  -1: 2,560/2,544h  0: 114,169/33,715h  +1: 3,912/20h  
+  [gpupool] sealed (task 201a, staged uniform, no body): held chunks 136,783 (not probe-inner-hidden 0), clipmap count 136,783, staged total 1,208,292 | seal ON
+  [gpupool] probe 1892 ms
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [gpuseal] fixed_town_eye: seal ON, 1790 box chunks restaged in 15.3 s, still dirty 0, in use 145,906 of 420,000, sealed 136,783, refused now 0, total 0
+  [frame] fixed_town_eye native_sf0_gs1: settle frames mean 140.2 ms, p50 140.3 ms, max 150.1 ms (skyfill 0)
+  [refused] now 0, total 0, in use 145,906 of 420,000 | box chunks int3(204, 41, 251)..int3(219, 56, 266) | shell 1 cam chunk int3(106, 24, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native_sf0_gs1]
+  [gpuseal] fixed_town_eye: seal OFF, 1790 box chunks restaged in 15.5 s, still dirty 0, in use 282,689 of 420,000, sealed 0, refused now 0, total 0
+  [frame] fixed_town_eye native_sf0_gs0: settle frames mean 140.2 ms, p50 140.3 ms, max 149.5 ms (skyfill 0)
+  [refused] now 0, total 0, in use 282,689 of 420,000 | box chunks int3(204, 41, 251)..int3(219, 56, 266) | shell 1 cam chunk int3(106, 24, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native_sf0_gs0]
+  [gpuseal] fixed_town_eye: seal ON, 1790 box chunks restaged in 15.2 s, still dirty 0, in use 145,906 of 420,000, sealed 136,783, refused now 0, total 0
+  [frame] fixed_town_eye native: settle frames mean 140.3 ms, p50 140.4 ms, max 150.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 145,906 of 420,000 | box chunks int3(204, 41, 251)..int3(219, 56, 266) | shell 1 cam chunk int3(106, 24, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native]
+WSPOSE fixed_town_eye|2724.0,635.4,3319.2|2724.0,636.7,3268.0|fixed pose town_eye (-wsfixed)
+  fixed_town_eye: yaw 180 pitch 1 deg, distance 51 m, 305 s
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 1781/384/5  s2 524/1643/3  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2305, missing 5693, pending 0; requested 11029, generated 11021 (187 ms each on a worker), dropped stale 24, over-budget frames 0 (of 7290)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 43664/63310/150016 165/257/1540 r0  s2 11601/43525/119296 44/168/1392 r0  s3 0/11220/102400 0/40/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 492,793 (valve 484,500, 278.3 MB) | GPU body pool cap 420,000 peak 284,742 refused 0 (205.1 MB), in use 168,963, sealed 93,334 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2544.8 MB, peak 2760.5 MB of the 3,000 MB cap
+  [gpupool] in use 168,963 of 420,000 (free 251,037), peak 284,742, refused total 0 | box int3(270, 47, 421)..int3(285, 62, 436) cam chunk int3(278, 55, 429) | resident chunks 1,410: uniform 588, dense held 822, refused now 0 | box bodies mapped 168,963 (+ fluid dir / other 0), dense not mapped in held chunks 0 | refused chunks' dense bricks 0 -> demand 168,963 (83 MB)
+  [gpupool] src terrain    160,445 ( 95.0%) | one-value 0, surface 103,182, fluid-mixed 0, solid-mixed 57,263 | hidden inner 0, hidden any 44,719 | refused 0
+  [gpupool] src tree         8,216 (  4.9%) | one-value 0, surface 8,135, fluid-mixed 0, solid-mixed 81 | hidden inner 0, hidden any 52 | refused 0
+  [gpupool] src ore            302 (  0.2%) | one-value 0, surface 264, fluid-mixed 0, solid-mixed 38 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] src fluid            0 (  0.0%) | one-value 0, surface 0, fluid-mixed 0, solid-mixed 0 | hidden inner 0, hidden any 0 | refused 0
+  [gpupool] hidden (all-opaque brick in an opaque 1-voxel shell): inner 0 (0.0%), incl. chunk-border bricks 44,771 (26.5%) | refused chunks: inner 0, any 0 | demand minus inner-hidden 168,963, minus any-hidden 124,192
+  [gpupool] duplicates: distinct bodies 148,298 of 168,963 (dupes 20,665 = 12.2%) | by kind one-value 0, surface 13,436, fluid-mixed 0, solid-mixed 7,229
+  [gpupool] ring (chunks from cam, xz): 0-2 20,312 (hidden 5,747), 3-5 63,962 (hidden 15,082), 6+ 84,689 (hidden 23,942)
+  [gpupool] layer dy (chunks from cam): -3: 10,983/514h  -2: 15,055/728h  -1: 68,995/31,367h  0: 67,011/12,162h  +1: 749/0h  +2: 1,765/0h  +3: 4,405/0h  
+  [gpupool] sealed (task 201a, staged uniform, no body): held chunks 93,334 (not probe-inner-hidden 0), clipmap count 93,334, staged total 1,757,547 | seal ON
+  [gpupool] probe 2135 ms
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [gpuseal] fixed_s_redwood_spacecol: seal ON, 1410 box chunks restaged in 11.2 s, still dirty 0, in use 168,963 of 420,000, sealed 93,334, refused now 0, total 0
+  [frame] fixed_s_redwood_spacecol native_sf0_gs1: settle frames mean 131.2 ms, p50 132.0 ms, max 139.4 ms (skyfill 0)
+  [refused] now 0, total 0, in use 168,963 of 420,000 | box chunks int3(270, 47, 421)..int3(285, 62, 436) | shell 1 cam chunk int3(139, 27, 214) hole +-1 (25.6 m chunks: tier-0 x/z 276..281 / 426..431) [native_sf0_gs1]
+  [gpuseal] fixed_s_redwood_spacecol: seal OFF, 1410 box chunks restaged in 11.3 s, still dirty 0, in use 262,297 of 420,000, sealed 0, refused now 0, total 0
+  [frame] fixed_s_redwood_spacecol native_sf0_gs0: settle frames mean 131.1 ms, p50 131.9 ms, max 143.7 ms (skyfill 0)
+  [refused] now 0, total 0, in use 262,297 of 420,000 | box chunks int3(270, 47, 421)..int3(285, 62, 436) | shell 1 cam chunk int3(139, 27, 214) hole +-1 (25.6 m chunks: tier-0 x/z 276..281 / 426..431) [native_sf0_gs0]
+  [gpuseal] fixed_s_redwood_spacecol: seal ON, 1410 box chunks restaged in 11.2 s, still dirty 0, in use 168,963 of 420,000, sealed 93,334, refused now 0, total 0
+  [frame] fixed_s_redwood_spacecol native: settle frames mean 131.3 ms, p50 132.1 ms, max 142.7 ms (skyfill 0)
+  [refused] now 0, total 0, in use 168,963 of 420,000 | box chunks int3(270, 47, 421)..int3(285, 62, 436) | shell 1 cam chunk int3(139, 27, 214) hole +-1 (25.6 m chunks: tier-0 x/z 276..281 / 426..431) [native]
+WSPOSE fixed_s_redwood_spacecol|3560.0,715.2,5495.0|3560.0,735.2,5400.0|fixed pose s_redwood_spacecol (-wsfixed)
+  fixed_s_redwood_spacecol: yaw 180 pitch 12 deg, distance 97 m, 292 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-14_125613_high

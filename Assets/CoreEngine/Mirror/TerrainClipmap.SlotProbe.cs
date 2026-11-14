@@ -63,7 +63,7 @@ public partial class TerrainClipmap
         {
             int3 lb = new int3(x, y, z);
             uint cpu = CpuMirrorHandle(c, lb);
-            uint exp = GpuHandleOf(cpu);
+            uint exp = ExpectedGpuHandle(c, lb, cpu);   // task 201a
             uint gpu = scratch[CoordMath.LocalBrickIndex(lb)];
             if (gpu == exp) continue;
             diff++;

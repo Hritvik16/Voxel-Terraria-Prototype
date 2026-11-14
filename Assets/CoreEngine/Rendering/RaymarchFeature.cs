@@ -69,6 +69,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
     public static bool UsePackedMips = true;
     public static float MaxRayDistance = 1280f;
+    /// Task 201a (capture only): >= 0 = the river animation time is held there (identity stills).
+    public static float DebugRiverTimeHold = -1f;
     public static bool UseLODCascade = true;
 
     /// Amendment 8.14 step 11b (task 80): draw the coarse shells when a
@@ -1205,7 +1207,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     bool hasFlow = farR != null && farR.RiverFlow != null;
                     passData.riverFlow = hasFlow ? farR.RiverFlow : _farDummy;
                     passData.riverMap = hasFlow ? farR.RiverMapParams : Vector4.zero;
-                    passData.riverTime = Time.time;
+                    passData.riverTime = DebugRiverTimeHold >= 0f ? DebugRiverTimeHold : Time.time;   // task 201a: held for identity stills
                 }
                 passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
                                                        0, LightingConfig.MaxTorchShadowRays);

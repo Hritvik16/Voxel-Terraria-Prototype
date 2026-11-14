@@ -610,9 +610,15 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             // counted, its shell draws it (IsGpuRefused), retried when slots free up.
             int slot = ChunkSlot(chunkCoord);
             bool refused = false;
-            if (!AcquireHolder(slot, chunk)) { refused = true; Refuse(chunkCoord); }
+            // Task 201a: sealed bricks (no ray reaches them) are staged uniform and take no GPU body.
+            int nSealed = 0;
+            if (SealActive && !evicted && cpuPool != null) { _sealPool = cpuPool; nSealed = ComputeSealed(chunk, cpuPool); }
+            ulong[] sealedMask = nSealed > 0 ? _sealScratch : null;
+            if (!AcquireHolder(slot, chunk, sealedMask)) { refused = true; Refuse(chunkCoord); }
             else if (!evicted) _gpuRefused.Remove(chunkCoord);
             bool air = evicted || refused;
+            if (air) sealedMask = null;
+            if (SealActive || _sealedOfSlot != null) SetSlotSealed(slot, air ? 0 : nSealed);   // OFF uploads clear a slot's old mask
 
             for (int z = 0; z < 16; z++)
             for (int y = 0; y < 16; y++)
@@ -626,8 +632,13 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
                 else if (chunk.isUniform) handle = chunk.uniformMaterial;
                 else handle = chunk.bricks[local].data;
 
-                _chunkStaging[local] = GpuHandleOf(handle);
                 _clipmapLocal[BrickLinearIndex(baseBrickCoord + localBrick)] = handle;
+                if ((handle & 0x80000000u) != 0 && MaskBit(sealedMask, local))
+                {
+                    _chunkStaging[local] = SealedUniformHandle(handle, cpuPool);   // task 201a: no body
+                    continue;
+                }
+                _chunkStaging[local] = GpuHandleOf(handle);
 
                 if ((handle & 0x80000000u) != 0)
                     _dirtyBrickSlots.Add((int)(handle & 0x3FFFFFFFu));

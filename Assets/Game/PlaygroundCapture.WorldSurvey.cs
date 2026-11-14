@@ -405,6 +405,8 @@ public partial class PlaygroundCapture
             yield return FsrLiveShellWait(sh, wait);
             if (sh != null) L($"  [pools] {ShellPoolLine(sh)}");   // task 190: task 188's pool line in the survey too
             L($"  [mem] {MemoryLedger.Step14Line().Trim()}");      // task 191: CPU / GPU pools + process footprint now / peak
+            if (ArgInt("-gpupoolprobe", 0) == 1)                   // task 201a: what fills the near GPU body pool at this pose
+                foreach (string gl in GpuPoolProbeLines(cam)) L(gl);
             {   // task 201: fluid tiles at this pose (resting generated fluid takes no tile under awake-only, task 54; only a wake does)
                 var pgT = FindAnyObjectByType<Playground>();
                 var tl = pgT != null ? pgT.DebugTiles : null;
@@ -415,6 +417,8 @@ public partial class PlaygroundCapture
             var rot = Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up);
             var poseArms = new List<string>(arms);
             if (p.scan == 2) poseArms.Add("native_lit");   // a sealed cave is black at noon: add a SHAPE light (capture only)
+            bool sealCmp = ArgInt("-gpusealcmp", 0) == 1;   // task 201a: shells / far band / river time held for the arms
+            if (sealCmp) { Phase4Bootstrapper.DebugHoldShellsFar = true; RaymarchFeature.DebugRiverTimeHold = Time.time; VoxelEngine.Streaming.StreamManager.DebugHoldResidency = true; }
             foreach (string arm in poseArms)
             {
                 bool lit = arm == "native_lit";
@@ -427,6 +431,10 @@ public partial class PlaygroundCapture
                 if (baseArm.EndsWith("_rh0")) { RaymarchFeature.RefusedHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
                 // Task 197: "native_lh0" = task 194's hand-over only (lacking chunks not handed over) for that shot.
                 if (baseArm.EndsWith("_lh0")) { FarField.LackHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                // Task 201a: "native_gs0" = sealed bricks OFF for that shot (every box chunk restaged, dense, then back).
+                // "_gs1" = restaged with the seal ON (the identity arms' first shot, after the same restage).
+                bool gs0 = baseArm.EndsWith("_gs0"), gs1 = baseArm.EndsWith("_gs1");
+                if (gs0 || gs1) { baseArm = baseArm.Substring(0, baseArm.Length - 4); yield return RestageBox(gs1, p.name); }
                 int sfAt = baseArm.LastIndexOf("_sf");
                 int sf0 = RaymarchFeature.SkyFill;
                 if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
@@ -460,11 +468,13 @@ public partial class PlaygroundCapture
                     while (Time.realtimeSinceStartup - tw < 5f) yield return null;
                     foreach (string ml in MirrorProbeAgain(5f)) L($"{ml} [{arm}]");
                 }
+                if (gs0) yield return RestageBox(true, p.name);
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
                 RaymarchFeature.SkyFill = sf0;
                 RaymarchFeature.RefusedHandOver = rh0;
                 FarField.LackHandOver = true;
             }
+            if (sealCmp) { Phase4Bootstrapper.DebugHoldShellsFar = false; RaymarchFeature.DebugRiverTimeHold = -1f; VoxelEngine.Streaming.StreamManager.DebugHoldResidency = false; }
             float pitch = rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x;
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");
             L($"  {p.name}: yaw {rot.eulerAngles.y:F0} pitch {-pitch:F0} deg, distance {Vector3.Distance(p.eye, p.at):F0} m, {Time.realtimeSinceStartup - t0:F0} s");
@@ -553,5 +563,20 @@ public partial class PlaygroundCapture
         var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
         try { tex.SetPixels32(px); tex.Apply(); File.WriteAllBytes(path, tex.EncodeToPNG()); }
         finally { UnityEngine.Object.Destroy(tex); }
+    }
+
+    /// Task 201a: SealHiddenBricks = on, every resident box chunk re-uploaded (waits for the dirty set to drain, 120 s cap).
+    private IEnumerator RestageBox(bool on, string pose)
+    {
+        var clip = Phase4Bootstrapper.Clipmap;
+        var store = Phase4Bootstrapper.Store;
+        if (clip == null || store == null) yield break;
+        TerrainClipmap.SealHiddenBricks = on;
+        int n = clip.DebugRedirtyBox(store);
+        float t0 = Time.realtimeSinceStartup;
+        while (clip.DirtyCount > 0 && Time.realtimeSinceStartup - t0 < 120f) yield return null;
+        yield return null; yield return null;
+        L($"  [gpuseal] {pose}: seal {(on ? "ON" : "OFF")}, {n} box chunks restaged in {Time.realtimeSinceStartup - t0:F1} s, still dirty {clip.DirtyCount}, " +
+          $"in use {clip.GpuPoolInUse:N0} of {clip.GpuPoolCapacity:N0}, sealed {clip.SealedBricksNow:N0}, refused now {clip.GpuPoolRefusedNow}, total {clip.GpuPoolRefusedTotal:N0}");
     }
 }

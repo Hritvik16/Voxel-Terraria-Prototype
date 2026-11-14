@@ -758,6 +758,10 @@ namespace VoxelEngine.Streaming
         // =====================================================================
         // Per-frame entry point. MAIN THREAD ONLY.
         // =====================================================================
+        /// Task 201a (capture only, `-gpusealcmp 1`): no slide, admission, completion drain, eviction or valve;
+        /// the dirty sweep and the uploads still run (residency frozen for identity stills).
+        public static bool DebugHoldResidency;
+
         public void Update(Vector3 cameraWorldPos, bool allowSlide = true)
         {
             _frame++;
@@ -778,6 +782,10 @@ namespace VoxelEngine.Streaming
             bool cameraMoved = !camChunk.Equals(_lastCameraChunk);
             double tp0 = sw.Elapsed.TotalMilliseconds;
             long admitted0 = ChunksAdmittedTotal, evicted0 = ChunksEvictedTotal;
+            double tp1 = tp0, tp2 = tp0, tp3 = tp0;
+            _transferTicks = 0;
+            if (!DebugHoldResidency)   // task 201a: capture only
+            {
             if (allowSlide && cameraMoved)
             {
                 _lastCameraChunk = camChunk;
@@ -815,13 +823,14 @@ namespace VoxelEngine.Streaming
             // Task 123: the queued slab, a slice per frame (inside the slide timer).
             if (_evictQueue.Count > 0) DrainEvictQueue();
 
-            double tp1 = sw.Elapsed.TotalMilliseconds;
+            tp1 = sw.Elapsed.TotalMilliseconds;
             DispatchLoads(camChunk);
-            double tp2 = sw.Elapsed.TotalMilliseconds;
+            tp2 = sw.Elapsed.TotalMilliseconds;
             _transferTicks = 0;
             DrainCompletions(budgeted: true);
-            double tp3 = sw.Elapsed.TotalMilliseconds;
+            tp3 = sw.Elapsed.TotalMilliseconds;
             ApplyPoolPressureValve(camChunk);
+            }
             double tp4 = sw.Elapsed.TotalMilliseconds;
 
             // EDIT PROPAGATION. SetVoxel sets chunk.dirty and nothing else --

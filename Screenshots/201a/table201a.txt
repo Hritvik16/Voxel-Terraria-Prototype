@@ -1,0 +1,21 @@
+Task 201a: GPU body pool accounting (-gpupoolprobe 1), seed 42, noon, 5 fixed poses, lookwait 40 s, cap 254,400 bodies (124 MB).
+Arms: on = before the fix (everything ON); notrees = -trees 0 -towns 0 -gpuseal 0 (the pre-fix upload); sealed = after the fix (default).
+demand = mapped + refused chunks' dense + dense not yet mapped in held chunks + sealed (bodies the box would need unsealed).
+Columns terrain..solid-mx count MAPPED bodies only. hid-in / hid-any = mapped all-opaque bricks with an opaque 1-voxel shell (inner / incl. chunk border).
+
+pose            arm      in use  free    ref now ref total demand  terrain  tree    ore     fluid   surface solid-mx fl-mix  hid-in  hid-any dupes   sealed  peak MB
+forest          on       254,382      18      16     8,783 304,424  143,549  86,875   2,341       0 132,094  100,671       0  61,024  89,895  21,353       0 2616.2
+jungle_high     on       233,935  20,465       0    11,201 259,483  162,561  57,036   1,214   3,856 112,595  109,733   2,339  66,683  99,607  30,041       0 2616.2
+town_eye        on       253,441     959       0    13,995 273,992  231,625   8,485  10,552       0  86,500  164,162       0 121,930 156,725 104,587       0 2616.2
+badlands_wall   on       194,456  59,944       0    14,109 194,456  104,467   2,412  17,520  70,057  96,473   70,180  27,803  49,106  65,922  61,118       0 2616.2
+s_redwood_spacecol on       253,638     762     116    21,570 320,562  230,303   4,662  16,909       0 104,580  147,294       0  92,296 138,260  36,271       0 2616.2
+forest          notrees  249,735   4,665       0         0 249,735  245,737       0   3,955      43  87,602  162,132       1 101,125 151,744  29,256       0 2724.6
+jungle_high     notrees  253,413     987       0         0 253,413  219,162  26,284   1,527   6,440 105,817  143,754   3,842  88,994 133,999  38,550       0 2724.6
+town_eye        notrees  254,400       0      65        65 276,808  244,255       0  10,145       0  79,894  174,506       0 127,193 165,284  54,933       0 2724.6
+badlands_wall   notrees  192,088  62,312       0        65 192,088  104,511       0  17,520  70,057  94,254   70,031  27,803  49,033  65,834  61,087       0 2724.6
+s_redwood_spacecol notrees  253,460     940       1     8,419 307,064  227,129   3,636  16,332       0 104,403  142,694       0  88,984 132,922  35,603       0 2724.6
+forest          sealed   223,025  31,375       0       132 297,684  106,305 100,867      39       0 158,225   48,986       0     464  36,169  16,274  77,462 2673.2
+jungle_high     sealed   186,045  68,355       0       132 253,528  109,202  58,375       5   6,326 123,135   46,988   3,785     253  35,216  20,232  75,567 2673.2
+town_eye        sealed   141,698 112,702       0       132 274,648  129,853   9,778      54     110  93,493   46,261      41       4  37,911  48,920 132,758 2673.2
+badlands_wall   sealed   145,350 109,050       0       132 194,456   72,027   2,341     925  70,057  96,473   21,074  27,803       0  16,816  57,072  49,106 2673.2
+s_redwood_spacecol sealed   205,616  48,784       0       132 320,928  197,035   8,216     365       0 135,663   69,953       0       0  58,137  24,793 115,312 2673.2

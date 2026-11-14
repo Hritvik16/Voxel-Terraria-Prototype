@@ -354,9 +354,11 @@ public class Phase4Bootstrapper : MonoBehaviour
             if (gpuBrickCap <= 0) gpuBrickCap = EngineConfig.GpuBrickCapFor(mirrorChunks.x, mirrorChunks.y, mirrorChunks.z);
             gpuBrickCap = Math.Min(gpuBrickCap, _pool.Capacity);
         }
+        TerrainClipmap.SealHiddenBricks = ArgInt("-gpuseal", 1) == 1;   // task 201a: sealed bricks take no GPU body (pool on only)
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
         if (gpuBrickCap > 0)
-            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f");
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f; " +
+                                  $"sealed bricks {(TerrainClipmap.SealHiddenBricks ? "take no body (task 201a)" : "OFF (-gpuseal 0)")}");
         if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
         if (IsTg2World && ShellsOn)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
@@ -608,7 +610,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
         FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
-        if (Shells != null)
+        if (Shells != null && !DebugHoldShellsFar)
         {
             // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
             // mirror and the cascades left of it this frame.
@@ -621,7 +623,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         double farT0 = sw.Elapsed.TotalMilliseconds;
         if (_far != null)
         {
-            _far.Update(camPos);
+            if (!DebugHoldShellsFar) _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
             // Task 197: the shells take every column tier 0 lacks -- refused, resident but not yet (re)uploaded, or
             // not resident (valve-evicted / streaming) where shell 1's published directory holds it.
@@ -634,6 +636,10 @@ public class Phase4Bootstrapper : MonoBehaviour
     }
 
     private static Func<int3, bool> _shellHolds;   // task 197: cached (no per-frame delegate allocation)
+
+    /// Task 201a (capture only, `-gpusealcmp 1`): the shell streamer and the far band stop updating, so a
+    /// pose's stills differ only by what the arms change (tier 0 still streams and uploads).
+    internal static bool DebugHoldShellsFar;
 
     /// `-quality low|medium|high|ultra` (default High: rigs pin High, row 16).
     private static QualityPreset ShellPresetFromArgs()

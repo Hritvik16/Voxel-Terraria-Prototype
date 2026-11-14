@@ -105,7 +105,9 @@ public partial class TerrainClipmap
     /// Writes holder `h`'s new dense set (the chunk's bricks; null / uniform =
     /// none) and releases its previous one. False = refused (pool full): the
     /// holder then holds nothing and must be written as air.
-    private bool AcquireHolder(int h, Chunk chunk)
+    /// Task 201a: `sealedMask` (4096 bits, null = none) = bricks staged as a uniform
+    /// handle (TerrainClipmap.Sealed.cs): they take no GPU body.
+    private bool AcquireHolder(int h, Chunk chunk, ulong[] sealedMask = null)
     {
         if (_gpuOfCpu == null) return true;
         _acqNew.Clear(); _acqKept.Clear();
@@ -113,7 +115,7 @@ public partial class TerrainClipmap
         {
             BrickHandle[] bricks = chunk.bricks;
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
-                if ((bricks[i].data & 0x80000000u) != 0) _acqNew.Add((int)(bricks[i].data & 0x3FFFFFFFu));
+                if ((bricks[i].data & 0x80000000u) != 0 && !MaskBit(sealedMask, i)) _acqNew.Add((int)(bricks[i].data & 0x3FFFFFFFu));
         }
 
         // 1. Keep what is already mapped (refs++), count what needs a new slot.

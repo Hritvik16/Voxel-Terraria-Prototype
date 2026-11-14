@@ -1631,3 +1631,25 @@ lining range, so it showed the mud lining (as LOD 0 does, `DetailField.Material`
 now skips lining voxels like stamps (sampled y, or h for the top voxel) and logs them: 38 voxels wear their pocket's lining, 0 show anything
 else (`shell_bared182.txt`). Pockets stay ON in it (no pin). Shots: `Logs/overnight/201_shots.sh` (196's water
 + lava, a forest water pocket, 195a's forest; `-tod 12`; default vs `-fluidpockets 0`), `Screenshots/201/`. Result: HANDOFF 201.
+
+**Task 201a (bug, owner 2026-11-14 "efficient by construction"; no bigger pool): SEALED BRICKS take no GPU body, ON by default (`-gpuseal 0` = the old upload).**
+The GPU body pool (task 93f, 254,400 bodies = 124 MB) was full at every pose since 195a: demand at the 5 test poses 194-321 k bodies,
+refused chunks drawn by the shells (grey walls, a missing redwood). Accounting (`-gpupoolprobe 1`, capture only,
+`PlaygroundCapture.GpuPoolProbe.cs`: per pose, the box's dense bodies by source / kind / hidden / ring / layer / duplicates) found
+26-37 % of the bodies are bricks NO ray can reach: every voxel and the 1-voxel shell around the brick opaque. Trees+towns add ~55 k at
+the forest pose but the pool was full without them too (`-trees 0 -towns 0`: town_eye and the redwood pose still refuse).
+`TerrainClipmap.Sealed.cs`: at each box chunk upload a Burst scan (`SealedBricks.Mask`, main thread, ~0.1 ms per dense chunk) marks the
+chunk's INNER bricks (1..14 on every axis, so the shell lies in the same chunk: a refused / evicted neighbour cannot expose them) whose
+brick and shell are all seal-solid (not air, fluid 6/11/12/18-22, torch 14-17, glass 24 or river lip 136); those are staged as a
+UNIFORM handle of their voxel 0's material and acquire no GPU slot and upload no body. Exact: every tier-0 ray passes air or a clear fluid
+and stops at the first differing voxel, stepping face to face, so it stops on the shell first; neighbour reads (AO, emissive bleed,
+river lip, normals) only touch voxels next to air / fluid; shadow / torch / height reads test non-zero. Nothing is cached: every write path
+re-dirties the chunk, and the mask is recomputed from the CPU state at its upload. CPU side unchanged (`_clipmapLocal` keeps CPU handles: air
+mips, fluid twin); the fluid terrain directory still uploads every body (its CA reads them). Validators compare against
+`ExpectedGpuHandle` (sealed -> uniform). Pool off (rigs, `-gpupool 0`): never runs. Tests `SealedBrickTests` (14^3 inner bricks sealed,
+none on the border; one air / water / glass / torch voxel unseals exactly the 8 bricks around it; an oracle chunk with caves, a pond,
+glass and a torch: GPU view = CPU at every voxel next to a non-solid one, solidness and non-zero equal everywhere; too big unsealed fits
+sealed; switch off / off mid-run). Ledger `[mem]` line now prints `in use N, sealed N`. Capture flags: `-gpupoolprobe 1` (the accounting
+lines per survey pose), survey arm suffix `_gs0` (seal OFF for that shot: every box chunk restaged, then back) and `-gpusealcmp 1` (shells,
+far band and river time held during a pose's arms, for identity stills). Scripts `Logs/overnight/201a_{account,after}.sh`,
+`201a_table.py`, `201a_diff.py`; table `Screenshots/201a/table201a.txt`. Result: HANDOFF 201a.
