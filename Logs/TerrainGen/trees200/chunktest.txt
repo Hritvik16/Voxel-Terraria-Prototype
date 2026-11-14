@@ -1,0 +1,1 @@
+seed 42 oak/spacecol/1 at int3(37120, 9503, 35200): 64 chunks, 147366 voxels changed, 147366 expected (gallery voxel over air), 0 wrong

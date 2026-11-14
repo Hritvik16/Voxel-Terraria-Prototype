@@ -298,6 +298,8 @@ namespace VoxelEngine.WorldGen
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             var treeCells = TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells);
             if (Spec.Towns) TerrainGen.Towns.ClearCells(treeCells, Spec.mapCells, Spec.mapCellVoxels, Map.TownPlane);   // task 190: no tree in a town
+            string gallery = TreeGalleryArg();   // task 200: -treegallery <layout> (examples only; default off)
+            if (gallery != null) BuildGallery(gallery, treeCells);
             _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
@@ -346,6 +348,7 @@ namespace VoxelEngine.WorldGen
             if (_pocket.IsCreated) _pocket.Dispose();
             if (_town.IsCreated) _town.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
+            DisposeGallery();   // task 200
             Map?.Dispose();
         }
 

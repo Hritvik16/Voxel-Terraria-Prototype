@@ -178,6 +178,7 @@ namespace VoxelEngine.WorldGen
                 (TerrainGen.Tree*)trees.GetUnsafePtr(), trees.Length,
                 (TerrainGen.TreePrim*)prims.GetUnsafePtr(), prims.Length, out np, ref top);
             counts[0] = nt; counts[1] = np;
+            top = math.max(top, GalleryTop(x0, z0, x1, z1));   // task 200 (int.MinValue without a gallery)
         }
 
         /// The tree overlay after a voxel pass (LOD 0: shift = half = 0). Coarse
@@ -189,6 +190,7 @@ namespace VoxelEngine.WorldGen
                                           int3 origin, int shift, int half, NativeArray<byte> toEngine,
                                           NativeArray<byte> mats, NativeArray<byte> brickMat, NativeArray<bool> brickUniform)
         {
+            OverlayGallery(origin, shift, half, toEngine, mats, brickMat, brickUniform);   // task 200 (returns at once without a gallery)
             if (nTrees <= 0) return;
             const int E = 128;
             byte air = toEngine[TerrainGen.GenMat.Air];
@@ -259,6 +261,8 @@ namespace VoxelEngine.WorldGen
         internal static unsafe byte PointTree(in TerrainGen.TerrainSpec spec, in TerrainGen.MapView map, in TerrainGen.Offsets o,
                                               int3 v, ref PointColumn col)
         {
+            byte gallery = GalleryAt(v);   // task 200 (0 without a gallery)
+            if (gallery != 0) return gallery;
             if (!col.treesValid)
             {
                 int cap = TerrainGen.Trees.MaxTrees(v.x, v.z, v.x, v.z);

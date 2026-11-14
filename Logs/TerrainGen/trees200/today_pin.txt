@@ -1,0 +1,2 @@
+seed 42 tree cells [512,576) x [256,320): 1663 trees, 32854 prims, FNV 38EF6100C34F1928 (plane: 201417 nonzero cells)
+today forest broadleaf (mean of 30): H 9.8 m, trunk 4724 leaf 52918 vox, 266 bricks, 0.14 MB volume

@@ -1594,3 +1594,22 @@ walk_near); seven steps S1 Surface -> S2 Sun -> S3 Sky -> S4 Local light -> S5 R
 per-pixel hit buffer (+40 B/px: +19.8 MB at 540 rows); ordered tasks T0-T8 with est. ms; R1 water reflections and the R2 per-material
 shine table (no voxel-layout change); cinematic techniques vs shader packs / Lay of the Land; owner questions Q1-Q7. Finding (code
 reading, unmeasured): play draws the torch-flood twin `CSMainFarShadeFlood` since task 175, so diet 2 is bypassed in play. Result: HANDOFF 199.
+
+**Task 200 (EXAMPLES ONLY, owner 2026-11-13 trees talk T1-T4; no default, no world-gen change): tree growing methods at 0.1 m, `-treegallery <layout>`.**
+`Assets/TerrainGen/TreeGallery.cs`: prototype trees built ONCE from an integer seed (species, method, seed) into an 8^3-brick volume, then
+queried (Trees.cs's contract: pure function of a hash, fills AIR only). Methods: `M_SPACE` space colonization (attraction points in a
+species crown ENVELOPE, outer shell only where the crown is open; nodes step toward the points that see them; pipe-model radii; leaf clumps
+on the tips), `M_LSYS` rule-based recursive branching (phyllotaxis 137.5 deg, down angles, lengths from the envelope, 3 levels), `M_TEMPLATE`
+an authored limb list + jitter. Species (`Pick`, every number a per-tree range): oak, banyan (wide dome, horizontal limbs, aerial roots ->
+prop trunks with their own flare), redwood (60-70 m fluted leader + buttress flare, branches in the top half), birch (pale stand-in bark
+`MushroomStem`, 1-3 stems), spruce, acacia. Leaves: lumpy porous clumps (0.2 m hash holes) + a crumb filter (leaf voxels not 6-connected to
+wood go). Engine: `TerrainGenChunkSource.Gallery.cs` -- `-treegallery <file>` (absent = off; lines `tree sp method seed x z`, `today cx cz x z`
+= Trees.Build's tree moved, `marker x z` = 1.8 m post, `clear x0 z0 x1 z1` = no natural tree rooted there) builds the volumes in the
+constructor and publishes them through a `SharedStatic` (`TreeGalleryShared`); hooks: `GatherTrees` raises the column top, `OverlayTrees`
+calls `OverlayGallery` first (LOD 0 + shells <= `Trees.MAX_SHELL`), `PointTree` asks `GalleryAt`. Off = every hook returns at its first line.
+Tests `TreeGalleryTests`: `TodayTrees_Pinned` (Slow; FNV of Trees.Build over seed 42's first 64x64-cell block with >= 50 trees: 1,663 trees,
+`38EF6100C34F1928`), `Methods_Species_SheetsCost` (Slow; 6 species x 3 methods x 3 seeds on flat ground, CPU side-view sheets
+`Screenshots/200/proto_<species>.png`, `Logs/TerrainGen/trees200/cost.txt`), `Gallery_Chunk_AirOnly` (Slow; ON vs OFF chunks round an oak:
+only air changes, exactly to `GalleryAt`), `Gallery_Layout` (Explicit; flat open sites on seed 42, no town, no snow top, biome per species ->
+`gallery_42.txt` + `poses_42.txt`). Shots: `Logs/overnight/200_shots.sh` (16 poses) + `200_reshoot.sh` (5 re-sited blocks);
+`python3 -I tools/trees200.py` -> `Screenshots/200/sheet_{methods,species,closeup}.jpg` + `viewer.html`. Result: HANDOFF 200.

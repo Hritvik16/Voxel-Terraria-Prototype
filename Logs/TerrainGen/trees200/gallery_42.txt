@@ -1,0 +1,67 @@
+# task 200 tree gallery, seed 42 map v4 (TreeGalleryTests.Gallery_Layout); voxels
+# block oak_spacecol centre (28560, 30000) ground 6318 biome 0
+clear 27620 28400 29500 31100
+tree 0 0 1 28120 30000
+tree 0 0 2 28560 30000
+tree 0 0 3 29000 30000
+marker 28780 30080
+# block oak_lsystem centre (49040, 49840) ground 7025 biome 0
+clear 48100 48240 49980 50940
+tree 0 1 1 48600 49840
+tree 0 1 2 49040 49840
+tree 0 1 3 49480 49840
+marker 49260 49920
+# block oak_template centre (45200, 54000) ground 5259 biome 3
+clear 44260 52400 46140 55100
+tree 0 2 1 44760 54000
+tree 0 2 2 45200 54000
+tree 0 2 3 45640 54000
+marker 45420 54080
+# block banyan_spacecol centre (57360, 50000) ground 5298 biome 3
+clear 56420 48400 58300 51100
+tree 1 0 1 56920 50000
+tree 1 0 2 57360 50000
+tree 1 0 3 57800 50000
+marker 57580 50080
+# block banyan_lsystem centre (59120, 52720) ground 5272 biome 3
+clear 58180 51120 60060 53820
+tree 1 1 1 58680 52720
+tree 1 1 2 59120 52720
+tree 1 1 3 59560 52720
+marker 59340 52800
+# block banyan_template centre (45680, 31600) ground 6847 biome 4
+clear 44740 30000 46620 32700
+tree 1 2 1 45240 31600
+tree 1 2 2 45680 31600
+tree 1 2 3 46120 31600
+marker 45900 31680
+# block redwood_spacecol centre (35600, 54000) ground 7072 biome 0
+clear 34800 52400 36400 55100
+tree 2 0 1 35300 54000
+tree 2 0 2 35600 54000
+tree 2 0 3 35900 54000
+marker 35750 54080
+# block birch_spacecol centre (38000, 22640) ground 5398 biome 0
+clear 37260 21040 38740 23740
+tree 3 0 1 37760 22640
+tree 3 0 2 38000 22640
+tree 3 0 3 38240 22640
+marker 38120 22720
+# block spruce_spacecol centre (35280, 20880) ground 5401 biome 0
+clear 34540 19280 36020 21980
+tree 4 0 1 35040 20880
+tree 4 0 2 35280 20880
+tree 4 0 3 35520 20880
+marker 35400 20960
+# block acacia_spacecol centre (39920, 20080) ground 5370 biome 0
+clear 39120 18480 40720 21180
+tree 5 0 1 39620 20080
+tree 5 0 2 39920 20080
+tree 5 0 3 40220 20080
+marker 40070 20160
+# block today centre (48240, 55920) ground 5260 biome 0
+clear 47440 54320 49040 57020
+today 634 194 47940 55920
+today 502 285 48240 55920
+today 447 467 48540 55920
+marker 48390 56000
