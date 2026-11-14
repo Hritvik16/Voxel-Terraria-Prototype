@@ -9,7 +9,7 @@
   face's light, and a sun-lit tread pops. The cause is the threshold test, not "floating point".
 - NOT the generator: no snow or cover voxels on the faces (dash material = the face's rock, 186/182). NOT a bad hit: 0 inside-start
   (top-normal-by-rule) hits, and no top normal over a solid cell.
-## How (a CPU oracle; the debug views are broken, see below)
+## How (commit ac3ec59; a CPU oracle, since the debug views are broken, see below)
 - New capture probe `-dashprobe 1` (`Assets/Game/PlaygroundCapture.DashProbe.cs`, hooked in WorldSurvey; capture-only, draws nothing).
   It finds 1-px light lines in the beauty frame, then marches the same camera rays on the CPU through the generator's own shell cells
   (`GenerateShellChunk`: shell by distance, never coarser mid-cell; 4 sub-rays per pixel). It adds the sun-shadow ray (GPU 3-cell rule) and
