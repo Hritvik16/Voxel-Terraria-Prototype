@@ -1555,3 +1555,24 @@ ON): player 27 ms -> 70 ms (seed 42 log); the Editor's Mono 0.4 s -> 1.2-1.9 s. 
 that no 4-neighbour step outside the footprint grows by > 2 voxels ON vs OFF (tree voxels moved by the bank are counted, not failed).
 Shots: `Logs/overnight/196_shots.sh` (191's surface_lava + water / quicksand / oil from the north, seed 42, `-tod 12`, `-pocketbasin 0` vs
 default), `Screenshots/196/viewer.html`; CPU cut-aways `Screenshots/183/cut_*.png` (before: `Screenshots/196/before_cutaway/`). Result: HANDOFF 196.
+
+**Task 197 (bug, default ON): the pits came back with 0 chunks refused = two more ways a column shows air in tier 0.** Capture probe
+`-mirrorprobe 1` (PlaygroundCapture.MirrorProbe.cs; read at END of frame, because streaming / uploads run in Phase4Bootstrapper.LateUpdate
+after the survey coroutine; the shot is that same frame): per band chunk of the mirror box, slot owner / held / dirty / refused, streaming
+stage, the GPU's own ClipmapBuffer and packed air mip against the CPU mirror (`[gpu]`: 0 differing in every frame), store AIR chunks against
+the generator (`[gen]`: 0), and the same chunks 5 s later. Causes found (jungle_high, launches q1 / h1): (1) RETRY GAP: RetryGpuRefused
+clears the whole refused set as soon as one GPU slot frees and re-dirties the chunks, but the re-upload waits in the budgeted, nearest-first
+dirty queue (up to ~1,250 chunks), while the slot still holds the refusal's air: "refused 0, 192 resident chunks missing, hand-over off";
+(2) VALVE EVICTION: the CPU pool's LRU valve evicts visible chunks (~28-41k valve evictions per survey run, peak 495k of 570k, valve 484.5k)
+and they reload; the eviction's clear is air and the column is non-resident (194 never handed those over). Fix (no pool / eviction / layout /
+API change; shader unchanged: the existing refused-bit now means hand-over): `TerrainClipmap.Tier0LacksChunk` (resident chunk whose slot does
+not hold its own write: refused, retried-but-queued, first upload queued, or another chunk's write; air over an empty slot is fine) and
+`FarField.ColumnState` (one store lookup per chunk for both bits): hand-over = refused, or resident and lacking, or NOT resident where shell 1's
+PUBLISHED directory holds it (`ShellStreamer.PublishedHolds`, outside its hole: inside the hole such a column stays tier 0's, 194's lost-houses
+rule). `FarField.HandOverColumns` gates `_Tier0Refused` (was GpuPoolRefusedNow > 0). `FarField.LackHandOver` false = 194's rule (survey arm
+suffix `_lh0`, before shots). Tests `Tier0LackHandOverTests` (6: the retry gap with a real budgeted pass, its pit ray old vs new rule,
+landing, first upload / air slot, the evicted column in vs out of the shell hole, a foreign slot after a recentre). Side effects: a shell
+draws a handed-over column with ITS copy, which can differ from live tier 0 at a lake shore (jungle_high right edge: a vertical blue water face
+and grey rock face, f1-f3) and shows the far band where the shells lack data (the 194 limitation, now for more columns). 195's badlands open
+sea did not reproduce (6 launches); it had 0 refusals and the wall columns lay in shell 1's hole, so this rule would not hand them over.
+Shots: `Logs/overnight/197_proof.sh`, `Screenshots/197/viewer.html` (pairs), `Screenshots/197/{p1,q1,g1,h1,f1,f2,f3}/`. Result: HANDOFF 197.

@@ -414,10 +414,10 @@ namespace VoxelEngine.Rendering
         /// [layerLo, layerHi] is -- a half-streamed column would otherwise hand
         /// its missing layers to the voxel march as air. Flat worlds: 0..0,
         /// exactly the old "its y=0 chunk is resident".
-        /// gpuRefused (task 93f): a column with a chunk the GPU body pool refused is
-        /// NOT resident, so the shells draw it (tier 0 holds air there).
+        /// gpuRefused (task 93f; 197): a column with a chunk the GPU body pool refused, or one tier 0 lacks
+        /// (TerrainClipmap.Tier0LacksChunk), is NOT resident and hands over, so the shells draw it.
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi,
-                                    TerrainClipmap gpuRefused = null)
+                                    TerrainClipmap gpuRefused = null, Func<int3, bool> shellHolds = null)
         {
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
@@ -426,16 +426,19 @@ namespace VoxelEngine.Rendering
             // pool refused): Raymarch.compute's refused-chunk hand-over reads them (Tier0ColumnRefused).
             if (_residentBits.Length != 2 * words) _residentBits = new uint[2 * words];
             Array.Clear(_residentBits, 0, 2 * words);
+            int handOvers = 0;
             for (int rz = 0; rz < windowDimsChunks.z; rz++)
             for (int rx = 0; rx < windowDimsChunks.x; rx++)
             {
                 int cx = windowOriginChunks.x + rx, cz = windowOriginChunks.z + rz;
                 int i = rz * windowDimsChunks.x + rx;
-                if (gpuRefused != null && ColumnRefused(cx, cz, layerLo, layerHi, gpuRefused))
-                    _residentBits[words + (i >> 5)] |= 1u << (i & 31);
-                if (!ColumnResident(store, cx, cz, layerLo, layerHi, gpuRefused)) continue;
+                // Task 197: one store lookup per chunk for both bits (ColumnState).
+                ColumnState(store, cx, cz, layerLo, layerHi, gpuRefused, out bool resident, out bool handOver, shellHolds);
+                if (handOver) { _residentBits[words + (i >> 5)] |= 1u << (i & 31); handOvers++; }
+                if (!resident) continue;
                 _residentBits[i >> 5] |= 1u << (i & 31);
             }
+            HandOverColumns = handOvers;
             if (Resident.count < 2 * words)
             {
                 Resident.Release();
@@ -448,15 +451,56 @@ namespace VoxelEngine.Rendering
         }
 
         /// One column's bit of the residency bitmap (UpdateResidency's rule; task 194 shares it with
-        /// Tier0HandOverReference's tests): every chunk of [layerLo, layerHi] resident and none refused.
+        /// Tier0HandOverReference's tests): every chunk of [layerLo, layerHi] resident and none refused
+        /// or lacking in tier 0 (task 197: TerrainClipmap.Tier0LacksChunk).
         public static bool ColumnResident(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap gpuRefused = null)
         {
+            ColumnState(store, cx, cz, layerLo, layerHi, gpuRefused, out bool resident, out _);
+            return resident;
+        }
+
+        /// Task 197: columns with the hand-over bit set by the last UpdateResidency. RaymarchFeature runs
+        /// the shader's hand-over block (_Tier0Refused) only while this is > 0.
+        public int HandOverColumns { get; private set; }
+
+        /// Task 197: false = task 194's rule only (refused chunks hand over; lacking or evicted ones do not) --
+        /// the capture's `_lh0` arm (before pictures). Default true.
+        public static bool LackHandOver = true;
+
+        /// Task 197: both bits of one column in one pass. resident = every chunk of [layerLo, layerHi]
+        /// is resident on the CPU, none refused and none lacking in tier 0; handOver = some chunk of the
+        /// band is
+        ///   refused by the GPU body pool (task 194), or
+        ///   resident but not held by its mirror slot (retried-but-queued, first upload queued --
+        ///     TerrainClipmap.Tier0LacksChunk), or
+        ///   NOT resident (evicted by the CPU pool's LRU valve and reloading, or still streaming) where
+        ///     the shells hold it: shellHolds(c) (Phase4Bootstrapper: shell 1's published directory,
+        ///     outside its hole). Inside shell 1's hole no shell holds anything, so such a column stays
+        ///     tier 0's (task 194's lost houses at eye level); shellHolds null = never (194's rule).
+        public static void ColumnState(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap clip,
+                                       out bool resident, out bool handOver, Func<int3, bool> shellHolds = null)
+        {
+            resident = true; handOver = false;
             for (int cy = layerLo; cy <= layerHi; cy++)
             {
                 int3 c = new int3(cx, cy, cz);
-                if (!store.IsResident(c) || (gpuRefused != null && gpuRefused.IsGpuRefused(c))) return false;
+                VoxelEngine.Memory.Chunk ch = store.GetChunk(c);
+                if (ch == null)
+                {
+                    resident = false;
+                    if (!handOver && LackHandOver && clip != null && shellHolds != null && shellHolds(c)) handOver = true;
+                    continue;
+                }
+                if (clip != null && (clip.IsGpuRefused(c) || (LackHandOver && clip.Tier0LacksChunk(c, ch)))) { resident = false; handOver = true; }
             }
-            return true;
+        }
+
+        /// Task 197: does the column hand over (ColumnState's handOver bit)?
+        public static bool ColumnHandOver(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap clip,
+                                          Func<int3, bool> shellHolds = null)
+        {
+            ColumnState(store, cx, cz, layerLo, layerHi, clip, out _, out bool handOver, shellHolds);
+            return handOver;
         }
 
         /// Task 194: does the column hold a chunk of [layerLo, layerHi] the GPU body pool refused?

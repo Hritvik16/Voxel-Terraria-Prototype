@@ -418,6 +418,8 @@ public partial class PlaygroundCapture
                 // Task 194: an arm "native_rh0" = the refused-chunk hand-over OFF for that shot (the old pits).
                 bool rh0 = RaymarchFeature.RefusedHandOver;
                 if (baseArm.EndsWith("_rh0")) { RaymarchFeature.RefusedHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                // Task 197: "native_lh0" = task 194's hand-over only (lacking chunks not handed over) for that shot.
+                if (baseArm.EndsWith("_lh0")) { FarField.LackHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
                 int sfAt = baseArm.LastIndexOf("_sf");
                 int sf0 = RaymarchFeature.SkyFill;
                 if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
@@ -432,10 +434,27 @@ public partial class PlaygroundCapture
                 float ftMean = 0f; foreach (float x in ft) ftMean += x; ftMean /= ft.Count;
                 L($"  [frame] {p.name} {arm}: settle frames mean {ftMean:F1} ms, p50 {ft[ft.Count / 2]:F1} ms, max {ft[ft.Count - 1]:F1} ms (skyfill {RaymarchFeature.SkyFill})");
                 foreach (string rl in RefusedProbeLines(cam, sh)) L($"{rl} [{arm}]");   // task 194: refused near-pool chunks at this shot
-                yield return CaptureTo($"ws_{p.name}_{arm}");
+                // Task 197: what the mirror holds at the shot, and 5 s later. Streaming / uploads run in
+                // Phase4Bootstrapper.LateUpdate, AFTER this coroutine step: so the probe reads the state at the
+                // END of the frame (after that frame's uploads, which is what it drew) and captures that frame.
+                bool mprobe = ArgInt("-mirrorprobe", 0) == 1;
+                if (mprobe)
+                {
+                    yield return new WaitForEndOfFrame();
+                    foreach (string ml in MirrorProbeLines(cam, sh)) L($"{ml} [{arm}]");
+                    CaptureNow($"ws_{p.name}_{arm}");
+                }
+                else yield return CaptureTo($"ws_{p.name}_{arm}");
+                if (mprobe)
+                {
+                    float tw = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - tw < 5f) yield return null;
+                    foreach (string ml in MirrorProbeAgain(5f)) L($"{ml} [{arm}]");
+                }
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
                 RaymarchFeature.SkyFill = sf0;
                 RaymarchFeature.RefusedHandOver = rh0;
+                FarField.LackHandOver = true;
             }
             float pitch = rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x;
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");

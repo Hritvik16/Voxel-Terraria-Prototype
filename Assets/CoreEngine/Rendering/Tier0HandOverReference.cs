@@ -16,6 +16,14 @@
 // streaming stays tier 0's (near the camera it lies in shell 1's hole, where no
 // shell holds anything -- a first version that stopped at any non-resident column
 // lost houses at eye level this way, task 194's seed-42 town_eye shot).
+// TASK 197: the hand-over bit (the shader still calls it Tier0ColumnRefused) is now
+// FarField.ColumnState's handOver: a REFUSED chunk, or a RESIDENT chunk tier 0 lacks
+// (TerrainClipmap.Tier0LacksChunk: refused then retried but its upload still queued --
+// 194b's pits with 0 refused -- or a first upload still queued), and the shader block
+// runs while any column has it (FarField.HandOverColumns > 0). A column that is
+// non-resident (a chunk evicted by the CPU pool's LRU valve and reloading, or still
+// streaming) hands over only where shell 1's published directory holds it (outside
+// its hole): inside the hole it stays tier 0's, as task 194 decided.
 using System;
 using Unity.Mathematics;
 

@@ -1342,8 +1342,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.shellCount = shellsOn ? shells.Layout.ShellCount : 0;
                 // Task 194: the residency bitmap carries the refused columns only when the far band runs
                 // (Phase4Bootstrapper -> FarField.UpdateResidency), so the hand-over needs both.
+                // Task 197: the bits are every column tier 0 lacks (refused, retried but still queued, first
+                // upload queued), so the block runs while ANY is set -- not only while chunks are refused
+                // (194b's pits: refused 0 right after a retry, the retried chunks still air in tier 0).
+                var farH = VoxelEngine.Rendering.FarField.Active;
                 passData.tier0Refused = RefusedHandOver && shellsOn && passData.farEnabled != 0
-                                        && TerrainClipmap.Active != null && TerrainClipmap.Active.GpuPoolRefusedNow > 0 ? 1 : 0;
+                                        && farH != null && farH.HandOverColumns > 0 ? 1 : 0;
                 passData.shellIterCap = Mathf.Max(16, ShellIterCap);
                 passData.shellTint = shellsOn && ShellTint ? 1 : 0;
                 passData.shellPixelAngle = LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH);

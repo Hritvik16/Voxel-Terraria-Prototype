@@ -621,12 +621,17 @@ public class Phase4Bootstrapper : MonoBehaviour
         {
             _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
+            // Task 197: the shells take every column tier 0 lacks -- refused, resident but not yet (re)uploaded, or
+            // not resident (valve-evicted / streaming) where shell 1's published directory holds it.
+            _shellHolds ??= c => Shells != null && Shells.PublishedHolds(Shells.FirstShell, c >> Shells.FirstShell);
             _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi,
-                                 Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null);
+                                 Shells != null || Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null, Shells != null ? _shellHolds : null);
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
     }
+
+    private static Func<int3, bool> _shellHolds;   // task 197: cached (no per-frame delegate allocation)
 
     /// `-quality low|medium|high|ultra` (default High: rigs pin High, row 16).
     private static QualityPreset ShellPresetFromArgs()

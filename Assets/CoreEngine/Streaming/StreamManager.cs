@@ -139,6 +139,16 @@ namespace VoxelEngine.Streaming
         public int DeltaSaveFailuresTotal { get; private set; }
         public int PendingLoads => _pending.Count;
         public int InFlightLoads => _inFlight;
+        /// Task 197 (diagnostic, read-only): a chunk's streaming stage -- "queued" (in _pending),
+        /// else its record's state (Unloaded / Loading / Resident / Saving), else "untracked".
+        public string DebugChunkStage(int3 c)
+            => _pendingSet.Contains(c) ? "queued" : _table.TryGetValue(c, out var r) ? r.state.ToString() : "untracked";
+        /// Task 197 (diagnostic): the record's generation counter and delta length (-1 = no record).
+        public void DebugChunkRecord(int3 c, out int generation, out long deltaBytes)
+        {
+            if (_table.TryGetValue(c, out var r)) { generation = r.generation; deltaBytes = r.deltaByteLength; }
+            else { generation = -1; deltaBytes = -1; }
+        }
         public double LastDrainMs { get; private set; }
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }

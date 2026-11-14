@@ -368,6 +368,17 @@ namespace VoxelEngine.Mirror
             return true;
         }
 
+        /// Task 197: does shell k's PUBLISHED directory (what the shader reads) cover shell-k chunk c --
+        /// inside the published box and outside its hole? The tier-0 hand-over gives a column whose
+        /// chunk is not resident (evicted by the pool valve, or still streaming) to the shells only then.
+        public bool PublishedHolds(int k, int3 c)
+        {
+            if (!_pubValid[k]) return false;
+            if (math.any(c < _pubLo[k]) || math.any(c > _pubHi[k])) return false;
+            int H = Layout[k].Hole;
+            return H < 0 || math.cmax(math.abs(c - _pubCc[k])) > H;
+        }
+
         /// The box the GPU directory of shell k matches (false: nothing published yet).
         public bool PublishedBox(int k, out int3 lo, out int3 hi, out int3 cc)
         {
