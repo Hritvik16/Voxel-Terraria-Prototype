@@ -15,3 +15,9 @@ SUPERVISOR.md "Writing a task file"). Order of work stays look -> perf -> placem
 4. Polish (LOOK): reflections in water, metallic shine, reflections on ores.
 5. Stamp rundown: ANSWERED in the doc tab (Stamps.cs kinds + chances, 3 singletons, ledges, cavern mushrooms).
 6. What's left before character creation + gameplay loop: object placement and everything else to finish first.
+
+## Decided 2026-11-13 (chat), topic 3 performance
+P1 (a) the M1 Air is the MINIMUM machine (30 fps on a lower preset; full look for stronger machines). P2 (a) split the
+drawing into separate render steps now, before reflections / more light (design doc first). P3 (a) a frame budget per
+feature. P4 cinematic references: modded Minecraft shader packs, Lay of the Land (Tooley; 0.1 m cubes; YouTube devlog).
+-> task 199 (plan only: presets, budget, render-steps design, look techniques, owner questions).
