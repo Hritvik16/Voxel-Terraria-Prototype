@@ -405,6 +405,13 @@ public partial class PlaygroundCapture
             yield return FsrLiveShellWait(sh, wait);
             if (sh != null) L($"  [pools] {ShellPoolLine(sh)}");   // task 190: task 188's pool line in the survey too
             L($"  [mem] {MemoryLedger.Step14Line().Trim()}");      // task 191: CPU / GPU pools + process footprint now / peak
+            {   // task 201: fluid tiles at this pose (resting generated fluid takes no tile under awake-only, task 54; only a wake does)
+                var pgT = FindAnyObjectByType<Playground>();
+                var tl = pgT != null ? pgT.DebugTiles : null;
+                if (tl != null)
+                    L($"  [fluidtiles] awake-only {(tl.AwakeOnly ? "on" : "OFF")}, resident {tl.ResidentTiles} (peak {tl.PeakResidentTiles}), acquired total {tl.TilesAcquiredTotal}, " +
+                      $"unsettled {tl.UnsettledCount}, pool-full refusals {tl.PoolExhaustionsTotal} (CA dispatch suspended by the survey)");
+            }
             var rot = Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up);
             var poseArms = new List<string>(arms);
             if (p.scan == 2) poseArms.Add("native_lit");   // a sealed cave is black at noon: add a SHAPE light (capture only)

@@ -272,7 +272,7 @@ namespace VoxelEngine.WorldGen
             if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
-            if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
+            if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183 / 201: ON unless -fluidpockets 0
             if (!StampFitArg()) spec.stampFitOff = 1;   // task 185 / 187a: fit ON unless -stampfit 0
             if (MatVariantArg()) spec.matVariantOn = 1;   // task 188a / 190a: variant spray OFF unless -matvariant 1
             if (SitesArg()) spec.sitesOn = 1;   // task 187
@@ -302,7 +302,7 @@ namespace VoxelEngine.WorldGen
             if (gallery != null) BuildGallery(gallery, treeCells);
             _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
-            BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
+            BuildPocketPlane();   // task 183 (length 1 = none under -fluidpockets 0)
             if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();

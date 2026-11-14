@@ -1,6 +1,6 @@
 // Assets/CoreEngine/Tests/FluidPocketTests.cs
 //
-// Task 183 (placement, fluid pockets at rest, `-fluidpockets 1`; default OFF):
+// Task 183 (placement, fluid pockets at rest; default ON since 201, `-fluidpockets 0` = off):
 // proofs for TerrainGen.FluidPockets through the engine's generators.
 //   Rules_LiningsDoNotReact            every pocket fluid's lining is solid, static
 //                                      and has no reaction with that fluid; the
@@ -869,6 +869,48 @@ public unsafe class FluidPocketTests
     }
 
     /// A player pose ~10 m west and 6 m south of the basin's rim, 6 m over the ground, looking at its middle.
+    /// Task 201 (report, Explicit): the largest seed-42 surface water and lava sites in
+    /// FOREST, with a look-review pose framed from the north like 196's water retake
+    /// (camera ~25 m past the far rim, 16 m over the fluid or 8 m over the ground).
+    [Test, Explicit, Category("Slow")]
+    public void ForestSites_Poses201()
+    {
+        using var src = new TerrainGenChunkSource(42u);
+        src.SetFluidPockets(true);
+        var map = src.Map; var spec = src.Spec; var view = map.View; var o = src.O;
+        int n = FluidPockets.PlaneCells(in spec), cv = spec.mapCellVoxels;
+        int[] plane = map.PocketPlane;
+        string M(float v) => (v * 0.1f).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+        var log = new StringBuilder("Task 201 forest pocket sites, seed 42 (largest first per fluid)\n");
+        var poses = new List<string>();
+        foreach (byte f in new[] { GenMat.Water, GenMat.Lava })
+        {
+            var list = new List<FluidPockets.Site>();
+            for (int i = 0; i < n * n; i++)
+            {
+                if (plane[i * FluidPockets.STRIDE + 3] == 0) continue;
+                var st = FluidPockets.Decode(plane, i);
+                if (st.fluid != f || map.Record.AtCell(st.cx / cv, st.cz / cv).Biome != 0) continue;
+                list.Add(st);
+            }
+            list.Sort((a, b) => (b.rx + b.rz).CompareTo(a.rx + a.rz));
+            foreach (var st in list)
+            {
+                float ex = st.cx + 0.5f, ez = st.cz + st.rz + 250;
+                int g = ShapeField.Sample(in spec, in view, in o, ex, ez, 1).height;
+                float ey = math.max(st.level + 160, g + 80);
+                string pose = $"forest_{FluidName(f)}|{M(ex)},{M(ey)},{M(ez)}|{M(st.cx + 0.5f)},{M(st.level)},{M(st.cz + 0.5f)}";
+                log.AppendLine($"  {FluidName(f)} at ({st.cx}, {st.cz}) r {st.rx} x {st.rz}, depth {st.depth}, level {st.level}, cam ground {g}: {pose}");
+                if (poses.Count < 2 && !poses.Exists(q => q.StartsWith($"forest_{FluidName(f)}|"))) poses.Add(pose);
+            }
+        }
+        string dir = Path.Combine("Logs", "TerrainGen", "pockets201");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "forest_sites.txt"), log.ToString());
+        File.WriteAllText(Path.Combine(dir, "forest_poses.txt"), string.Join(";", poses));
+        UnityEngine.Debug.Log(log.ToString());
+    }
+
     private static string Pose(TerrainGenChunkSource src, Case cs)
     {
         var s = cs.site; var spec = src.Spec; var view = src.Map.View; var o = src.O;

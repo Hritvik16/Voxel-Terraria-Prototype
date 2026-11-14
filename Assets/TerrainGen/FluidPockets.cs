@@ -1,8 +1,9 @@
 // Assets/TerrainGen/FluidPockets.cs
 //
 // TASK 183 -- FLUID POCKETS AT REST (placement plan step 4, owner-approved
-// 2026-11-06 incl. batch 2; behind `-fluidpockets 1` = TerrainSpec.fluidPocketsOn,
-// DEFAULT OFF; map v4 only). OFF keeps every byte as before. The fluid
+// 2026-11-06 incl. batch 2; TerrainSpec.fluidPocketsOn, set by the engine's chunk
+// source unless `-fluidpockets 0` (DEFAULT ON there since task 201; a bare
+// TerrainSpec stays OFF); map v4 only). OFF keeps every byte as before. The fluid
 // simulation is UNCHANGED: pockets are generated terrain, like the lakes and the
 // caldera's lava, and only move once something disturbs them.
 //

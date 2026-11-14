@@ -1,6 +1,6 @@
 // Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Pockets.cs
 //
-// Task 183 (placement, fluid pockets at rest, `-fluidpockets 1`; default OFF):
+// Task 183 (placement, fluid pockets at rest; DEFAULT ON since task 201, `-fluidpockets 0` = off):
 // plumbs TerrainGen.FluidPockets' site plane into the engine's generators the
 // way task 181's ore plane is: ColumnJob, ShellColumnJob, the shell fill and
 // PointVoxel (FarQuery) hand it to ShapeField.Sample through MapView.pocket,
@@ -19,12 +19,15 @@ namespace VoxelEngine.WorldGen
     {
         private NativeArray<int> _pocket;   // task 183: FluidPockets.BuildPlane; length 1 = none
 
-        /// -fluidpockets 1 (task 183): spec.fluidPocketsOn = 1. Absent or 0 = no
-        /// pockets beyond the old deep ones (the default). Last match wins.
+        /// -fluidpockets 0 (task 183; default flipped by task 201): spec.fluidPocketsOn
+        /// stays 0 = no pockets beyond the old deep ones, the pre-201 world byte for
+        /// byte. Absent or 1 = spec.fluidPocketsOn = 1 (the default). Last match wins.
+        /// Only this chunk source sets it: a bare TerrainSpec stays 0 (as 195 / 195a),
+        /// because the pockets need the site plane this source builds (BuildPocketPlane).
         public static bool FluidPocketsArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-fluidpockets" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;

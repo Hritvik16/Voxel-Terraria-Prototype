@@ -286,7 +286,7 @@ public class MaterialRuleChunkTests
         var sites = Sites();
         var non = NonSolidEngine();
         var log = new StringBuilder("Task 182: bared shell voxels (seed 42, -matrules 1, ShellFill off)\n");
-        int bared = 0, skin = 0, wrong = 0, before = 0;
+        int bared = 0, skin = 0, wrong = 0, before = 0, lined = 0, linedOther = 0;
         _src.SetMatRules(true); _src.ShellFill = false;
         using var sc = new TerrainGenChunkSource.ShellChunk();
         try
@@ -324,6 +324,10 @@ public class MaterialRuleChunkTests
                             Assert.AreEqual(math.max(T, h - lo), (int)c.mrExpose, $"{s.name} shell {k} column ({lx},{lz}): mrExpose = max(2^k, h - lowest neighbour)");
                         }
                         if (c.stampMat != 0 || c.stamp3D || c.lipLo != 0) break;   // stamps paint their own
+                        // task 201: a pocket's bed / berm paints its lining (DetailField.Material, LOD 0 too). The shell's
+                        // TOP voxel takes its material at the ground h (GenerateShellChunk's top-voxel pass), the rest at y.
+                        int ym = ly == ((h - origin.y - half) >> k) ? h : y;
+                        if (c.pkLining != 0 && ym >= c.pkLineLo && ym <= c.pkLineHi) { if (VoxelEngine.Rendering.FarField.GenToEngine(c.pkLining) == got) lined++; else linedOther++; continue; }
                         if (GroundRules.Band(in c, st, 0) == 3) break;          // bare / sheer: the stone, as LOD 0
                         sB++;
                         byte want = VoxelEngine.Rendering.FarField.GenToEngine(GroundRules.NearMaterial(in c, st, 0));
@@ -346,6 +350,7 @@ public class MaterialRuleChunkTests
             _src.ShellFill = true;
             Directory.CreateDirectory(LogDir);
             log.AppendLine($"TOTAL: {bared} bared voxels, {skin} skin ({100.0 * skin / math.max(1, bared):F2} %), {wrong} soil/subsoil/stone; before (180b) {before} would show a deeper band");
+            log.AppendLine($"  pocket lining (task 201, not counted above): {lined} bared voxels wear their pocket's lining, {linedOther} in the lining range show something else");
             File.WriteAllText(Path.Combine(LogDir, "shell_bared182.txt"), log.ToString());
             UnityEngine.Debug.Log(log.ToString());
         }

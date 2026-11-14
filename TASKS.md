@@ -1613,3 +1613,21 @@ Tests `TreeGalleryTests`: `TodayTrees_Pinned` (Slow; FNV of Trees.Build over see
 only air changes, exactly to `GalleryAt`), `Gallery_Layout` (Explicit; flat open sites on seed 42, no town, no snow top, biome per species ->
 `gallery_42.txt` + `poses_42.txt`). Shots: `Logs/overnight/200_shots.sh` (16 poses) + `200_reshoot.sh` (5 re-sited blocks);
 `python3 -I tools/trees200.py` -> `Screenshots/200/sheet_{methods,species,closeup}.jpg` + `viewer.html`. Result: HANDOFF 200.
+
+**Task 201 -- surface fluid pockets are the DEFAULT (owner 2026-11-13, Q-AA (a): "fine for now but these need to be more like ponds"; the pond look is a LATER talk, `OWNER_TOPICS.md`).**
+`TerrainGenChunkSource.FluidPocketsArg` now defaults to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build
+one) places task 183's surface pockets with task 196's natural basins; `-fluidpockets 0` leaves `spec.fluidPocketsOn` 0 = the pre-201 world
+byte for byte (same code path as before: the plane stays a one-entry dummy and `FluidPockets.Apply` is never reached). Shape, placement,
+rules and `-pocketbasin` are unchanged. As 195 / 195a, the `TerrainSpec` field is NOT flipped (a bare spec stays OFF: the pockets need the
+site plane only the chunk source builds); FarField shares the source's map, so the far band follows the source. Player log:
+`[StreamManager] tg2 chunk source: ... fluid pockets ON (default; 131 surface sites)` / `OFF (-fluidpockets 0)`. No F6 / PlaySettings entry
+exists; no identity/hash rig (acceptance, acceptance-fluid, phase 5/6/7, fluid-tiled) builds the tg2 world, so no rig needed
+`-fluidpockets 0`. Fluid sim: pockets are resting generated fluid, which takes NO fluid tile under awake-only residency (task 54,
+`FluidTileResidency.Refresh`): they cost the tick nothing until a wake (an edit, a flow into them). The world survey now prints a
+`[fluidtiles]` line per pose (resident / acquired / unsettled tiles; capture only). New Explicit report `FluidPocketTests.ForestSites_Poses201`
+(seed 42's forest water / lava sites + north-side poses -> `Logs/TerrainGen/pockets201/`). One test followed the new default: `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin`
+(182) failed on 8 shell-5 voxels at `border_bank` -- a shell's TOP voxel takes its material at the ground h, and there h lay inside a pocket's
+lining range, so it showed the mud lining (as LOD 0 does, `DetailField.Material`), which the test read as "soil under the skin". The test
+now skips lining voxels like stamps (sampled y, or h for the top voxel) and logs them: 38 voxels wear their pocket's lining, 0 show anything
+else (`shell_bared182.txt`). Pockets stay ON in it (no pin). Shots: `Logs/overnight/201_shots.sh` (196's water
++ lava, a forest water pocket, 195a's forest; `-tod 12`; default vs `-fluidpockets 0`), `Screenshots/201/`. Result: HANDOFF 201.
