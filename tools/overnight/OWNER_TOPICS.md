@@ -26,3 +26,6 @@ feature. P4 cinematic references: modded Minecraft shader packs, Lay of the Land
 T1: 0.1 m cubes, closer to REAL trees (banyan, massive redwood); 5-6+ types as the biomes need; recognizable but each
 unique. T2: wants to SEE example end products before picking a method. T3 (a) 2-3 species per biome. T4 (a) trees first,
 bushes/grass/flowers later. -> task 200 (examples only, behind a gallery flag; world unchanged; questions after).
+
+## Q-AA answered 2026-11-13 (doc): (a) pools ON -> task 201. Owner: "fine for now but these need to be more like ponds"
+-> a LOOK talk item (what makes a pond: outline, shallow edge, reeds/plants, size range) before any shape change.
