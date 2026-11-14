@@ -445,6 +445,8 @@ public partial class PlaygroundCapture
                     CaptureNow($"ws_{p.name}_{arm}");
                 }
                 else yield return CaptureTo($"ws_{p.name}_{arm}");
+                // Task 198 (diagnostic): CPU oracle (generator shell cells) at the 1-px light lines.
+                if (ArgInt("-dashprobe", 0) == 1 && arm == poseArms[0]) yield return DashProbe(cam, sh, p.name);
                 if (mprobe)
                 {
                     float tw = Time.realtimeSinceStartup;

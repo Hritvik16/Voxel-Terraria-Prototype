@@ -1,55 +1,60 @@
-# 197-bug-pits-return-zero-refused: DONE. The pits had two more causes. Tier 0 now hands those columns to the shells too: 0 pits in 3 proof launches (default ON). One side effect at a lake shore (below).
-## Owner's question first: "terrain not loading on time?"
-Partly. The pit chunks were not late from the generator. They had loaded, then were taken out of tier 0 again, in two ways:
-1. **Retry gap.** The full GPU body pool refuses a chunk (task 194). When ONE slot frees, `RetryGpuRefused` clears the whole refused set and
-   re-queues those chunks. The re-upload then waits in the budgeted dirty queue (up to ~1,250 chunks), and the slot still holds the
-   refusal's air. With refused = 0, 194's hand-over was off. Probe q1, jungle_high: refused 0, 192 resident chunks missing, hand-over 0.
-2. **Valve eviction.** The CPU pool's LRU valve evicts visible chunks (28-41k valve evictions per survey run; pool peak 495k of 570k, valve
-   484.5k), and they reload. The eviction's clear is air, and 194 never hands a non-resident column over. Probe h1: the pit chunks were
-   `ABSENT, stage Unloaded`.
-Ruled out by the probe (every frame): GPU clipmap vs CPU mirror 0 differing; packed air mip 0 differing; store AIR chunks the generator
-says are solid: 0.
-## What changed (commit 3702aa7; no pool / eviction / layout / API / shader change)
-- `TerrainClipmap.Tier0LacksChunk` (new `TerrainClipmap.SlotProbe.cs`): a resident chunk whose slot does not hold its own write.
-- `FarField.ColumnState`: hand-over bit = refused, OR resident and lacking, OR not resident where shell 1's PUBLISHED directory holds it
-  (`ShellStreamer.PublishedHolds`, outside its hole). Inside the hole those columns stay tier 0's (194's lost-houses rule).
-- `FarField.HandOverColumns > 0` now gates `_Tier0Refused` (was GpuPoolRefusedNow > 0). The shader is unchanged (no recompile).
-- `FarField.LackHandOver` / survey arm suffix `_lh0` = 194's rule, for before shots.
-- Capture probe `-mirrorprobe 1` (`PlaygroundCapture.MirrorProbe.cs`):
-  - Reads at END of frame. Uploads run in `Phase4Bootstrapper.LateUpdate`, after the survey coroutine, so my first probe (p1) read one
-    pass early.
-  - Lines: `[mirror]`, `[gpu]`, `[gen]`, then the same chunks again 5 s later.
-- Tests: `Tier0LackHandOverTests` (6). They cover the retry gap with a real budgeted pass, its pit ray (old rule keeps the floor, new rule
-  ends at the column entry), landing, first upload vs an air slot, an evicted column in vs out of the shell hole, and a foreign slot.
-## Evidence
-- Tests: filter run PASS 24 (`Logs/overnight/197/filter2.out`). Fast suite **PASS 1011 FAIL 0 SKIP 20** (`Logs/overnight/197/fast.out`).
-- Launches: r1 (repro), p1 (probe one pass early), q1 / g1 / h1 (diagnosis builds), f1-f3 (final proof). Each has `look_*.out` and
-  `player_*.log` in `Logs/overnight/197/`, shots in `Screenshots/197/<run>/`.
-- jungle_high, fixed-rule frame in f1 / f2 / f3: hand-over columns 139 / 135 / 129, refused 0 / 0 / 0. These frames would pit under 194's
-  rule. **No pits in any f-frame**, and forest / town_eye / badlands match their `_lh0` frames.
-- No timing arms (rule 10). Rough cost: settle frames ~215-255 ms in both arms, the same as before. The pool churn above is the slow part.
-## Side effects (owner should know)
-- At a lake shore a handed-over column shows the SHELL's copy, which can differ from live tier 0: a vertical blue water face plus a grey
-  rock face at jungle_high's right edge (f1, f2; small in f3). Before this fix, those frames had a pit there instead.
-- Where the shells lack a handed-over column, the far band shows through (194's known limitation, now for more columns).
-## Second case (195 badlands open sea): NOT reproduced (6 launches with that pose; the wall draws in every frame)
-- That launch had 0 refusals (pool 183k / 254k), and the wall's columns lay in shell 1's hole (cam chunk 121,226, hole x 240-245 /
-  z 450-455; the wall is at 244,452). So this rule would not hand them over. Likely a late load near the camera, unconfirmed.
-- Rerun with `-mirrorprobe 1` when it shows again.
-## Next (no follow-up queued; these need the owner)
-- The churn is a pool / eviction matter (STOP rule): the GPU body pool is full at every pose, and the CPU valve evicts visible chunks.
-  Option A: retry only the refused chunks that fit. Option B: keep in-view chunks out of the valve.
-- Probe gap: `[mirror]` counts only on-screen chunk centres, so its ABSENT lists can miss chunks whose centre is off screen.
+# 198-bug-white-dashes-steep-faces: DONE (diagnosis). The dashes come from the RENDERER's lighting rule; the voxels under them are real. Not fixed: any fix changes the look on those walls. Options below.
+## What the dashes are
+- Every steep voxel face is a staircase. Each step has a 1-voxel TREAD (a real top face, air above it). At 100-200 m a tread is ~0.2 px tall,
+  so one ray per pixel hits it only now and then. Where it does, the pixel takes full noon top-face sun: a 1-px white dash.
+- Past 50 m, task 120's FILTERED CUBE LIGHT (`CubeLight`) lights a hit with the mean of its staircase's top and side faces, so the treads
+  vanish. It does this EXCEPT where `CubeFilterWeight` is 0, i.e. where `FarSlopeNormal` returns false (Raymarch.compute, the
+  `p.y < lo - tv || p.y > hi + tv` test, "a cave or an overhang"). That happens where the 3D wall (ledges, bench lips, cliff relief) lies
+  more than one far texel (0.8 m at level 0) outside the 2.5D column-height bracket of the 4 texels around it. There the hit keeps its own
+  face's light, and a sun-lit tread pops. The cause is the threshold test, not "floating point".
+- NOT the generator: no snow or cover voxels on the faces (dash material = the face's rock, 186/182). NOT a bad hit: 0 inside-start
+  (top-normal-by-rule) hits, and no top normal over a solid cell.
+## How (a CPU oracle; the debug views are broken, see below)
+- New capture probe `-dashprobe 1` (`Assets/Game/PlaygroundCapture.DashProbe.cs`, hooked in WorldSurvey; capture-only, draws nothing).
+  It finds 1-px light lines in the beauty frame, then marches the same camera rays on the CPU through the generator's own shell cells
+  (`GenerateShellChunk`: shell by distance, never coarser mid-cell; 4 sub-rays per pixel). It adds the sun-shadow ray (GPU 3-cell rule) and
+  emulates `FarSlopeNormal` on the far texels' CPU copy (`-dashprobe 1` turns on `FarField.ShadowTexels`, +20 MB).
+  `-dashwin` picks the windows.
+- One pose set (forest_breaks, cliff, cliff_snow), native 1080, noon (sun at 78 deg, behind the forest_breaks camera).
+## Evidence (run a6, `Logs/overnight/198/look_a6.out`; same numbers in a5)
+- forest_breaks, window (600,630): 3,786 sun-lit tread px, all where the slope test holds -> 0 predicted, 0 dashes in the frame.
+- Window (520,330): 1,186 lit treads -> 0 predicted, 0 matching dashes.
+- Window (1000,380): 66 of 66 dash px over a sun-lit tread are predicted (slope test fails). The other 57 dash px are not treads: ore specks
+  and snow edges caught by the detector.
+- cliff_snow window: 122 of 125 dash px over sun-lit treads are predicted (80 % of all 153 dash px).
+- Controls: random hit px are predicted dashes 0-1 % of the time. fixed_cliff (camera looks UP, no treads visible): 0 treads, 0 matched dashes.
+- Only 9-18 % of predicted px show as dashes. That fits point sampling: one centre ray against a tread covering ~1/4 of the pixel, and a
+  1.2x-over-both-neighbours detector.
+- Fast suite **PASS 1011 FAIL 0 SKIP 20** (`Logs/overnight/198/fast.out`). No timing arms (rule 10).
+- Launches: 6. a1/a2: the debug views and debug pixel came out as beauty / zeros (below). a2's later "beauty" frames were stale images.
+  a3/a4: oracle without shadows; the forest window was mis-aimed. a5: sun shadows added. a6: slope test added. All in `Logs/overnight/198/`.
+## Second finding: debug views 1-14 and the debug pixel are broken in player builds (KNOWN_ISSUES entry added)
+- They switch to `CSMainFarShade`, which fails at run time. Player.log: "more uavs (9) than the maximum supported (8)", plus a Metal error
+  `as_type cast from 'bool' to 'float'` (program_source:10570/10585).
+- The frame keeps the last good image and `DebugBuffer` reads 0, so it silently LOOKS fine.
+- 198's own test shader slots were reverted (`Raymarch.compute` unchanged). The error is the same with and without them.
+- Needs its own task: which UAV to drop from the non-diet kernel, plus the bool select.
+## Fix options (owner / supervisor; each changes pixels beyond the dashes)
+1. **Filtered light for sky-open hits even when the bracket test fails.** Keep the face light only for sky-closed hits (true caves and
+   undersides). Kills the dashes. Side faces in the fallback bands (red tint in the maps) change slightly.
+2. **Widen the bracket from a flat 1 texel to a data-derived bound** (e.g. the 4 tops' spread, or the level's max mip). Fewer fallback
+   bands; same kind of change; risks lighting real recesses as open slope.
+3. **Rely on play's FSR 3 accumulation.** Play is not native: jittered samples average a tread to its coverage (a faint tint, not a dash).
+   Check this first: ONE launch of the same poses with `-wsarms native,fsr3` (not run: launch budget).
+4. Leave as is (the treads are real and correctly lit per face).
+- Recommendation: 3's check first. If dashes still show in play, option 1.
+## Not done
+- No renderer fix (look change). No EditMode test (no fix).
+- Trees are missing from the oracle's CPU cells (GPU draws them). This does not affect the terrain result.
+- A pure-black patch below the cliff_snow ledge (CPU: shadowed terrain at shell 1-2) was seen but not investigated.
+
 ## For the doc
-- Pit frames with refused = 0 at jungle_high: the 194 rule hands over 0 columns; the 197 rule hands over 129-139 columns, and 0 pits in
-  3 / 3 launches (`Logs/overnight/197/look_f{1,2,3}.out`, `[mirror] box` lines).
-- Causes, by probe: retry gap up to 214 resident chunks missing per frame; valve evictions 28-41k per run. GPU vs CPU mismatch 0, store vs
-  generator mismatch 0.
-- Fast suite PASS 1011 FAIL 0 SKIP 20 (+6 tests).
-- Images (open `Screenshots/197/viewer.html`: Space flips before / after, arrows change pair, Z = full size):
-  - `Screenshots/197/v/1_retry_before.png` / `_after.png`: jungle_high, same launch. Look at the middle. Before: a 2-chunk-deep box pit
-    (grey floor, brown rim, floating crowns). After: forest.
-  - `Screenshots/197/v/2_evicted_before.png` / `_after.png`: before = the first fix without the evicted rule. The pit is nearer the camera
-    (valve-evicted chunks). After: forest.
-  - `Screenshots/197/v/3_water_after.png`: the side effect. Look at the right edge: a vertical blue water face and a grey rock face at the
-    lake shore.
+- Dash pixels over a sun-lit tread that the slope-test fallback predicts: forest **66 / 66**, cliff_snow **122 / 125** (`Logs/overnight/198/look_a6.out`).
+- Sun-lit treads where the slope test holds that show as dashes: **0 of 3,786** and **0 of 1,186** (two forest_breaks wall windows).
+- Inside-start (top-normal-by-rule) hits among 900 probed dash pixels: **0**. Generator cover/snow on dashes: **none** (dash mat = face rock).
+- Images (`Screenshots/198/viewer.html`):
+  - `Screenshots/198/198_forest_win_dashes.png`: LEFT the frame, RIGHT the CPU map. Look at the bottom: the white line in the frame is the
+    map's white "predicted dash" line. The cyan treads scattered over the wall show nothing in the frame.
+  - `Screenshots/198/198_forest_win_nodashes.png`: a plain wall in the frame (left). The map (right) has thousands of cyan treads there,
+    averaged away by the filtered light.
+  - `Screenshots/198/198_178c_before_zoom.png`: the bug as reported. Look at the 1-px white rows on the grey canyon wall (178c BEFORE, zoomed 4x).

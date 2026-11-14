@@ -42,6 +42,11 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **WHITE DASHES ON STEEP FACES = sun-lit 1-voxel treads lit by their own face where FarSlopeNormal's test fails (task 198, 2026-11-14; NOT FIXED, look decision).**
+  - The treads are REAL voxels (CPU oracle on the generator's shell cells: every dash over a sun-lit tread is one; 0 inside-starts). Past 50 m `CubeLight` averages a staircase's top/side light, so treads are invisible -- EXCEPT where `CubeFilterWeight` is 0 because `FarSlopeNormal` returns false (`p.y < lo - tv || p.y > hi + tv`: the 3D wall (ledges, bench lips, cliff relief) is > 1 far texel outside the 2.5D column bracket). There a sub-pixel tread hit at 1 ray/pixel takes full top-face sun: a 1-px white dash.
+  - Evidence: forest_breaks windows with 3,786 / 1,186 sun-lit tread px where the test holds show 0 dashes; dash px over sun-lit treads predicted 66 / 66 (forest) and 122 / 125 (cliff_snow). `Logs/overnight/198/look_a6.out`, `Screenshots/198/viewer.html`. Fix options in HANDOFF 198.
+- **DEBUG VIEWS 1-14 AND THE DEBUG PIXEL DO NOT WORK IN A PLAYER BUILD (found task 198, 2026-11-14; NOT FIXED).** Both switch to the non-diet kernel `CSMainFarShade`, which fails at run time: Player.log "There are more uavs (9) than the maximum supported (8) in ... kernel 'CSMainFarShade'" and a Metal compile error `as_type cast from 'bool' to 'float'` (program_source:10570 / 10585). The frame then shows the last good image and `DebugBuffer` stays 0 -- it LOOKS like it worked. Not caused by 198 (same error with and without its shader edit, which was reverted). Diet-2 play kernels are fine.
+
 - **TREES (`-trees 1`) OVERFLOWED THE SHELL 1-2 BRICK POOLS (task 180, 2026-11-06; FIXED task 188, 2026-11-12, compact 2-value shell bricks).**
   - Cause: canopies add dense bricks (a second surface), 92 % of them two-valued (leaf/wood + air), each a full 512 B body. Jungle pose: shell 1 / 2 at 120 / 117 % of PoolCap (180's FULL; it was the jungle pose, not the forest one).
   - Fix: `ShellBrickPack` (<= 2-value bricks = 17 uints, 7 per body, handle bit 30). Jungle ON 120 / 117 % -> 49 / 63 %; adversarial solid cover <= 94 % (shell 3) on both poses (`Logs/TerrainGen/trees188/`). `-shellpack 0` = the old storage.

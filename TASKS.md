@@ -1576,3 +1576,13 @@ draws a handed-over column with ITS copy, which can differ from live tier 0 at a
 and grey rock face, f1-f3) and shows the far band where the shells lack data (the 194 limitation, now for more columns). 195's badlands open
 sea did not reproduce (6 launches); it had 0 refusals and the wall columns lay in shell 1's hole, so this rule would not hand them over.
 Shots: `Logs/overnight/197_proof.sh`, `Screenshots/197/viewer.html` (pairs), `Screenshots/197/{p1,q1,g1,h1,f1,f2,f3}/`. Result: HANDOFF 197.
+
+**Task 198 (bug investigation, 2026-11-14): white dashes on steep faces -- RENDERER (lighting rule), real voxels; not fixed (look change, options in HANDOFF 198).**
+The dashes are sun-lit 1-voxel treads of the voxel staircase (real top faces, sub-pixel at 100-200 m) lit by their OWN face where
+`FarSlopeNormal`'s cave/overhang test fails (`p.y < lo - tv || p.y > hi + tv`), so `CubeFilterWeight` is 0 and task 120's filtered cube
+light does not average them away (it does everywhere else). Capture probe `-dashprobe 1` (with `-worldsurvey`; `PlaygroundCapture.DashProbe.cs`):
+finds 1-px light lines in the beauty frame, marches the same camera rays on the CPU through the generator's shell cells (`GenerateShellChunk`,
+shell by distance, never coarser mid-cell), sun-shadow ray by the GPU's 3-cell rule, and emulates `FarSlopeNormal` on the far texels' CPU copy
+(`-dashprobe 1` sets `FarField.ShadowTexels`, +20 MB); `-dashwin "pose:x,y;..."` picks 192x108 windows (else the densest) -> `ws_<pose>_cputop*.png`
+(white = predicted dash, cyan = tread averaged away, blue = shadowed tread, red tint = test fails). Debug views could not be used: see
+KNOWN_ISSUES (CSMainFarShade fails in player builds). Driver `Logs/overnight/198/shoot1.sh`; pictures `Screenshots/198/viewer.html`. Result: HANDOFF 198.

@@ -530,6 +530,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         // -farband 1, so every existing rig and scene is unchanged by default.
         // The TerrainGen world ALWAYS has it: outside the voxel band (above,
         // below, beyond) the far band is the only thing that draws the island.
+        // Task 198 (diagnostic, -dashprobe 1): keep the far texels' CPU copy (FarField.Shadow, 20 MB) for the dash oracle.
+        if (ArgInt("-dashprobe", 0) == 1) VoxelEngine.Rendering.FarField.ShadowTexels = true;
         if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
             _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null,
                                                       Streamer.Ops,    // task 82: the far band draws the save's edit ops
