@@ -1,4 +1,4 @@
-# 209-perf-t0-measure-play-steps
+# 212-perf-t0-measure-play-steps
 
 Model: opus
 
@@ -21,7 +21,16 @@ Measure TODAY's play, with play's own flags (torch flood ON, sky fill 2, FSR 3 d
 (`tools/gpu161.py`) gives per-step ms.
 - Measurement discipline (CLAUDE.md): first ONE warm-up launch, numbers discarded (`MODE=stream MOTION=walk ./run-tg2world.sh`),
   then the arms back to back, interleaved (ABBA against the play arm). Report "warm steady state" and the warm-up's log path.
-  The Mac must be idle (timing task).
+  The Mac must be idle (timing task). The owner may use the laptop at any time (owner, 2026-11-14), so this task guards itself:
+  - Do the 8.17 adoption commit first; it needs no idle Mac.
+  - Before the warm-up, WAIT until the Mac has had no keyboard / mouse input for 15 min:
+    `ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'` gives idle seconds. Poll with one blocking
+    until-loop per tool call (under 10 min each, `sleep 60` inside), so waiting costs almost no usage. This usually means the
+    night.
+  - After EACH arm, read the idle seconds again. If they are less than the arm's length, someone used the Mac during it. Discard
+    that arm, wait for 15 idle minutes again, then re-warm and redo it. Log every discarded arm in the HANDOFF.
+  - If no clean set of arms is done within 14 h of the task starting, stop the arms and STOP_FOR_OWNER with what was measured.
+    Never report a timing from an arm with input in it.
 - What each result makes us do (8.17 checkpoint): flood twin (play minus flood_off) >= 3 ms -> T2 is next; sky fill (play minus
   skyfill 0) >= 4 ms -> T4 before T3; otherwise T1 is next. Write which one is next in the HANDOFF.
 - Also confirm or refute 199's code-reading finding: play draws the flood twin `CSMainFarShadeFlood`, which bypasses diet 2
