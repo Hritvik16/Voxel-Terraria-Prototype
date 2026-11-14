@@ -40,7 +40,8 @@ namespace VoxelEngine.WorldGen
                 Map.EnsurePocketPlane();
                 var st = Map.PocketStats;
                 UnityEngine.Debug.Log($"[FluidPockets] plane {sw.ElapsedMilliseconds} ms: {st.sites} surface sites " +
-                                      $"({st.candidates} cells, {st.ruled} ruled, rejected cells {st.rejectedCells} / samples {st.rejectedSamples} / flat {st.rejectedFlat})");
+                                      $"({st.candidates} cells, {st.ruled} ruled, rejected cells {st.rejectedCells} / samples {st.rejectedSamples} / flat {st.rejectedFlat}); " +
+                                      $"basins (task 196): banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn}, shallower bowls {st.depthCut}");
                 _pocket = new NativeArray<int>(Map.PocketPlane, Allocator.Persistent);
             }
             else _pocket = new NativeArray<int>(1, Allocator.Persistent);

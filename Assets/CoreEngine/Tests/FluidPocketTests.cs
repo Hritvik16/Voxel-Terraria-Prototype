@@ -26,6 +26,14 @@
 //                                      lining; the far band's column (texel 8-64)
 //                                      holds the same fluid at the same level.
 //                                      Cut-away images ON vs OFF, player poses.
+//   Bank_Rules                         (task 196) the bank / bowl integer rules: BANK_Q8 is
+//                                      tan(Cover.STEEP_DEG) rounded down; the rim lands on L + 1;
+//                                      the change tapers by <= 1 voxel per ring to 0 at BankBand;
+//                                      Ring finds the smallest nesting ellipse; BowlDepth's wall.
+// Task 196 adds to the two Slow tests: the rim is flush (L + 1) on every site whose
+// excess was not capped; on seed 42's cases (+ a FORCED site on a ~20 deg slope) no
+// 4-neighbour step outside the footprint grows by more than 2 voxels ON vs OFF, and
+// the ON vs OFF change stays inside the bank's band.
 // Writes Logs/TerrainGen/pockets183/*.txt and Screenshots/183/*.png.
 using System;
 using System.Collections.Generic;
@@ -83,6 +91,48 @@ public unsafe class FluidPocketTests
         }
         // the deep acid pocket's old wall (task 180b's lining, OchreClay) DID react: the reason for DeepLining
         Assert.IsTrue(MaterialRules.TryGetReaction(Materials.Acid, VoxelEngine.Rendering.FarField.GenToEngine(GenMat.OchreClay), out _, out _));
+    }
+
+    [Test]
+    public void Bank_Rules()
+    {
+        // the slope is the cover's steep rule, never over it
+        int q = (int)math.floor(math.tan(math.radians(Cover.STEEP_DEG)) * 256f);
+        Assert.AreEqual(q, FluidPockets.BANK_Q8, "BANK_Q8 is not tan(Cover.STEEP_DEG) * 256 rounded down");
+        const int L = 5000;
+        foreach (int up in new[] { 0, 1, 7, 25, 60, 255 })
+        foreach (int dn in new[] { 0, 3, 40 })
+        {
+            int band = FluidPockets.BankBand(up, dn);
+            for (int dev = -dn - 5; dev <= up + 5; dev++)
+            {
+                int h = L + 1 + dev, prev = FluidPockets.BankHeight(h, L, up, dn, 1);
+                if (dev <= up && dev >= -dn) Assert.AreEqual(L + 1, prev, $"rim up {up} dn {dn} dev {dev}");
+                for (int t = 2; t <= band + 2; t++)
+                {
+                    int cur = FluidPockets.BankHeight(h, L, up, dn, t);
+                    Assert.LessOrEqual(math.abs(cur - prev), 1, $"ring step up {up} dn {dn} dev {dev} t {t}");
+                    Assert.LessOrEqual(math.abs(cur - h), math.abs(prev - h), "the change must shrink outward");
+                    if (t >= band) Assert.AreEqual(h, cur, $"band end up {up} dn {dn} dev {dev} t {t}");
+                    prev = cur;
+                }
+            }
+        }
+        foreach (var (rx, rz) in new[] { (24, 18), (40, 28), (52, 31), (14, 14) })
+        {
+            int band = 40;
+            for (int dz = -rz - band; dz <= rz + band; dz += 3)
+            for (int dx = -rx - band; dx <= rx + band; dx += 3)
+            {
+                if (FluidPockets.InFoot(dx, dz, rx, rz)) continue;
+                int t = FluidPockets.Ring(dx, dz, rx, rz, band);
+                if (t < band) Assert.IsTrue(FluidPockets.InFoot(dx, dz, rx + t, rz + t) && (t == 1 || !FluidPockets.InFoot(dx, dz, rx + t - 1, rz + t - 1)), $"ring ({dx}, {dz})");
+                else Assert.IsFalse(FluidPockets.InFoot(dx, dz, rx + band - 1, rz + band - 1));
+            }
+            int d = FluidPockets.BowlDepth(127, rx, rz), rmin = math.min(rx, rz);
+            Assert.LessOrEqual(2f * (d - 1) / rmin, FluidPockets.BANK_Q8 / 256f + 1e-6f, "bowl wall steeper than the bank");
+            Assert.AreEqual(3, FluidPockets.BowlDepth(3, rx, rz), "a shallow bowl keeps its depth");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -205,10 +255,11 @@ public unsafe class FluidPocketTests
             var zone = FluidPockets.StartZone(map);
             int n = FluidPockets.PlaneCells(in spec), mc = spec.mapCells, cv = spec.mapCellVoxels;
             log.AppendLine($"seed {seed}: map {mapMs / 1000:F1} s, plane {planeMs:F0} ms: {st.sites} surface sites of {st.candidates} cells " +
-                           $"({st.ruled} matched a rule; rejected: cells {st.rejectedCells}, samples {st.rejectedSamples}, flat / sea {st.rejectedFlat})");
+                           $"({st.ruled} matched a rule; rejected: cells {st.rejectedCells}, samples {st.rejectedSamples}, flat / sea {st.rejectedFlat}); " +
+                           $"task 196: banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn} voxels, bowls made shallower {st.depthCut}");
 
             var byBiome = new Dictionary<string, int>(); var byArch = new Dictionary<string, int>();
-            int sites = 0, checkedRim = 0, checkedFoot = 0, berms = 0, maxBerm = 0;
+            int sites = 0, checkedRim = 0, checkedFoot = 0, berms = 0, maxBerm = 0, rimHigh = 0, maxRimWall = 0, cappedSites = 0;
             string firstFail = null; int fails = 0;
             for (int i = 0; i < n * n; i++)
             {
@@ -221,6 +272,7 @@ public unsafe class FluidPocketTests
                 byBiome[kb] = byBiome.TryGetValue(kb, out int v0) ? v0 + 1 : 1;
                 byArch[ka] = byArch.TryGetValue(ka, out int v1) ? v1 + 1 : 1;
                 allSurface[FluidName(s.fluid)] = allSurface.TryGetValue(FluidName(s.fluid), out int v2) ? v2 + 1 : 1;
+                bool siteCapped = false; int siteRimHigh = 0;
                 // every rim column (exhaustive) and the footprint on a 4-voxel grid
                 for (int dz = -s.rz - 1; dz <= s.rz + 1; dz++)
                 for (int dx = -s.rx - 1; dx <= s.rx + 1; dx++)
@@ -243,13 +295,22 @@ public unsafe class FluidPocketTests
                     else if (foot && !(c.water == s.level && c.height < s.level && c.height >= s.level - s.depth && FluidPockets.FluidOf(c.waterKind) == s.fluid)) why = $"footprint h {c.height} water {c.water}";
                     else if (rim && !(c.height >= s.level + 1 && c.water <= c.height)) why = $"rim h {c.height} water {c.water}";
                     else if (c.riverFloor == 0 || c.riverFloor > s.level - s.depth - FluidPockets.CAP_MARGIN) why = $"cave cap {c.riverFloor}";
-                    if (rim) { checkedRim++; if (c.height > b.height) { berms++; maxBerm = math.max(maxBerm, c.height - b.height); } }
+                    if (rim)
+                    {
+                        checkedRim++; if (c.height > b.height) { berms++; maxBerm = math.max(maxBerm, c.height - b.height); }
+                        // task 196: flush at L + 1 unless the site's excess had to be capped
+                        if (b.height - (s.level + 1) > s.up || (s.level + 1) - b.height > s.dn) siteCapped = true;
+                        if (c.height > s.level + 1) { siteRimHigh++; maxRimWall = math.max(maxRimWall, c.height - s.level); }
+                    }
                     else checkedFoot++;
                     if (why != null) { fails++; if (firstFail == null) firstFail = $"site {FluidName(s.fluid)} at ({s.cx}, {s.cz}) column ({x}, {z}): {why}"; }
                 }
+                rimHigh += siteRimHigh; if (siteCapped) cappedSites++;
+                if (siteRimHigh > 0 && !siteCapped) { fails++; if (firstFail == null) firstFail = $"site {FluidName(s.fluid)} at ({s.cx}, {s.cz}): {siteRimHigh} rim columns over L + 1, not capped"; }
             }
             failures += fails;
             log.AppendLine($"  {sites} sites; rim columns checked {checkedRim:N0} (berm raised {berms:N0}, max {maxBerm} voxels), footprint columns {checkedFoot:N0}; violations {fails}{(firstFail != null ? " e.g. " + firstFail : "")}");
+            log.AppendLine($"  task 196: rim columns over L + 1: {rimHigh:N0} (in {cappedSites} capped sites; highest such rim {maxRimWall} voxels over the fluid; 0 = every rim flush at L + 1)");
             log.AppendLine("  surface sites, fluid x biome:");
             foreach (var kv in Sorted(byBiome)) log.AppendLine($"    {kv.Key,-24} {kv.Value,5}");
             log.AppendLine("  surface sites, fluid x landform:");
@@ -377,16 +438,28 @@ public unsafe class FluidPocketTests
         }
 
         // ADVERSARIAL: a forced site on the tallest cliff edge and in the deepest canyon floor
-        FindAdversarial(map, out int2 cliff, out int2 canyon);
+        // Task 196: + a FORCED site on a ~20 deg slope, its level the planner's (1 under the lowest rim
+        // column): the uphill bank is cut, the downhill rim must still hold.
+        FindAdversarial(map, out int2 cliff, out int2 canyon, out int2 slope);
         var baseView = map.View; baseView.pocket = null;
-        foreach (var (name, col, fluid) in new[] { ("forced_cliff_water", cliff, GenMat.Water), ("forced_canyon_lava", canyon, GenMat.Lava) })
+        foreach (var (name, col, fluid) in new[] { ("forced_cliff_water", cliff, GenMat.Water), ("forced_canyon_lava", canyon, GenMat.Lava), ("forced_slope_lava", slope, GenMat.Lava) })
         {
             int pi = (col.y >> FluidPockets.CELL_SHIFT) * n + (col.x >> FluidPockets.CELL_SHIFT);
             int lx = col.x & (FluidPockets.CELL - 1), lz = col.y & (FluidPockets.CELL - 1);
-            int cx = (col.x & ~(FluidPockets.CELL - 1)) + math.clamp(lx, 64, FluidPockets.CELL - 64);
-            int cz = (col.y & ~(FluidPockets.CELL - 1)) + math.clamp(lz, 64, FluidPockets.CELL - 64);
+            int m = name == "forced_slope_lava" ? FluidPockets.SITE_MARGIN : 64;   // the slope site: a planner's margin, room for its bank
+            int cx = (col.x & ~(FluidPockets.CELL - 1)) + math.clamp(lx, m, FluidPockets.CELL - m);
+            int cz = (col.y & ~(FluidPockets.CELL - 1)) + math.clamp(lz, m, FluidPockets.CELL - m);
             int L = ShapeField.Sample(in spec, in baseView, in o, cx + 0.5f, cz + 0.5f, 1, false).height;   // the centre's own ground: the cliff side drops away
-            var s = new FluidPockets.Site { cx = cx, cz = cz, level = L, rx = 40, rz = 28, depth = 16, fluid = fluid };
+            const int rx = 40, rz = 28;
+            if (name == "forced_slope_lava")
+            {
+                FluidPockets.MeasureBank(in spec, in baseView, in o, cx, cz, L, rx, rz, 255, out _, out int dn0, out _);
+                L = L + 1 - dn0 - 1;   // the lowest rim column - 1
+            }
+            int room = math.min(math.min(cx & (FluidPockets.CELL - 1), FluidPockets.CELL - 1 - (cx & (FluidPockets.CELL - 1))) - rx,
+                                math.min(cz & (FluidPockets.CELL - 1), FluidPockets.CELL - 1 - (cz & (FluidPockets.CELL - 1))) - rz);
+            FluidPockets.MeasureBank(in spec, in baseView, in o, cx, cz, L, rx, rz, room, out int up, out int dn, out _);
+            var s = new FluidPockets.Site { cx = cx, cz = cz, level = L, rx = rx, rz = rz, depth = FluidPockets.BowlDepth(16, rx, rz), up = up, dn = dn, fluid = fluid };
             cases.Add(SurfaceCase(name, pi, s, true));
         }
 
@@ -401,7 +474,8 @@ public unsafe class FluidPocketTests
                 var pc = src.PocketPlaneCopy;
                 saved = new[] { pc[b], pc[b + 1], pc[b + 2], pc[b + 3] };
                 var s = cs.site;
-                int[] w = { (saved[0] & ~0xFFFFFF) | s.cx, s.cz, s.level, (int)((uint)s.fluid | ((uint)s.rx << 8) | ((uint)s.rz << 16) | ((uint)s.depth << 24)) };
+                int[] w = new int[4];
+                FluidPockets.Pack(in s, saved[0], w);
                 src.OverridePocketSite(cs.planeIndex, w[0], w[1], w[2], w[3]);
                 for (int k = 0; k < 4; k++) plane[b + k] = w[k];
             }
@@ -424,22 +498,23 @@ public unsafe class FluidPocketTests
 
     private static Case SurfaceCase(string name, int planeIndex, FluidPockets.Site s, bool forced)
     {
-        int yLo = s.level - s.depth - 3;
+        int yLo = s.level - s.depth - 3 - s.dn, e = math.max(1, FluidPockets.BankBand(s.up, s.dn)) + 2;   // task 196: + the bank
         return new Case
         {
             name = name, planeIndex = planeIndex, forced = forced, site = s,
-            lo = new int3(s.cx - s.rx - 3, yLo, s.cz - s.rz - 3),
-            hi = new int3(s.cx + s.rx + 3, s.level + 4, s.cz + s.rz + 3),
-            org = new int3(s.cx - 64, yLo, s.cz - 64), bx = 16, by = 4, bz = 16,
+            lo = new int3(s.cx - s.rx - e, yLo, s.cz - s.rz - e),
+            hi = new int3(s.cx + s.rx + e, s.level + 4 + s.up, s.cz + s.rz + e),
+            org = new int3(s.cx - 64, s.level - s.depth - 3, s.cz - 64), bx = 16, by = 4, bz = 16,
         };
     }
 
     /// The tallest cliff (largest height step between neighbouring map cells, land)
     /// and the deepest canyon (land cell farthest below the mean of the cells 6 out).
-    private static void FindAdversarial(WorldMap m, out int2 cliff, out int2 canyon)
+    private static void FindAdversarial(WorldMap m, out int2 cliff, out int2 canyon, out int2 slope)
     {
         int n = m.Spec.mapCells, cv = m.Spec.mapCellVoxels;
-        float bestStep = -1f, bestDepth = -1f; cliff = canyon = default;
+        float bestStep = -1f, bestDepth = -1f, bestSlope = float.MaxValue; cliff = canyon = slope = default;
+        float want = math.tan(math.radians(20f));   // task 196: a ~20 deg slope (between the walk and steep rules)
         for (int z = 8; z < n - 8; z++)
         for (int x = 8; x < n - 8; x++)
         {
@@ -452,13 +527,19 @@ public unsafe class FluidPocketTests
             if (st > bestStep) { bestStep = st; cliff = new int2(x * cv + cv / 2, z * cv + cv / 2); }
             float mean = (m.Height[z * n + x + 6] + m.Height[z * n + x - 6] + m.Height[(z + 6) * n + x] + m.Height[(z - 6) * n + x]) * 0.25f;
             if (mean - h > bestDepth) { bestDepth = mean - h; canyon = new int2(x * cv + cv / 2, z * cv + cv / 2); }
+            // the same gradient over 3 cells each way (a slope, not a step), closest to 20 deg
+            float gx = (m.Height[z * n + x + 3] - m.Height[z * n + x - 3]) / (6f * cv), gz = (m.Height[(z + 3) * n + x] - m.Height[(z - 3) * n + x]) / (6f * cv);
+            float gx1 = (m.Height[z * n + x + 1] - m.Height[z * n + x - 1]) / (2f * cv), gz1 = (m.Height[(z + 1) * n + x] - m.Height[(z - 1) * n + x]) / (2f * cv);
+            float g = math.sqrt(gx * gx + gz * gz), g1 = math.sqrt(gx1 * gx1 + gz1 * gz1);
+            float miss = math.abs(g - want) + math.abs(g1 - want);
+            if (miss < bestSlope) { bestSlope = miss; slope = new int2(x * cv + cv / 2, z * cv + cv / 2); }
         }
     }
 
     private static int RunCase(TerrainGenChunkSource src, Case cs, StringBuilder log, List<string> poses)
     {
         var spec = src.Spec; var o = src.O;
-        int fails = 0; var sb = new StringBuilder();
+        int fails = 0; var sb = new StringBuilder(); var sb2 = new StringBuilder();
         void Fail(string m) { fails++; if (sb.Length < 600) sb.Append(m).Append("; "); }
 
         // ON twice, ON with the brick skip off, OFF -- over the box's chunks
@@ -471,7 +552,7 @@ public unsafe class FluidPocketTests
         foreach (var cc in coords) on.Chunk(cc);
         double msOn = sw.Elapsed.TotalMilliseconds;
         var off = new Region(src, false);
-        int changed = 0, outside = 0, fluidOn = 0;
+        int changed = 0, outside = 0, fluidOn = 0, treeMoved = 0;
         foreach (var cc in coords)
         {
             byte[] a = on.Chunk(cc), a2 = Gen(src, cc);
@@ -497,14 +578,19 @@ public unsafe class FluidPocketTests
                 int x = org.x + (i & 127), z = org.z + ((i >> 7) & 127), y = org.y + (i >> 14);
                 bool inside = cs.deep
                     ? (x >> DetailField.POCKET_CELL_SHIFT) == ((int)cs.pk.centre.x >> DetailField.POCKET_CELL_SHIFT) && (y >> DetailField.POCKET_CELL_SHIFT) == ((int)cs.pk.centre.y >> DetailField.POCKET_CELL_SHIFT) && (z >> DetailField.POCKET_CELL_SHIFT) == ((int)cs.pk.centre.z >> DetailField.POCKET_CELL_SHIFT)
-                    : math.abs(x - cs.site.cx) <= cs.site.rx + 1 && math.abs(z - cs.site.cz) <= cs.site.rz + 1;
+                    : math.abs(x - cs.site.cx) <= cs.site.rx + Ext(cs.site) && math.abs(z - cs.site.cz) <= cs.site.rz + Ext(cs.site);
                 if (!inside) outside++;
             }
         }
         // a surface site OFF->ON may also retint deep pockets elsewhere in these chunks: allowed only for deep cases
         if (outside > 0 && !cs.deep)
         {
-            // count only changes outside every deep pocket's shell
+            // count only changes outside every deep pocket's shell. Task 196: and not a tree's
+            // voxel -- a tree on the bank stands on the lowered ground (Trees roots on the
+            // column's final height), so its crown moves with it past the band.
+            var treeMat = new bool[256];
+            for (int g = 0; g < 256; g++)
+                if (GenMat.IsTreeTrunk((byte)g) || GenMat.IsTreeLeaf((byte)g)) treeMat[VoxelEngine.Rendering.FarField.GenToEngine((byte)g)] = true;
             int realOutside = 0;
             foreach (var cc in coords)
             {
@@ -513,14 +599,16 @@ public unsafe class FluidPocketTests
                 {
                     if (a[i] == b[i]) continue;
                     int x = org.x + (i & 127), z = org.z + ((i >> 7) & 127), y = org.y + (i >> 14);
-                    if (math.abs(x - cs.site.cx) <= cs.site.rx + 1 && math.abs(z - cs.site.cz) <= cs.site.rz + 1) continue;
+                    if (math.abs(x - cs.site.cx) <= cs.site.rx + Ext(cs.site) && math.abs(z - cs.site.cz) <= cs.site.rz + Ext(cs.site)) continue;
                     if (DetailField.Pocket(in spec, in o, x, y, z, out bool inShell) != 255 || inShell) continue;
+                    if (treeMat[a[i]] || treeMat[b[i]]) { treeMoved++; continue; }
                     realOutside++;
                 }
             }
             outside = realOutside;
         }
         if (outside > 0) Fail($"{outside} voxels changed outside the pocket's columns");
+        if (treeMoved > 0) sb2.Append($"tree voxels moved past the band (a tree on the bank) {treeMoved:N0}; ");
 
         // the settle check (CPU fluid oracle)
         sw.Restart();
@@ -656,8 +744,64 @@ public unsafe class FluidPocketTests
 
         LogCase(log, cs, fails, sb, changed, fluidOn, shellCmp, farCmp, msOn, msOff, msSettle, coords.Count);
         log.AppendLine("    negative control: " + control);
+        if (sb2.Length > 0) log.AppendLine("    " + sb2);
+        if (!cs.deep) { int bf = NaturalBasin(src, cs, log); fails += bf; }
         CutAway(cs, on, off);
         if (!cs.deep && !cs.forced) poses.Add(Pose(src, cs));
+        return fails;
+    }
+
+    private static int Ext(FluidPockets.Site s) => math.max(1, FluidPockets.BankBand(s.up, s.dn));
+
+    /// Task 196: the shape over the whole bank, ON vs OFF heights per column. The rim is
+    /// flush (L + 1) unless the site's excess was capped; outside the footprint no
+    /// 4-neighbour step grows by more than 2 voxels (the bank's slope + an integer ring
+    /// change), except on a capped site's rim (the residual it must keep to hold the fluid).
+    private static int NaturalBasin(TerrainGenChunkSource src, Case cs, StringBuilder log)
+    {
+        var s = cs.site; var spec = src.Spec; var o = src.O;
+        var view = src.Map.View; var baseView = view; baseView.pocket = null;
+        int e = Ext(s) + 1, W = 2 * (s.rx + e) + 1, H = 2 * (s.rz + e) + 1;
+        var hOn = new int[W * H]; var hOff = new int[W * H]; var kind = new byte[W * H];   // 0 bank / outside, 1 rim, 2 footprint
+        bool capped = false; int rimHigh = 0, maxWall = int.MinValue, maxCut = 0, maxFill = 0, moved = 0;
+        for (int j = 0; j < H; j++)
+        for (int i = 0; i < W; i++)
+        {
+            int dx = i - s.rx - e, dz = j - s.rz - e, k = j * W + i;
+            float x = s.cx + dx + 0.5f, z = s.cz + dz + 0.5f;
+            hOn[k] = ShapeField.Sample(in spec, in view, in o, x, z, 1, false).height;
+            hOff[k] = ShapeField.Sample(in spec, in baseView, in o, x, z, 1, false).height;
+            if (FluidPockets.InFoot(dx, dz, s.rx, s.rz)) { kind[k] = 2; continue; }
+            for (int oz = -1; oz <= 1; oz++) for (int ox = -1; ox <= 1; ox++)
+                if ((ox | oz) != 0 && FluidPockets.InFoot(dx + ox, dz + oz, s.rx, s.rz)) kind[k] = 1;
+            if (kind[k] == 1)
+            {
+                if (hOff[k] - (s.level + 1) > s.up || (s.level + 1) - hOff[k] > s.dn) capped = true;
+                if (hOn[k] > s.level + 1) rimHigh++;
+                maxWall = math.max(maxWall, hOn[k] - s.level);
+            }
+            else if (hOn[k] != hOff[k]) { moved++; maxCut = math.max(maxCut, hOff[k] - hOn[k]); maxFill = math.max(maxFill, hOn[k] - hOff[k]); }
+        }
+        int bad = 0, worst = 0; string first = null;
+        for (int j = 0; j < H; j++)
+        for (int i = 0; i < W; i++)
+        foreach (var (ni, nj) in new[] { (i + 1, j), (i, j + 1) })
+        {
+            if (ni >= W || nj >= H) continue;
+            int a = j * W + i, b = nj * W + ni;
+            if (kind[a] == 2 || kind[b] == 2) continue;
+            if (capped && (kind[a] == 1 || kind[b] == 1)) continue;
+            int grow = math.abs(hOn[a] - hOn[b]) - math.abs(hOff[a] - hOff[b]);
+            worst = math.max(worst, grow);
+            if (grow > 2) { bad++; if (first == null) first = $"({s.cx + i - s.rx - e}, {s.cz + j - s.rz - e}) step ON {math.abs(hOn[a] - hOn[b])} vs OFF {math.abs(hOff[a] - hOff[b])}"; }
+        }
+        int fails = 0;
+        if (rimHigh > 0 && !capped) fails++;
+        if (bad > 0) fails++;
+        log.AppendLine($"    task 196 basin: bank UP {s.up} / DN {s.dn} voxels, band {Ext(s)} rings, bowl depth {s.depth}; rim wall over the fluid max {maxWall} voxel(s), " +
+                       $"rim columns over L + 1: {rimHigh}{(capped ? " (CAPPED site)" : "")}; bank columns moved {moved:N0} (max cut {maxCut}, max fill {maxFill}); " +
+                       $"largest step growth ON vs OFF outside the footprint {worst} voxel(s){(bad > 0 ? $", {bad} over 2: FAIL e.g. {first}" : "")}" +
+                       $"{(rimHigh > 0 && !capped ? "; FAIL: rim over L + 1 on an uncapped site" : "")}");
         return fails;
     }
 
@@ -706,7 +850,7 @@ public unsafe class FluidPocketTests
     {
         int cx = cs.deep ? (int)cs.pk.centre.x : cs.site.cx, cz = cs.deep ? (int)cs.pk.centre.z : cs.site.cz;
         int cy = cs.deep ? (int)cs.pk.level : cs.site.level;
-        int hw = cs.deep ? 100 : math.min(120, cs.site.rx + 40), hh = cs.deep ? 70 : 40;
+        int hw = cs.deep ? 100 : math.min(160, cs.site.rx + Ext(cs.site) + 20), hh = cs.deep ? 70 : math.max(40, cs.site.up + 12);
         int W = 2 * hw, H = 2 * hh;
         var px = new Color32[W * 2 * H];
         for (int panel = 0; panel < 2; panel++)

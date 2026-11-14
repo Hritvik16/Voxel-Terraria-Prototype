@@ -62,6 +62,32 @@
 // generated steam pocket at rest would need its own GenMat and a far-band
 // mapping for no gameplay gain; skipped (task 183 says so).
 //
+// TASK 196 -- NATURAL BASINS (owner Q-X (a), 2026-11-13). 183's carve left a SHEER
+// WALL on the high side: L sits 1 under the LOWEST rim sample, and the ground up
+// to FLAT_SPAN (2.4 m) higher was cut straight down at the footprint's edge
+// (191's surface_lava: a cylinder in a snowy slope). Now the shape follows the
+// slope rule the ground already has -- Cover.STEEP_DEG (30 deg, = Danger's
+// scramble limit: the steepest ground that keeps its soil and that a walker can
+// still climb out of), as the integer slope BANK_Q8 / 256:
+//   rim  (the 8-neighbours of the footprint, as before): height := L + 1 -- the
+//        fluid's shore is flush, one voxel over the fluid; LINED as before.
+//   bank (columns at ring t = smallest t with InFoot(dx, dz, rx + t, rz + t)):
+//        the ground is moved toward L + 1 by at most UP - drop(t) (cut) or
+//        DN - drop(t) (fill, the downhill levee), drop(t) = (t - 1) * BANK_Q8 >> 8.
+//        UP / DN = the site's exact rim excess over / under L + 1 (every rim
+//        column of the BASE terrain, measured once in BuildPlane), so the rim
+//        lands exactly on L + 1 and the change tapers to 0 at ring BankBand(UP, DN):
+//        no step anywhere, the bank is the base ground's slope + at most 30 deg.
+//        A cliff further out keeps its shape (lowered by the taper only).
+//   bowl depth := min(D, 1 + rmin * BANK_Q8 / 512): the paraboloid's steepest
+//        under-fluid wall (2 (D - 1) / rmin, at the edge) stays under the same slope.
+// The band must stay inside the plane cell and the record cells BuildPlane checked
+// (dry, no route / feature / town / start zone); where the measured excess needs a
+// wider band the excess is capped (PlaneStats.bankCapped) and that rim keeps a
+// small step -- still >= L + 1, so still sealed. Placement is unchanged (same
+// candidates, same rules, same L); only the shape and the stored depth differ.
+// Plane words (task 196): [1] bits 24-31 UP, [2] bits 24-31 DN (0 / 0 = 183's shape).
+//
 // INTEGER footprint tests (an axis-aligned ellipse with integer radii), so the
 // seal is exact on every path. The site plane itself is built once per world on
 // the main thread from the base terrain (Sample with no plane) and stored, so no
@@ -84,9 +110,14 @@ namespace TerrainGen
         public const int START_REACH = OreRules.START_REACH;   // 128 m, the NEAR band (8.15)
 
         public const int CTX_SEA = 15;                   // deep context of a sea cell (no landform rule)
+        /// Task 196: the bank / bowl slope, tan(Cover.STEEP_DEG = 30 deg) * 256 rounded DOWN
+        /// (0.574: 29.9 deg, never over the rule). FluidPocketTests pins it to Cover.STEEP_DEG.
+        public const int BANK_Q8 = 147;
+        public const int LOW24 = 0xFFFFFF;
 
         // packed site word [3]: bits 0-7 fluid GenMat, 8-15 rx, 16-23 rz, 24-30 depth D
         // word [0]: bits 0-23 centre x, bits 24-27 deep context (archetype + 1, CTX_SEA under the sea; 0 = none)
+        // word [1]: bits 0-23 centre z, bits 24-31 bank UP (task 196); word [2]: bits 0-23 level L, 24-31 bank DN
 
         /// Plane cells per edge.
         public static int PlaneCells(in TerrainSpec spec) => (spec.mapCells * spec.mapCellVoxels + CELL - 1) >> CELL_SHIFT;
@@ -129,6 +160,40 @@ namespace TerrainGen
             return 1 + (int)(((long)(d - 1) * (den - num)) / den);
         }
 
+        /// Task 196: how far the bank may move ground at ring t (>= 1) for a site excess e.
+        public static int BankDrop(int t) => ((t - 1) * BANK_Q8) >> 8;
+
+        /// Task 196: the first ring where the bank no longer moves anything (1 = none).
+        public static int BankBand(int up, int dn)
+        {
+            int e = math.max(up, dn);
+            return e <= 0 ? 1 : 1 + (e * 256 + BANK_Q8 - 1) / BANK_Q8;
+        }
+
+        /// Task 196: the bank's height for base ground `h` at ring t: moved toward L + 1 by
+        /// at most (up or dn) - BankDrop(t), never past L + 1.
+        public static int BankHeight(int h, int level, int up, int dn, int t)
+        {
+            int top = level + 1, drop = BankDrop(t);
+            if (h > top) { int a = up - drop; return a <= 0 ? h : h - math.min(h - top, a); }
+            if (h < top) { int a = dn - drop; return a <= 0 ? h : h + math.min(top - h, a); }
+            return h;
+        }
+
+        /// Task 196: the bowl's depth -- its steepest under-fluid wall (the paraboloid's
+        /// edge, 2 (D - 1) / rmin) at most the bank slope.
+        public static int BowlDepth(int d, int rx, int rz) => math.min(d, 1 + ((math.min(rx, rz) * BANK_Q8) >> 9));
+
+        /// Task 196: the ring of a column outside the footprint (smallest t in [1, band) with
+        /// the column inside the ellipse (rx + t, rz + t)); `band` when there is none.
+        public static int Ring(int dx, int dz, int rx, int rz, int band)
+        {
+            if (band <= 1 || !InFoot(dx, dz, rx + band - 1, rz + band - 1)) return band;
+            int lo = 1, hi = band - 1;   // InFoot is monotone in t: the ellipses nest
+            while (lo < hi) { int m = (lo + hi) >> 1; if (InFoot(dx, dz, rx + m, rz + m)) hi = m; else lo = m + 1; }
+            return lo;
+        }
+
         public static void Apply(in TerrainSpec spec, in MapView map, float x, float z, ref ColumnSample c)
         {
             if (map.pocket == null || !spec.Pockets) return;
@@ -140,19 +205,23 @@ namespace TerrainGen
             c.pkCtx = (byte)((e[0] >> 24) & 15);
             uint s = (uint)e[3];
             if (s == 0u) return;
-            int cx = e[0] & 0xFFFFFF, cz = e[1], L = e[2];
+            int cx = e[0] & LOW24, cz = e[1] & LOW24, L = e[2] & LOW24;
+            int up = (int)((uint)e[1] >> 24), dn = (int)((uint)e[2] >> 24);
+            int band = BankBand(up, dn);
             byte fluid = (byte)(s & 255u);
             int rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), d = (int)((s >> 24) & 127u);
             int dx = ix - cx, dz = iz - cz;
-            if (dx < -rx - 1 || dx > rx + 1 || dz < -rz - 1 || dz > rz + 1) return;
+            int ext = math.max(1, band);
+            if (dx < -rx - ext || dx > rx + ext || dz < -rz - ext || dz > rz + ext) return;
             // The lining: every solid voxel with a face on a fluid voxel, and one more under
             // the bed. Fluid fills (floor, L] of each footprint column, so a column's solid
             // voxels down to its lowest footprint neighbour's floor + 1 can touch fluid.
             int lowNb = int.MaxValue;
-            for (int oz = -1; oz <= 1; oz++)
-            for (int ox = -1; ox <= 1; ox++)
-                if ((ox != 0 || oz != 0) && InFoot(dx + ox, dz + oz, rx, rz))
-                    lowNb = math.min(lowNb, L - DepthAt(dx + ox, dz + oz, rx, rz, d));
+            if (dx >= -rx - 1 && dx <= rx + 1 && dz >= -rz - 1 && dz <= rz + 1)
+                for (int oz = -1; oz <= 1; oz++)
+                for (int ox = -1; ox <= 1; ox++)
+                    if ((ox != 0 || oz != 0) && InFoot(dx + ox, dz + oz, rx, rz))
+                        lowNb = math.min(lowNb, L - DepthAt(dx + ox, dz + oz, rx, rz, d));
             if (InFoot(dx, dz, rx, rz))
             {
                 int floor = L - DepthAt(dx, dz, rx, rz, d);
@@ -162,13 +231,26 @@ namespace TerrainGen
                 c.pkLineLo = math.min(floor - 1, lowNb);
                 c.pkLineHi = floor;
             }
-            else
+            else if (lowNb != int.MaxValue)
             {
-                if (lowNb == int.MaxValue) return;   // no footprint neighbour: not the rim
-                c.height = math.max(c.height, L + 1);
+                // the rim: flush at L + 1 (task 196; a capped excess leaves it higher, never lower)
+                c.height = math.max(BankHeight(c.height, L, up, dn, 1), L + 1);
                 if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
                 c.pkLineLo = lowNb;
                 c.pkLineHi = L + 1;
+            }
+            else
+            {
+                // task 196: the bank -- no fluid touches it, so no lining and no cave cap
+                int t = Ring(dx, dz, rx, rz, band);
+                if (t >= band) return;
+                int h = BankHeight(c.height, L, up, dn, t);
+                if (h == c.height) return;
+                c.height = h;
+                if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
+                c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = c.open3Lo = c.open3Hi = 0;
+                c.stamp3D = false; c.carvesTop = false; c.lipLo = 0;
+                return;
             }
             c.pkLining = Lining(fluid);
             int cap = L - d - CAP_MARGIN;
@@ -239,6 +321,7 @@ namespace TerrainGen
         public struct Site
         {
             public int cx, cz, level, rx, rz, depth;
+            public int up, dn;   // task 196: the bank's cut / fill at the rim (0 / 0 = 183's shape)
             public byte fluid;
             public byte archetype, biome;
             public bool valley;
@@ -249,7 +332,8 @@ namespace TerrainGen
             int b = i * STRIDE; uint s = (uint)plane[b + 3];
             return new Site
             {
-                cx = plane[b] & 0xFFFFFF, cz = plane[b + 1], level = plane[b + 2],
+                cx = plane[b] & LOW24, cz = plane[b + 1] & LOW24, level = plane[b + 2] & LOW24,
+                up = (int)((uint)plane[b + 1] >> 24), dn = (int)((uint)plane[b + 2] >> 24),
                 fluid = (byte)(s & 255u), rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), depth = (int)((s >> 24) & 127u),
                 archetype = (byte)(((plane[b] >> 24) & 15) - 1),
             };
@@ -310,7 +394,57 @@ namespace TerrainGen
             return zone;
         }
 
-        public struct PlaneStats { public int candidates, ruled, rejectedCells, rejectedSamples, rejectedFlat, sites; }
+        public struct PlaneStats
+        {
+            public int candidates, ruled, rejectedCells, rejectedSamples, rejectedFlat, sites;
+            public int banked, bankCapped, maxUp, maxDn, depthCut;   // task 196: sites with a bank, capped, the largest UP / DN, bowls made shallower
+        }
+
+        /// Task 196: the bank of a site -- the exact excess of the BASE terrain's rim
+        /// columns (every 8-neighbour of the footprint) over / under L + 1, each capped so
+        /// the band ends within `room` columns of the footprint (the plane cell and the
+        /// checked record cells). capped = a cap bit.
+        public static void MeasureBank(in TerrainSpec spec, in MapView baseView, in Offsets o, int cx, int cz, int level,
+                                       int rx, int rz, int room, out int up, out int dn, out bool capped)
+        {
+            int top = level + 1, hi = int.MinValue, lo = int.MaxValue;
+            for (int dz = -rz - 1; dz <= rz + 1; dz++)
+            for (int dx = -rx - 1; dx <= rx + 1; dx++)
+            {
+                if (InFoot(dx, dz, rx, rz)) continue;
+                bool rim = false;
+                for (int oz = -1; oz <= 1 && !rim; oz++)
+                for (int ox = -1; ox <= 1; ox++)
+                    if ((ox != 0 || oz != 0) && InFoot(dx + ox, dz + oz, rx, rz)) { rim = true; break; }
+                if (!rim) continue;
+                int h = ShapeField.Sample(in spec, in baseView, in o, cx + dx + 0.5f, cz + dz + 0.5f, 1, false).height;
+                hi = math.max(hi, h); lo = math.min(lo, h);
+            }
+            up = math.max(0, hi - top); dn = math.max(0, top - lo);
+            int emax = math.clamp(((room - 1) * BANK_Q8) >> 8, 0, 255);
+            capped = up > emax || dn > emax;
+            up = math.min(up, emax); dn = math.min(dn, emax);
+        }
+
+        /// `-pocketbasin 0` (task 196, for before / after pictures): the plane gets 183's
+        /// shape back exactly (no bank, the drawn depth). Absent or 1 = the natural basin. Last match wins.
+        public static bool BasinsArg()
+        {
+            string[] a = System.Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-pocketbasin" && int.TryParse(a[i + 1], out int v)) on = v != 0;
+            return on;
+        }
+
+        /// The four plane words of a site (ctx: word [0]'s deep-context bits, already shifted).
+        public static void Pack(in Site s, int ctxBits, int[] w)
+        {
+            w[0] = (ctxBits & ~LOW24) | (s.cx & LOW24);
+            w[1] = (s.cz & LOW24) | (s.up << 24);
+            w[2] = (s.level & LOW24) | (s.dn << 24);
+            w[3] = (int)((uint)s.fluid | ((uint)s.rx << 8) | ((uint)s.rz << 16) | ((uint)s.depth << 24));
+        }
 
         /// The plane: STRIDE ints per plane cell, row-major. Without a record
         /// (map v3) every entry is 0 (no pockets, no deep context).
@@ -328,6 +462,7 @@ namespace TerrainGen
             int mc = spec.mapCells, cv = spec.mapCellVoxels, world = mc * cv;
 
             var zone = StartZone(map);
+            bool basins = BasinsArg();   // task 196
 
             for (int pz = 0; pz < n; pz++)
             for (int px = 0; px < n; px++)
@@ -385,10 +520,22 @@ namespace TerrainGen
                 int level = lo - 1;
                 if (hi - lo > FLAT_SPAN || level - dep <= spec.seaLevelY + SEA_CLEAR) { st.rejectedFlat++; continue; }
 
-                plane[b] |= sx & 0xFFFFFF;
-                plane[b + 1] = sz;
-                plane[b + 2] = level;
-                plane[b + 3] = (int)((uint)fluid | ((uint)rx << 8) | ((uint)rz << 16) | ((uint)dep << 24));
+                // task 196: the natural basin (placement above is unchanged)
+                int bowl = basins ? BowlDepth(dep, rx, rz) : dep;
+                if (bowl < dep) st.depthCut++;
+                int cellX = px << CELL_SHIFT, cellZ = pz << CELL_SHIFT;
+                int roomX = math.min(math.min(sx - math.max(cellX, x0 * cv), math.min(cellX + CELL, (x1 + 1) * cv) - 1 - sx), world - 1 - sx) - rx;
+                int roomZ = math.min(math.min(sz - math.max(cellZ, z0 * cv), math.min(cellZ + CELL, (z1 + 1) * cv) - 1 - sz), world - 1 - sz) - rz;
+                int up = 0, dn = 0; bool capped = false;
+                if (basins) MeasureBank(in spec, in view, in o, sx, sz, level, rx, rz, math.min(roomX, roomZ), out up, out dn, out capped);
+                if (up > 0 || dn > 0) st.banked++;
+                if (capped) st.bankCapped++;
+                st.maxUp = math.max(st.maxUp, up); st.maxDn = math.max(st.maxDn, dn);
+
+                var site = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, depth = bowl, up = up, dn = dn, fluid = fluid };
+                var w = new int[4];
+                Pack(in site, plane[b], w);
+                for (int k = 0; k < 4; k++) plane[b + k] = w[k];
                 st.sites++;
             }
             return plane;

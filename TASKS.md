@@ -1534,3 +1534,24 @@ OFF") now pins trees OFF -- a tree's density reads the column's cover slot, whic
 Cover slot"), so rules ON vs OFF legitimately moves trees, i.e. air (whole-suite run 1: 2 failures there, nothing else). Towns stay ON in it.
 Shots: `Logs/overnight/195a_shots.sh` (191's forest + snow + town_eye + village_eye, seed 42, `-tod 12`, default vs `-trees 0 -towns 0`),
 `Screenshots/195a/`. Result: HANDOFF 195a.
+
+**Task 196 -- fluid pockets get natural basins (owner 2026-11-13, Q-X (a): "fluid pockets stay OFF until a small task softens their walls into natural basins"; `-fluidpockets` stays DEFAULT OFF).**
+Why the walls were sheer: `FluidPockets.BuildPlane` puts the fluid level L one voxel under the LOWEST of 24 rim samples, and the samples may
+spread up to FLAT_SPAN (2.4 m); `Apply` then cut every footprint column straight down to L, so the high side of a pocket on a gentle slope
+was a vertical wall up to ~2.5 m tall (191's `surface_lava`). Now (`FluidPockets.Apply`, header "TASK 196"): the RIM (8-neighbours of the
+footprint) sits flush at L + 1 (one voxel over the fluid, lined as before); the BANK beyond it moves the ground toward L + 1 by at most
+UP - drop(t) (cut, uphill) or DN - drop(t) (fill, downhill levee), drop(t) = (t - 1) * BANK_Q8 >> 8, t = the smallest nesting ellipse
+(rx + t, rz + t) holding the column (`Ring`). BANK_Q8 = 147 = tan(`Cover.STEEP_DEG` 30 deg) * 256 rounded down: the slope rule the ground
+already has (soil stays, a walker can scramble out). UP / DN = the site's EXACT rim excess over / under L + 1 (every rim column of the base
+terrain, `MeasureBank`, once per site in BuildPlane), so the rim lands on L + 1 and the change tapers to 0 at `BankBand(UP, DN)` -- no step
+anywhere. The bowl's depth is `BowlDepth` = min(D, 1 + rmin * BANK_Q8 / 512) (its steepest under-fluid wall under the same slope). The band
+must stay inside the plane cell and the record cells the planner checked; a larger excess is capped (`PlaneStats.bankCapped`; 0 sites on
+seeds 42 / 7 / 2026 / 31337). Placement unchanged (same candidates, rules, L); plane words [1] / [2] carry UP / DN in bits 24-31 (0 / 0 =
+183's shape). Same rule for every fluid and biome. `-fluidpockets 0` never reaches Apply (unchanged byte for byte). `-pocketbasin 0`
+rebuilds 183's exact shape for before / after pictures. Gameplay: 111 of 131 seed-42 bowls are shallower (water up to 2.0 m -> 1.4 m at
+r 4.7 m); trees on a bank stand on the lowered ground. Plane build (main thread, once per world, only with pockets
+ON): player 27 ms -> 70 ms (seed 42 log); the Editor's Mono 0.4 s -> 1.2-1.9 s. Tests (`FluidPocketTests`): new `Bank_Rules` (fast); `FourSeeds_Plane_Table_KeepOuts` asserts every uncapped rim is flush;
+`Sites_AtRest_PathsAgree_Adversarial` adds a FORCED site on a ~20 deg slope, widens every box to the bank, and per case checks the rim and
+that no 4-neighbour step outside the footprint grows by > 2 voxels ON vs OFF (tree voxels moved by the bank are counted, not failed).
+Shots: `Logs/overnight/196_shots.sh` (191's surface_lava + water / quicksand / oil from the north, seed 42, `-tod 12`, `-pocketbasin 0` vs
+default), `Screenshots/196/viewer.html`; CPU cut-aways `Screenshots/183/cut_*.png` (before: `Screenshots/196/before_cutaway/`). Result: HANDOFF 196.
