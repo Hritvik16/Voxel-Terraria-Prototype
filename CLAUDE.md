@@ -117,6 +117,12 @@ rebuild, the 2026-10-01 owner review and owner intent, the Phase 4 note): `PROJE
   screenshots; no stream/rig/frame-time arms. Performance is checked at milestones.
   Before any measurement, write what each possible result would make us do; if every
   outcome leads to the same action, skip the measurement and do the action.
+- **Efficient by construction** (owner, 2026-11-14: "We cant keep leaving everything up to the
+  performance stage"). Every task builds the most memory- and performance-efficient design up
+  front, reports its memory cost (peak, GPU body pool peak + refusals, CPU pool + valve) against
+  its switch OFF from the launches it already does, and stays within its budget (default:
+  refusals not up, peak +50 MB) or fixes it / stops for the owner. Not frame timing: the rule
+  above still holds. Detail: `tools/overnight/PREAMBLE.md` rule 11.
 - **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
   a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
   4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,

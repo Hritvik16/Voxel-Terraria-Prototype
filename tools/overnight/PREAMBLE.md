@@ -82,3 +82,14 @@ You are running UNATTENDED in a fresh headless session started by
    reports and screenshots -- no stream probe, acceptance rig or frame-time arms, even if
    its file asks for a "re-measure" (older task files do). Performance is checked at
    milestones by a dedicated task. Rule 9 applies only when a timed measurement runs.
+11. **Efficient by construction** (owner, 2026-11-14: "We cant keep leaving everything up to the performance stage. Every
+   task has to make sure it is doing stuff in a way that prevents further work ... straight away building the most memory and
+   performance efficient way of doing things"). Every task that adds or changes content, data or drawing:
+   (a) chooses the most memory- and performance-efficient design it can find FIRST (shared / deduplicated data, nothing
+   stored that is never drawn, heavy builds on worker threads, nothing per frame that can be done once) and says in HANDOFF
+   why that design is the efficient one;
+   (b) reports its memory cost from the launches it already does, against its switch OFF: memory peak, GPU body pool peak and
+   refusals, CPU pool peak and valve evictions (ledger lines; no extra launch);
+   (c) must not make any of those worse beyond its task file's budget (default: refusals not up, memory peak at most +50 MB).
+   Over budget = fix it inside the task or STOP_FOR_OWNER. "Leave it for the performance stage" is not an option.
+   This is not frame timing: rule 10 still forbids frame-time arms outside performance tasks.
