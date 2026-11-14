@@ -1,46 +1,50 @@
-# 201-defaults-fluidpockets-on: DONE. Surface fluid pockets (183 + 196's basins) are ON in every tg2 world; `-fluidpockets 0` = the pre-201 world.
-## What changed (commit 30c1cce)
-- `TerrainGenChunkSource.FluidPocketsArg` defaults to true (the 195 / 195a pattern; the `TerrainSpec` field is NOT flipped: a bare spec stays OFF).
-  `-fluidpockets 0` keeps `spec.fluidPocketsOn` 0 = the same code path as before (one-entry plane, `FluidPockets.Apply` never reached).
-  Shape, placement, rules, `-pocketbasin` untouched; ores / trees / towns / sites / leaf fill / sky fill untouched.
-- Player log: `[StreamManager] tg2 chunk source: ... fluid pockets ON (default; 131 surface sites)` / `OFF (-fluidpockets 0)` (StreamManager.cs).
-- World survey (capture only): new per-pose `[fluidtiles]` line (resident / acquired / unsettled fluid tiles).
-- `FluidPocketTests.ForestSites_Poses201` (Explicit report): seed 42's forest water / lava sites + north-side poses -> `Logs/TerrainGen/pockets201/`.
-- `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin` (182): failed in whole-suite run 1 on 8 shell-5 voxels at `border_bank` -- a shell's
-  TOP voxel takes its material at the ground h (`TerrainGenChunkSource.Shell.cs` top-voxel pass), h sat in a pocket's lining range, so it showed
-  the mud lining, exactly as LOD 0 (`DetailField.Material`); the test read it as "soil under the skin". Now skips lining voxels like stamps and
-  logs them: 38 wear their pocket's lining, 0 show anything else, deeper-band 0 (`Logs/TerrainGen/180b/shell_bared182.txt`). Pockets stay ON there.
-- TASKS.md paragraph (Task 201).
-## Checked (things that assumed pockets OFF)
-- Tests pinning the default: none (TerrainGen tests use a bare spec = OFF; `FluidPocketTests` sets pockets explicitly). F6 / PlaySettings: no entry.
-- Rigs: no identity/hash rig (acceptance, acceptance-fluid, phase 5/6/7, fluid-tiled, brushguard) builds the tg2 world -> none needed `-fluidpockets 0`.
-  FarField shares the chunk source's map, so the far band follows the default.
-- Fluid tick: pockets are resting generated fluid; under awake-only residency (task 54, `FluidTileResidency.Refresh`) they take NO tile until a wake.
-  Every pose, both arms: `[fluidtiles] resident 0 (peak 0), acquired 0, unsettled 0` (the survey suspends the CA dispatch, so this proves no
-  admission, not tick time; the CA's fixed per-tick dispatch is unchanged by pockets).
+# 201a-bug-gpu-body-pool-overflow: DONE. Sealed bricks (no ray can reach them) take no GPU body: 0 refusals at all 5 poses, same pool, same picture.
+## What changed (commit 417f1dd)
+- ACCOUNT: `-gpupoolprobe 1` (capture only, `PlaygroundCapture.GpuPoolProbe.cs`): per survey pose, the box's dense bodies by source / kind / hidden / ring / layer / duplicates.
+- FIX: `TerrainClipmap.Sealed.cs`. At each box chunk upload a Burst scan marks the INNER bricks (1..14 on every axis) whose voxels AND 1-voxel shell are all
+  seal-solid (not air, fluid, torch, glass, river lip). They are staged as a uniform handle of their voxel 0's material: no GPU slot, no body upload.
+  Why it is exact: a tier-0 ray passes air / clear fluid and stops at the first differing voxel, stepping face to face, so it always stops on the shell first;
+  neighbour reads (AO, emissive bleed, river lip) only touch voxels next to air / fluid; shadow / torch / height reads test non-zero. Inner only = the shell
+  sits in the same chunk, so a refused / evicted neighbour (air on the GPU) cannot expose it. Nothing is cached: the mask is recomputed at every upload.
+  CPU side unchanged; fluid terrain directory unchanged; pool off (rigs) never runs it. `-gpuseal 0` = the old upload.
+- Why this design is the efficient one (rule 11a): it removes the biggest exact share (26-37 % of bodies) with ~2 MB of CPU masks and no new GPU data. It also
+  uploads fewer bytes. Rejected: a bigger pool (owner), dedup by content hash (8-39 %, needs hashing + refcount by content on every upload), border bricks (need neighbour state).
+- Validators use `ExpectedGpuHandle`; ledger `[mem]` line adds `in use N, sealed N`. Capture-only flags: survey arm suffix `_gs0` / `_gs1` (box restaged with the seal OFF / ON),
+  `-gpusealcmp 1` (residency, shells, far band and river time held during a pose's arms). TASKS.md, KNOWN_ISSUES (top entry), CLAUDE.md index line.
+## Accounting (bodies; `Screenshots/201a/table201a.txt`; seed 42, noon, lookwait 40 s, cap 254,400)
+| pose | before: in use / free / refused now / refused total | `-trees 0 -towns 0` (old upload) in use / refused total | after: in use / free / refused now | sealed | tree / ore bodies before |
+|---|---|---|---|---|---|
+| forest | 254,382 / 18 / 16 / 8,783 | 249,735 / 0 | 223,025 / 31,375 / 0 | 77,462 | 86,875 / 2,341 |
+| jungle_high | 233,935 / 20,465 / 0 / 11,201 | 253,413 / 0 | 186,045 / 68,355 / 0 | 75,567 | 57,036 / 1,214 |
+| town_eye | 253,441 / 959 / 0 / 13,995 | 254,400 / 65 | 141,698 / 112,702 / 0 | 132,758 | 8,485 / 10,552 |
+| badlands_wall | 194,456 / 59,944 / 0 / 14,109 | 192,088 / 65 | 145,350 / 109,050 / 0 | 49,106 | 2,412 / 17,520 |
+| s_redwood | 253,638 / 762 / 116 / 21,570 | 253,460 / 8,419 | 205,616 / 48,784 / 0 | 115,312 | 4,662 / 16,909 |
+- What fills it (before): terrain 54-92 %, trees 1-37 % (forest 37 %), ores 0.5-9 %, fluid 0-36 % (badlands = sea). Kinds: one-value 0 (tg2 already collapses them), surface 35-55 %,
+  solid-mixed 36-65 %. Hidden (sealed by the probe's test): inner 25-37 %, incl. chunk-border bricks 34-57 %. Duplicates 8-39 %. Towns: no visible share (the no-trees/towns arm is trees-dominated).
+- Refusal TOTAL after the fix: 132, all during the start-up load before the first pose (pool peak 254,399 then); it did not grow at any pose (before: +2.4 k to +7.5 k per pose, 21,904 at the end).
 ## Evidence
-- Whole suite run 2: PASS 1087 FAIL 0 SKIP 30 (43 min, `Logs/overnight/201/suite_all2.out`); run 1: 1086 / 1 (the test above).
-- Shots: `Logs/overnight/201_shots.sh`, 2 launches x 4 poses, `-tod 12`, lookwait 40 s; logs `Logs/overnight/201/player_{default,off}.log`.
-  Owner pause 08:07-08:37 held the first launch (no effect on the shots). Shells still missing at 40 s (reported, not waited): default arm s3
-  792-1,796 missing per pose, off arm s3 2,001 (0 stored -- the off arm ran second on a warmer chip: 98-163 vs 49-96 ms per shell chunk).
-- Memory (process peak / GPU body refused, cumulative, last pose): default 2,410 MB / 15,650; `-fluidpockets 0` 2,567 MB / 15,657. Cap 3,000 MB;
-  195a: 2,504 MB. The off arm's higher peak is a startup transient, not the pockets. GPU body pool full in both (254,400 / 254,400, as since 195a).
+- Identity (`Screenshots/201a/*_exact3.png`, `Logs/overnight/201a_diff.py`): no-upscaler 1080p stills, one launch, pool 420 k so neither arm refuses, residency held:
+  seal ON (restaged) vs OFF (restaged) vs ON again = **0 px** at forest, town_eye and s_redwood (all three pairs). Earlier tries without the residency hold differed by streaming only.
+- Tests: `SealedBrickTests` (9: 14^3 inner bricks, none on the border; one air / water / glass / torch voxel unseals exactly 8 bricks; oracle chunk with caves / pond / glass / torch:
+  GPU view = CPU at every voxel next to a non-solid one; fits a pool it overflowed; switch off / off mid-run). Filter runs + `SUITE=all` **PASS 1096 FAIL 0 SKIP 30** (`Logs/overnight/201a/suite_all.out`).
+- Memory (rule 11b, ledger lines of the launches above): process NOW per pose before 2,421-2,453 MB, after 2,410-2,440 MB. Process PEAK 2,616 -> 2,673 MB (start-up transient before
+  the first pose; the `-trees 0 -towns 0` arm on the OLD upload peaked at 2,725, so +57 is inside the launch-to-launch spread; the fix itself adds <= 2.3 MB of CPU masks).
+  CPU pool peak 492,744 -> 492,685 (valve 484,500 both). GPU pool cap unchanged (124 MB). Over the 2,504 MB in the task file in BOTH arms (this pose set includes 200's gallery).
+- Rough cost (rule 10, no arms): survey settle frames p50 156/243/167/238/134 -> 190/251/177/242/159 ms per pose; the after arm draws the formerly refused chunks in tier 0. The scan was not timed.
+- Logs: `Logs/overnight/201a/{player_on,player_sealed,player_notrees,player_exact3}.log`, `look_*.out`; scripts `Logs/overnight/201a_{account,after}.sh`.
 ## Not done / limits
-- The "more like ponds" look is a later owner talk (OWNER_TOPICS), not done here.
-- 118 bared shell voxels near pockets wear neither skin nor a deeper band (skin 99.94 % vs 100 % before; the test needs > 95 %): not investigated.
-- On the lava pose the snow bank's step edges show thin pale-blue dashes (left image only, round the bowl); this looks like the 198 white-dash
-  lighting effect on the new bank steps, not a material. Not investigated.
+- The 132 start-up refusals (spawn load, before the first pose) were not investigated. Chunk-border sealed bricks (17-58 k more bodies) and byte duplicates (8-39 %) are the next levers if 210's trees need room.
+- 207 (retry only what fits) is still worth doing: with free bodies now the churn mostly stops, but a full pool can still happen at start-up.
 ## Next step
-Supervisor: pictures to the doc; the pond-look talk with the owner.
+Supervisor: pictures to the doc; 207/208, then 210 (headroom per pose below).
 
 ## For the doc
-- Pockets: OFF -> **ON by default** (seed 42: 131 surface sites; player plane build 69 ms once per world, `player_default.log`).
-- Fluid tiles woken by pockets at the 4 poses: **0** (resident 0, acquired 0, both arms; `Screenshots/201/lookreview_*.txt`).
-- Process peak: `-fluidpockets 0` 2,567 MB -> default 2,410 MB (cap 3,000; same order, transient-dominated). GPU body refusals 15,657 -> 15,650.
-- Whole suite: PASS 1087 FAIL 0 (one test taught that pocket linings are not "soil under the skin": 38 lined voxels, 0 wrong).
-- Images (`Screenshots/201/`; each pair LEFT = new default, RIGHT = `-fluidpockets 0`):
-  - `sheet_201.jpg` -- all four pairs stacked; look at the middle of each left image for the pocket.
-  - `pair_surface_water.jpg` -- snowy pine slope: a round dark-blue pond (centre) on the left; plain snow on the right.
-  - `pair_surface_lava.jpg` -- open snowfield: an orange lava bowl with its stepped snow bank on the left; unbroken snow ridges on the right.
-  - `pair_forest_water.jpg` -- forest clearing from above: a small blue pond under the middle oak (left); on the right a tree stands there instead.
-  - `pair_forest.jpg` -- 195a's ordinary forest pose: the foreground is the same; only far shells differ (the off arm streamed less in 40 s).
+- GPU body pool refusals over 5 poses: **21,904 -> 132** (all 132 at start-up; **0** at every pose, refused-now 0 everywhere) (`Screenshots/201a/lookreview_{on,sealed}.txt`).
+- Free bodies (headroom for task 210's trees) per pose: forest 18 -> **31,375**, jungle_high 20,465 -> **68,355**, town_eye 959 -> **112,702**, badlands 59,944 -> **109,050**, redwood 762 -> **48,784** (512 B each).
+- Bodies the GPU skips because no ray can reach them: **49-133 k per pose** (26-37 % of the box); pool size unchanged (254,400 = 124 MB).
+- Picture unchanged: seal ON vs OFF **0 px** different at 3 poses (raw 1080p stills). Whole suite PASS 1096 FAIL 0.
+- Memory: process now per pose 2,421-2,453 -> 2,410-2,440 MB; peak 2,616 -> 2,673 MB (start-up transient, launch spread up to 2,725 on the old code).
+- Images (`Screenshots/201a/`):
+  - `pair_s_redwood_spacecol.jpg` -- 200's redwood pose, LEFT before / RIGHT after: left shows ONE redwood, a second as floating leaf bits and grey walls in the foreground (refused chunks); right shows all three redwoods and plain ground.
+  - `pair_forest.jpg` -- 195a's forest pose, LEFT before / RIGHT after: the same view (the hand-over hid the 16 refused chunks there); look for no change.
+  - `s_redwood_spacecol_native_sf0_gs0_exact3.png` vs `s_redwood_spacecol_native_sf0_gs1_exact3.png` -- the identity pair (seal OFF / ON): pixel for pixel the same.
