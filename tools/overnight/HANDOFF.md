@@ -1,45 +1,45 @@
-# 194-bug-rectangular-pits-near-pool: DONE. The pits ARE refused near-pool chunks. Fixed inside the design (shader hand-over); no pool size, eviction, layout or API change.
+# 195-defaults-ores-on: DONE. Rule ores (task 181) are the default in every tg2 world; `-ores 0` = the pre-195 world byte for byte.
 
-## Cause (proven)
-- A chunk the full near GPU body pool refuses is held as AIR in tier 0. Its column is marked non-resident so the shells draw it.
-- But tier 0 still draws the rest of that column (the uniform rock under a surface chunk needs no GPU body) and the columns around it. Tier 0 marches first.
-- So a ray through the refused chunk's air hit that rock: a 12.8 m box pit, with the neighbours' sides as straight walls.
-- Probe (`[refused]` lines per shot): the refused chunks are surface chunks (700-1,100 dense bricks: trees). Shell 1 STORES every one (0 in its ±1-chunk hole at High). The chunk below is drawn solid by tier 0 in 13-75 of each pose's refusals.
-- A pit shows only when the refused chunk lies within tier 0's real reach (about 60-100 m). Chunks refused at 104-145 m (box edge) never showed.
-
-## Fix (commit 6bab2d5)
-- `Raymarch.compute`, REFUSED-CHUNK HAND-OVER block: while `_Tier0Refused` is set (any chunk refused, shells + far band on), a tier-0 hit past the ray's entry into a column holding a REFUSED chunk is dropped. Tier 0 ends there and the shell march draws on from that point.
-- Refused columns only: `FarField.UpdateResidency` writes them as a second bitmap after the residency bits in `FarResident`.
-- v1 (any non-resident column) was REJECTED after its shots: still-streaming columns near the camera lie in shell 1's hole, where no shell holds anything, so houses vanished at eye level.
-- CPU twin `Tier0HandOverReference`. `RefusedHandOverTests` (7): a real TerrainClipmap with a 25-body pool reproduces the pit; the floor hit is dropped at the refused column's entry; earlier hits are kept; a streaming-only column is never handed over; tier 0 owns the column again once the chunk lands; the twin matches a fine walk on 500 rays.
-- Capture only: `-refusedhandover 0`, WorldSurvey arm `native_rh0` (OFF for one shot), `PlaygroundCapture.RefusedProbe.cs`. TASKS.md paragraph 194.
+## What changed (commit f658110)
+- `TerrainGenChunkSource.OresArg` defaults to true (`Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Ores.cs`). `-ores 0` leaves
+  `spec.oresOn` 0 = the exact pre-195 code path (step 3's `Ores.cs`).
+- NOT 187a/190b's pattern on purpose: the `TerrainSpec` field is not flipped. The rules need the ore cell plane that only the chunk
+  source builds; a bare spec with ores on would read cell 0 (wrong ores, not just different). Bare TerrainGen specs stay OFF.
+- Player log now says `rule ores ON (default; plane 4096 KB)` / `OFF (-ores 0)` in the `[StreamManager] tg2 chunk source` line.
+- Docs: TerrainSpec / OreRules headers; TASKS.md paragraph 195.
+- Places that assumed OFF: no F6/PlaySettings entry exists; no identity/hash rig (acceptance Gates C/D) uses the tg2 world, so no rig
+  needed `-ores 0`. Two tests did:
+  - `TerrainGenChunkSourceTests.RefJob` (TerrainGen reference) had no ore cell plane -> `AirFastPath_IsExact` failed at surface - 3
+    (18 voxels). It now carries the source's plane like ColumnJob does. Test fix, not a product change.
+  - `BrickSkipTests`: plain proofs now cover ores ON; the `_Ores` twins became `_OresOff` (cover `-ores 0`), restoring the prior value.
+- Leaf fill, trees, towns, fluid pockets, sites: untouched.
 
 ## Evidence
-- Fast suite **PASS 1000 FAIL 0 SKIP 20** (`Logs/overnight/194/fast.out`); filter run 12/12 (`filter2.out`).
-- Repro, seed 7, default pool, 191's pose order (`refused_before7.txt`): 14 refused at town_150m, all 104-145 m out. No pits; 191's pits depended on the refusal history.
-- Seed 7, `-gpubrickcap 200000` (adversarial, forces near refusals), town_150m: 85 refused, 22 on screen, 63-98 m in front of the town.
-  - OFF: a band of box pits. ON: flat sand. Refused count identical in both arms (85 now, 3,174 total).
-  - 7.35 % of pixels differ (`Screenshots/194/diff194.txt`).
-- Seed 42, default pool:
-  - forest: 40 refused, 10 on screen, 52-72 m out. The OFF arm shows a box wall behind the trees; ON shows trees and grass.
-  - town_eye: v2 shows all houses (v1 lost them).
-- Shots: one build + one launch per seed (`Logs/overnight/194_proof2.sh`). The first v2 build hit the known CSMainFarShadeDiag compiler timeout (as in 134) while the owner used the Mac; the retry at a 60-minute timeout built. Log: `Logs/overnight/194/build_timeout1.log`.
+- Whole suite (after the fix): PASS 1077 FAIL 0 SKIP 28 (`Logs/overnight/195/all2.out`). First run: PASS 1076 FAIL 1 (the RefJob above,
+  `Logs/overnight/195/all.out`). Filter run TerrainGenChunkSourceTests 3/3 pass.
+- Generator proof that ON vs OFF only swaps rock for ore (never air/fluid) at the three wall sites: `OreRuleTests.Sites_OnVsOff_...` (Slow, passed).
+- Shots: one build, a launch per arm, 181's three wall poses, `-tod 12`, High, native 1080 (`Logs/overnight/195_shots.sh`, `look_*.out`, `player_*.log`).
+- Memory (process figures these launches print, `[mem]` line, `Screenshots/195/lookreview_*.txt`): at the last pose, now 2365.5 MB (default)
+  vs 2318.0 MB (`-ores 0`), +47 MB; launch peak 2457.1 vs 2572.5 MB (a peak is noisy, it went the other way). Ore plane 4,096 KB.
+- Rough cost seen in those launches (not a timing arm, cold, ON arm ran first): shell chunk generation 129/120/114 ms vs 88/85/91 ms per
+  chunk on a worker (+30-40 %). Generation is already the streaming bottleneck (KNOWN_ISSUES 10/16b): worth a line in the perf stage.
 
-## Not done / open
-- A refused chunk INSIDE shell 1's hole still has no shell data: ABSENT, so the far band draws it. Seen once (4 at seed 42 forest ON, none on screen). The real fix would need shell data in the hole or a pool rule. Owner call if it ever shows.
-- Sun shadows across a handed-over column can differ (seed7cap town_150m ON: the tree shadow bottom-left is clipped to a notch).
-- The pool itself still overflows with trees on (191: 23 k refusals). Pits are gone, but refused chunks draw at shell 1's 0.2 m until a slot frees.
-- No timing (rule 10). The new block runs a ≤20-cell column walk per tier-0 hit, only while chunks are refused. A performance milestone should see it.
+## Noticed, NOT changed
+1. The first `-ores 0` launch drew NO badlands wall at all (open sea where a 50 m rock face stands; settle frame 137 vs 191 ms = less
+   drawn; refused 0). Same pose relaunched: the wall is there. Generation is proven the same (test above), so this is a streaming/draw
+   miss in one launch -- likely the same family as 194b's note (194's pits fix looks incomplete, 1 of 3 launches).
+   Image: `Screenshots/195/badlands_wall_ores0_BROKEN_first_launch.png` (whole frame: sea + far hills; the wall should fill the left 3/4).
 
-## Next step
-191's question can now move on: trees / towns ON no longer hinge on the pits. Optional: re-shoot 191's pit poses in play.
+## Next
+Queue: 195a (trees + towns ON by default), then 196.
 
 ## For the doc
-- Cause: refused near-pool chunk = air in tier 0 over drawn rock → 12.8 m box pit. Shell 1 stores 100 % of the refused chunks seen (`Screenshots/194/refused_v2_*.txt`).
-- Seed 7 small pool, town_150m: on-screen box pits **many → 0**, refused **85 → 85** (unchanged); 7.35 % of pixels change (`Screenshots/194/diff194.txt`).
-- Seed 42 forest (default pool): the box wall behind the trees **→ gone**; refused 40 OFF / 15 ON (streaming between arms).
-- Tests: RefusedHandOverTests 7/7; fast suite PASS 1000 FAIL 0 SKIP 20.
-- Images:
-  - `Screenshots/194/seed7cap_town_150m_before.png` vs `..._after.png`: the foreground between the camera and the desert town. BEFORE has a band of sunken rectangular boxes with straight pink-brown walls and pale floors. AFTER is flat unbroken sand. Same pose, same refused chunks.
-  - `Screenshots/194/seed42_forest_before.png` vs `..._after.png`: the centre behind the dark trunks (x≈960-1000, y≈500-590). BEFORE shows a yellow-brown vertical box wall and a brown patch at left (x≈520, y≈580). AFTER shows trees and grass there.
-  - `Screenshots/194/seed42_town_eye_after_v1_REJECTED.png` vs `seed42_town_eye_after_v2.png`: the left half. v1 lost the houses and treeline (a bare far-band hill shows); v2 keeps them. Why the fix is limited to refused columns.
+- Rule ores: OFF -> ON by default (`-ores 0` gives back the old world exactly). Whole suite PASS 1077 FAIL 0 SKIP 28 (`Logs/overnight/195/all2.out`).
+- Memory at the last pose: 2318 -> 2365 MB (+47 MB; the ore plane itself is 4 MB), cap 3,000 MB (`Screenshots/195/lookreview_*.txt`).
+- Rough generation cost: shell chunk 85-91 -> 114-129 ms each on a worker (+30-40 %, cold launches, not a timing measurement).
+- `Screenshots/195/sheet_badlands_wall.jpg` -- left new default, right `-ores 0`, same frame: the yellow streaks (top right, middle) and the two
+  green lenses (left of centre, bottom centre) on the rock face are the new rule-ore veins/deposits; the right panel has none. The orange
+  streak at the bottom left is in both (old placement).
+- `Screenshots/195/sheet_tall_cliff.jpg` -- left default: ~10 small green lenses and two orange specks scattered across the grey wall around
+  the dark slot; right `-ores 0`: plain wall. (The slot's black interior is unlit shade, same in both.)
+- `Screenshots/195/sheet_deep_canyon.jpg` -- red canyon walls: left has a few small yellow-green flecks in the upper-left wall; right none. Subtle.
