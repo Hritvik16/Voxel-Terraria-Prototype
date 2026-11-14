@@ -39,8 +39,12 @@ public class MaterialRuleChunkTests
     private static readonly string ShotDir = Path.Combine("Screenshots", "180b");
     private static readonly string[] BIOME = { "forest", "desert", "snow", "jungle", "savanna", "badlands" };
 
+    /// Trees OFF (task 195a, trees are the chunk source's default now): a tree's density
+    /// reads the column's cover slot, which the rules set (GroundRules, "trees read the
+    /// Cover slot"), so rules ON vs OFF legitimately moves trees -- i.e. AIR. These proofs
+    /// are about the rules' terrain; towns stay at the default (they do not read the rules).
     [OneTimeSetUp]
-    public void BuildOnce() { if (_src == null) { _src = new TerrainGenChunkSource(42u); _src.SetMatRules(true); } }
+    public void BuildOnce() { if (_src == null) { _src = new TerrainGenChunkSource(42u); _src.SetMatRules(true); _src.SetTrees(false); } }
 
     [OneTimeTearDown]
     public void TearDown() { _src?.Dispose(); _src = null; }

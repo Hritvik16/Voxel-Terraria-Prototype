@@ -1520,3 +1520,17 @@ ColumnJob (it failed `AirFastPath_IsExact` at surface - 3 without it); `BrickSki
 `_Ores` twins became `_OresOff` (`-ores 0`, reports `brick_skip_*identical_oresoff.txt`), restoring the source's previous value.
 Shots: `Logs/overnight/195_shots.sh` (181's three wall poses, `-tod 12`, default vs `-ores 0`), `Screenshots/195/sheet_*.jpg`.
 Rough cost from that launch (not a timing arm): shell chunk generation 114-129 ms vs 85-91 ms per chunk on a worker. Result: HANDOFF 195.
+
+**Task 195a -- trees and towns are the DEFAULT (owner 2026-11-13, Q-X (a) "trees and towns ON once 192, 193 and 194 are done").**
+`TerrainGenChunkSource.TreesArg` and `TownsArg` now default to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that
+build one) places task 180/192's voxel trees and task 190's towns; `TownsArg` is also what FarField's own map reads, so the far band draws
+the flattened town pads by default. Towns need the site planner: `-towns` already forces `spec.sitesOn = 1` (constructor and FarField), so
+`-sites` keeps its OFF default (records only) and needs no flip. `-trees 0 -towns 0` = the pre-195a world byte for byte (`spec.treesOn`,
+`townsOn`, `sitesOn` stay 0 -- the same code path as before; add nothing else). As 195, the `TerrainSpec` fields are NOT flipped: a bare spec
+stays OFF (trees need the source's tree plane, towns its town plane). Player log: `[StreamManager] tg2 chunk source: ... trees ON (default),
+towns ON (default), sites ON` / `OFF (-trees 0)`. No F6 / PlaySettings entry exists for either; no identity/hash rig uses the tg2 world, so
+no rig needed the `0` flags. One test fixture did: `MaterialRuleChunkTests` (180b's "the rules repaint solids only, air/fluid unchanged ON vs
+OFF") now pins trees OFF -- a tree's density reads the column's cover slot, which the material rules set (`GroundRules`, "trees read the
+Cover slot"), so rules ON vs OFF legitimately moves trees, i.e. air (whole-suite run 1: 2 failures there, nothing else). Towns stay ON in it.
+Shots: `Logs/overnight/195a_shots.sh` (191's forest + snow + town_eye + village_eye, seed 42, `-tod 12`, default vs `-trees 0 -towns 0`),
+`Screenshots/195a/`. Result: HANDOFF 195a.

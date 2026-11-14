@@ -123,8 +123,9 @@ namespace TerrainGen
         public byte riverShapeOff;
         /// Task 180 (placement, first test): 1 = generated voxel trees (Trees.cs),
         /// OPT-IN: 0 (the default) = none. Needs a world record (v4) and a MapView
-        /// carrying the tree plane. Read it through Trees, never directly. `-trees 1`
-        /// sets it. Columns only: the map, the record and the far band ignore it.
+        /// carrying the tree plane. Read it through Trees, never directly. The engine's
+        /// chunk source sets it unless `-trees 0` (task 195a); a bare spec stays 0.
+        /// Columns only: the map, the record and the far band ignore it.
         /// Task 188 (TESTS ONLY, no flag): 2 + b = the ADVERSARIAL cover -- every
         /// tree cell that passes the physical rules (land, dry, no stamp / ledge,
         /// foot, clearance) gets a biome-b tree, density and the plane ignored.
@@ -195,7 +196,8 @@ namespace TerrainGen
         /// Task 190 (placement, flag-off): 1 = TOWNS ON THE SITES (Towns.cs): the
         /// site discs flattened to their pad (ring blended back) and BuildingKit's
         /// huts / houses / halls laid out on them. Needs the site planner (sitesOn;
-        /// `-towns 1` sets both). 0 (the default) = every byte as before. The map
+        /// the engine's chunk source and far band set both unless `-towns 0`, task 195a;
+        /// a bare spec stays 0). 0 = every byte as before. The map
         /// and the record's cells ignore it (the plane is derived, WorldMap.EnsureTowns).
         /// Read it through Towns, never directly.
         public byte townsOn;

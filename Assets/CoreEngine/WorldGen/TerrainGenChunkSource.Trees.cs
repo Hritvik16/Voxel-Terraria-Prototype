@@ -1,6 +1,7 @@
 // Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees.cs
 //
-// Task 180 (placement, first test, `-trees 1`; default OFF): GENERATED VOXEL
+// Task 180 (placement, first test; `-trees`, default ON since task 195a, owner
+// 2026-11-13 Q-X (a); `-trees 0` = no trees, byte for byte): GENERATED VOXEL
 // TREES in the chunk pass. TerrainGen.Trees decides every tree from its 6.4 m
 // tree cell (header there); this file plumbs it through the engine's generators
 // so LOD 0, the shells and the point query give the same voxel:
@@ -32,12 +33,14 @@ namespace VoxelEngine.WorldGen
 
         internal NativeArray<byte> PointTreePlane => _treePlane;
 
-        /// -trees 1 (task 180): spec.treesOn = 1, generated voxel trees. Absent or 0 =
-        /// none (the default). Last match wins.
+        /// -trees 0 (task 180; default flipped by task 195a): spec.treesOn stays 0, no
+        /// trees, byte for byte. Absent or 1 = spec.treesOn = 1, generated voxel trees
+        /// (the default). Last match wins. Only this chunk source sets it: a bare
+        /// TerrainSpec stays 0 (the trees need the tree plane this source builds).
         public static bool TreesArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-trees" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;

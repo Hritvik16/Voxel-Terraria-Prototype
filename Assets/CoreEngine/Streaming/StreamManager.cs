@@ -567,7 +567,8 @@ namespace VoxelEngine.Streaming
                 _tgSource = new TerrainGenChunkSource(meta.seed);
                 Debug.Log($"[StreamManager] tg2 chunk source: map v{_tgSource.Spec.mapVersion}, material rules {(_tgSource.Spec.MatRules ? "ON (default)" : "OFF (-matrules 0)")}, stamp fit {(_tgSource.Spec.StampFit ? "ON (default)" : "OFF (-stampfit 0)")}, material variant spray {(_tgSource.Spec.MatVariant ? "ON (-matvariant 1)" : "OFF (default)")}, " +
                           $"landform signatures {(_tgSource.Spec.LandSig ? $"ON (default; plane {(_tgSource.Map.LandSigPlane?.Length ?? 0) / 1024} KB in {_tgSource.Map.LandSigBuildMs:F0} ms)" : "OFF (-landsig 0)")}, " +
-                          $"rule ores {(_tgSource.Spec.Ores2 ? $"ON (default; plane {_tgSource.OreCellPlane.Length * 4 / 1024} KB)" : "OFF (-ores 0)")}");   // task 186 / 187a / 190a / 190b / 195
+                          $"rule ores {(_tgSource.Spec.Ores2 ? $"ON (default; plane {_tgSource.OreCellPlane.Length * 4 / 1024} KB)" : "OFF (-ores 0)")}, " +
+                          $"trees {(_tgSource.Spec.Trees ? "ON (default)" : "OFF (-trees 0)")}, towns {(_tgSource.Spec.Towns ? "ON (default)" : "OFF (-towns 0)")}, sites {(_tgSource.Spec.Sites ? "ON" : "OFF")}");   // task 186 / 187a / 190a / 190b / 195 / 195a
             }
 
             _windowDims = store.WindowDims;

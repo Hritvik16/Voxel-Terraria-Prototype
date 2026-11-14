@@ -1,6 +1,8 @@
 // Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Towns.cs
 //
-// Task 190 (`-towns 1`, default OFF): TOWNS ON THE SITES in the chunk pass.
+// Task 190 (`-towns`, default ON since task 195a, owner 2026-11-13 Q-X (a);
+// `-towns 0` = no towns and, unless `-sites 1`, no site records, byte for byte):
+// TOWNS ON THE SITES in the chunk pass.
 // TerrainGen.Towns holds the rules (header there); this file plumbs its plane
 // through the engine's generators so LOD 0, the shells and the point query
 // give the same voxel:
@@ -28,13 +30,16 @@ namespace VoxelEngine.WorldGen
 
         internal NativeArray<int> PointTown => _town;
 
-        /// -towns 1 (task 190): spec.townsOn = 1 AND spec.sitesOn = 1 -- the site
-        /// discs flattened and the building kit placed on them. Absent or 0 = none
-        /// (the default). Last match wins.
+        /// -towns 0 (task 190; default flipped by task 195a): spec.townsOn stays 0 (and
+        /// spec.sitesOn stays 0 unless -sites 1), no towns, byte for byte. Absent or
+        /// 1 = spec.townsOn = 1 AND spec.sitesOn = 1 -- the site discs flattened and
+        /// the building kit placed on them (the default). Last match wins. Read by this
+        /// chunk source and FarField's own map (the flattened heights); a bare
+        /// TerrainSpec stays 0.
         public static bool TownsArg()
         {
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-towns" && int.TryParse(a[i + 1], out int p)) on = p != 0;
             return on;
