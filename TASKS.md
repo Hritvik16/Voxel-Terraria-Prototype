@@ -1653,3 +1653,11 @@ sealed; switch off / off mid-run). Ledger `[mem]` line now prints `in use N, sea
 lines per survey pose), survey arm suffix `_gs0` (seal OFF for that shot: every box chunk restaged, then back) and `-gpusealcmp 1` (shells,
 far band and river time held during a pose's arms, for identity stills). Scripts `Logs/overnight/201a_{account,after}.sh`,
 `201a_table.py`, `201a_diff.py`; table `Screenshots/201a/table201a.txt`. Result: HANDOFF 201a.
+
+**Task 202 (plan only, owner 2026-11-13 G1 (a); no code, no launch, no tests): the GAME-DESIGN DOC, DRAFT.** Claude Doc "Game design"
+(https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8, the live version; the owner answers there) + repo snapshot `GAME_DESIGN.md`. Pitch from
+the owner's words; nine areas (world and travel, settlements, resources, building, survival, combat and skills, creatures, progression, core loop)
+with every row tagged Decided / Leaning / Open + source and date (brief, design round 2026-10-15, placement batch P1-P6 of 6 Nov, 13 Nov talks
+V1-V4 / T1-T4 / W1); the placement-phase checklist (resources -> towns -> lairs, flora alongside) and the before-characters checklist; questions
+A1-A6 (placement: core loop, cities, humanoid design tool, what trees give, town safety, own-settlement residents) and B1-B6 (classic death, hunger,
+night, how moves are learned, fast travel, companions), recommendation first.
