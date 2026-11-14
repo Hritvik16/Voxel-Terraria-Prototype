@@ -43,3 +43,7 @@ chunks still queued / generating / not yet uploaded (the capture uses a short fi
 columns at the shot and again a few seconds later. If it is just late loading, say so plainly. Then the question becomes
 why the gap shows as open sea or a pit instead of the coarser level's terrain, and whether that hand-over can be fixed;
 a capture that waits longer is NOT a fix.
+
+## Note from 195a (supervisor, 2026-11-13)
+Trees + towns are ON by default since 195a (`303f564`): the near GPU body pool is now FULL at every pose (forest 10,032 refused,
+village 22,105; `Screenshots/195a/lookreview_default.txt`). Reproduce on the NEW default world, not with `-trees 0 -towns 0`.
