@@ -36,3 +36,10 @@ proven identical (OreRuleTests), so this is a streaming/draw miss in one launch.
 `Screenshots/195/badlands_wall_ores0_BROKEN_first_launch.png`, logs `Logs/overnight/195_shots.sh`, `look_*.out`, `player_*.log`.
 Check whether it shares the cause with the pits (a column treated as resident/air in tier 0 without its body); if it is a
 different cause, fix the pits first and report the wall case in HANDOFF with what you found.
+
+## Owner note (2026-11-13, chat)
+"Might just be terrain not loading properly or on time." Test that FIRST for both cases: at the shot, were the missing
+chunks still queued / generating / not yet uploaded (the capture uses a short fixed wait)? Log the streaming state of those
+columns at the shot and again a few seconds later. If it is just late loading, say so plainly. Then the question becomes
+why the gap shows as open sea or a pit instead of the coarser level's terrain, and whether that hand-over can be fixed;
+a capture that waits longer is NOT a fix.
