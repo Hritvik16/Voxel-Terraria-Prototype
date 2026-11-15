@@ -1695,3 +1695,15 @@ call (`fixed_cliff` identical to 198's pre-change frame; others within launch-to
 (suffix `_dfN`); `-dashprobe 1` now also counts later arms (`DashCount`) against the first arm's predicted pixels and splits predictions ABOVE / below the
 bracket. The world survey disables `PlaygroundFlyCamera` (a click on the window turned the camera; KNOWN_ISSUES). Tests `DashFixTests` (2). Drivers
 `Logs/overnight/205/shoot1-4.sh`; pictures `Screenshots/205/viewer.html`. Result: HANDOFF 205.
+
+**Task 206 (bug from 198, 2026-11-14): debug views, the debug pixel and the torch-flood kernel load in a player again; a kernel that does not load is LOUD.**
+Three kernels failed Metal's compile at their first dispatch in a player and silently kept the last image (KNOWN_ISSUES): `CSMainFarShade` (bool select from
+SkyHistFetch's early return) and the flood twins `CSMainFarShadeFlood` / `CSMainFlood` (the same, plus 33 Metal buffer slots, cap 31, since task 193). Fix in
+`Raymarch.compute`: `HEIGHT_MIP_READ` = read-only `HeightMipRO` outside diet 2 (RaymarchFeature binds the same buffer to it; 9 -> 8 UAVs), SkyHistFetch's
+probes walked backwards outside diet 2 (same first match), `_UseLODCascade` folded to 0 in the flood twins (macro after diet 2's pair) and RaymarchFeature
+picks a flood twin only while the cascade is off. Diet-2 play kernels: Metal source byte-identical (17 of 21 kernels identical, `Screenshots/206/msl206.txt`).
+`KernelHealth` (Assets/CoreEngine/Rendering): IsSupported per kernel + a GPU heartbeat (DebugBuffer[0..2] = NaN before an unverified non-diet kernel's dispatch,
+read back at the next record; NaN = it never ran; 2 good reads = verified, then no per-frame work) -> one `[kernels] FAILED` error, the blit pass clears to
+MAGENTA, `RaymarchFeature.KernelFailFrames / KernelFailedLastFrame / PrimaryKernelLastFrame`. World survey arm suffixes `_tf1` (torch flood on for the shot),
+`_dvN` (debug view N), `_px` (debug pixel, view 0); `_dvN`/`_px` print `[dbgpx]` (put them LAST: the pixel keeps diet 2 off), every arm prints `[kernel]`, the
+survey ends with `KernelHealth.Summary()`. Tests `KernelHealthTests` (10). Driver `Logs/overnight/206/shoot.sh`; pictures `Screenshots/206/`. Result: HANDOFF 206.

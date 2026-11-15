@@ -198,6 +198,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Primary raymarch dispatches executed so far (task 47's smoke checks
     /// that every path really traces a new image every frame).
     public static int PrimaryDispatchCount;
+    /// Task 206: frames whose primary / pre-pass / sun-defer kernel did not load (VoxelEngine.Rendering.KernelHealth):
+    /// they are painted magenta and logged once per kernel. KernelFailedLastFrame names the kernel (null = it loaded);
+    /// PrimaryKernelLastFrame names the primary kernel the last frame dispatched.
+    public static int KernelFailFrames;
+    public static string KernelFailedLastFrame;
+    public static string PrimaryKernelLastFrame;
+    private static readonly float[] s_debugNaN = { float.NaN, float.NaN, float.NaN };
 
     /// Stage F's branch-engagement counters. Off by default: the per-pixel
     /// InterlockedAdd that fills them is expensive and would contaminate any
@@ -781,6 +788,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int uniformFaceHue;
             public Vector2Int debugPixel;
             public int debugMode;
+            public bool debugNaN;   // task 206: DebugOut[0..2] = NaN before the dispatch (a kernel that did not run reads NaN)
             public int traversalMode;
             public int useDevColors;
             public int shadeAO, shadeHemi, shadeFog;
@@ -890,7 +898,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int useLODCascade;
         }
 
-        class BlitPassData { public TextureHandle source; }
+        class BlitPassData { public TextureHandle source; public bool kernelFailed; }
+        private bool _kernelFailedThisFrame;   // task 206: set while recording the compute pass, read by the blit pass
+        private ComputeShader _hbShader; private int _hbKernel = -1;   // task 206: the last record's heartbeat dispatch
+
+        /// Task 206: the previous record's heartbeat, read back now (ComputeCommandBuffer has no async readback; that
+        /// frame's commands were submitted by now, as CollectRoofVerify does).
+        private void CollectHeartbeat()
+        {
+            if (_hbShader == null || DebugBuffer == null) return;
+            ComputeShader cs = _hbShader; int k = _hbKernel;
+            _hbShader = null; _hbKernel = -1;
+            AsyncGPUReadback.Request(DebugBuffer, sizeof(float), 0, r =>
+            {
+                if (!r.hasError) VoxelEngine.Rendering.KernelHealth.Report(cs, k, r.GetData<float>()[0]);
+            });
+        }
 
         public RaymarchPass(ComputeShader compute, ComputeShader computeStripped, ComputeShader computeMemoryProbe)
         {
@@ -908,6 +931,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
+            _kernelFailedThisFrame = false;   // task 206
+            CollectHeartbeat();
             bool useMemoryProbe = RaymarchFeature.UseMemoryProbeKernel && _computeMemoryProbe != null;
             bool useStripped = !useMemoryProbe && RaymarchFeature.UseStrippedKernel && _computeStripped != null;
             ComputeShader activeCompute = useMemoryProbe ? _computeMemoryProbe : (useStripped ? _computeStripped : _compute);
@@ -1389,7 +1414,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // (same code plus the flood on tier-0 hits). Checker, detail and *Diag keep theirs.
                 passData.floodOn = false;
                 bool floodFarTwin = false;
-                if (VoxelEngine.Rendering.TorchFloodPool.Ready && !useStripped && !useMemoryProbe)
+                // Task 206: the flood twins fold the tier cascade off (Raymarch.compute: 33 -> 29 Metal buffer slots, cap 31),
+                // so they draw only while it is off -- always while the shells draw (play). Cascade on: analytic torches.
+                bool cascadeThisFrame = UseLODCascade && LODCascadeManager.Active != null && !shellsOn;
+                if (VoxelEngine.Rendering.TorchFloodPool.Ready && !useStripped && !useMemoryProbe && !cascadeThisFrame)
                 {
                     string twin = null;
                     if (passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFlood")) twin = "CSMainFlood";
@@ -1464,6 +1492,29 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         passData.kSunDefer = activeCompute.FindKernel("CSSunDeferLean");
                         passData.sunDeferB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchSunDeferB", false);
                     }
+                }
+                // Task 206: a kernel that did not load at run time is LOUD (KernelHealth): one error per kernel,
+                // the frame painted magenta by the blit pass, DebugBuffer's ray slots NaN.
+                {
+                    string failed = null;
+                    if (VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kPrimary))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary) ?? "#" + passData.kPrimary;
+                    else if (passData.kShellPrepass >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kShellPrepass))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kShellPrepass) ?? "#" + passData.kShellPrepass;
+                    else if (passData.kSunDefer >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSunDefer))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunDefer) ?? "#" + passData.kSunDefer;
+                    KernelFailedLastFrame = failed;
+                    PrimaryKernelLastFrame = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary);
+                    _kernelFailedThisFrame = failed != null;
+                    if (failed != null) KernelFailFrames++;
+                    // The heartbeat (KernelHealth): a kernel that writes DebugOut (everything outside diet 2) and is not yet
+                    // verified gets DebugOut[0..2] = NaN before its dispatch; the next record reads slot 0 back.
+                    bool writesDebug = !diet2 && !useStripped && !useMemoryProbe && !passData.primaryChecker;
+                    bool heartbeat = writesDebug && failed == null
+                        && VoxelEngine.Rendering.KernelHealth.NeedsHeartbeat(activeCompute, passData.kPrimary)
+                        && VoxelEngine.Rendering.KernelHealth.PixelInside(DebugPixel, dispatchW, dispatchH);
+                    passData.debugNaN = writesDebug && (DebugPixelRequested || heartbeat);
+                    if (heartbeat) { _hbShader = activeCompute; _hbKernel = passData.kPrimary; }
                 }
                 Diet2DrawnLastFrame = diet2;
                 Diet2RoofDrawnLastFrame = diet2 && diet2Roof;
@@ -1592,6 +1643,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     if (!data.useStripped && !data.useMemoryProbe)
                     {
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "DebugOut", data.debugBuffer);
+                        if (data.debugNaN) cmd.SetBufferData(data.debugBuffer, s_debugNaN, 0, 0, 3);   // task 206
                         cmd.SetComputeIntParams(data.compute, "_DebugPixel",
                             new int[] { data.debugPixel.x, data.debugPixel.y });
                         cmd.SetComputeIntParams(data.compute, "_DebugModePacked",
@@ -1693,6 +1745,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);
+                        // Task 206: every kernel outside diet 2 reads the pyramid through the read-only alias (8 UAVs, Metal's cap).
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMipRO", data.heightMip);
                         if (data.roofSkip != 0 && data.roofPlan.mode == 2)   // task 168: only the dirty ring columns
                         {
                             cmd.BeginSample("VE.Raymarch.HeightMip");
@@ -1924,6 +1978,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
             {
                 blitData.source = blitSource;
+                blitData.kernelFailed = _kernelFailedThisFrame;
                 builder.UseTexture(blitSource, AccessFlags.Read);
                 builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
                 builder.AllowPassCulling(false);
@@ -1933,7 +1988,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     // 1.125x scale, and point sampling doubles every 8th row
                     // and column -- a fixed grid that beats against the
                     // terrain's own patterns (moire). Bilinear spreads it out.
-                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, true);
+                    // Task 206: a frame whose kernel did not load is MAGENTA, never the stale last image.
+                    if (data.kernelFailed) context.cmd.ClearRenderTarget(false, true, Color.magenta);
+                    else Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, true);
                 });
             }
         }

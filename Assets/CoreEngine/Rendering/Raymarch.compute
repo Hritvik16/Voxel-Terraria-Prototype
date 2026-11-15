@@ -187,6 +187,15 @@ static const int _UseLODCascade = 0;   // task 161: folded (see the VE_DIET2 pra
 #else
 int _UseLODCascade;
 #endif
+#if defined(VE_TORCH_FLOOD) && !defined(VE_DIET2)
+// TASK 206: folded in the torch-flood twins too. With the flood's three pool buffers, task 193's sky-fill
+// history (SkyHistR + SkyHistW) took CSMainFarShadeFlood and CSMainFlood to 33 Metal buffer slots, and
+// Metal's argument table holds 31 (indices 0-30): "'buffer' attribute parameter is out of bounds" at run
+// time, the kernel never loaded, and play with the flood on (task 175's default) kept a stale image in a
+// player. Without the tier 1-2 march the four tier buffers drop out (29 slots). RaymarchFeature draws a
+// flood twin only while the cascade is off -- always, while the shells draw (play) -- so this is exact.
+#define _UseLODCascade 0
+#endif
 
 // --- AIR-MIP: legacy four-buffer form (modes 0-4) ---
 StructuredBuffer<uint> AirMip1;
@@ -1344,6 +1353,19 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 // ===========================================================================
 #define HEIGHT_LEVELS 6
 RWStructuredBuffer<uint> HeightMip;
+// TASK 206 (bug from 198): the raymarch kernels only READ the pyramid, but a read through this RW
+// declaration still takes a UAV slot, and CSMainFarShade / CSMain / the *Diag twins carried 9 UAVs
+// (ResultTexture, DebugOut, ShadowStats or ShellPre, ShadowHistW, TaaCur, TaaMetaW, TaaDynW, HeightMip,
+// SkyHistW) -- Metal's limit here is 8, so in a PLAYER those kernels failed to load ("more uavs (9) than
+// the maximum supported (8)") and every debug view drew nothing. Every kernel outside diet 2 reads it
+// through this read-only alias (RaymarchFeature binds the same buffer to both names on the primary
+// kernel); the diet-2 play kernels (no DebugOut: 8 UAVs) keep the RW read, so their code is unchanged.
+#ifdef VE_DIET2
+#define HEIGHT_MIP_READ HeightMip
+#else
+StructuredBuffer<uint> HeightMipRO;
+#define HEIGHT_MIP_READ HeightMipRO
+#endif
 #ifdef VE_DIET2
 #ifdef VE_DIET2_ROOF
 static const int _ShadowRoofSkip = 1;   // task 168: CSMainFarShadeLeanRoof, the diet-2 kernel with the roof skip ON
@@ -1375,7 +1397,7 @@ uint ReadHeight(int L, int bx, int bz)
     int nz = (int)_WindowDimsBricksPacked.z >> L;
     int cx = (bx >> L) & (nx - 1);
     int cz = (bz >> L) & (nz - 1);
-    return HeightMip[HeightOffset(L) + cx + cz * nx];
+    return HEIGHT_MIP_READ[HeightOffset(L) + cx + cz * nx];
 }
 
 // ---- AO helpers live HERE, below ReadClipmap, because they call it.
@@ -4225,6 +4247,7 @@ uint2 SkyHistFetch(uint key, float3 hpVox, uint width, uint height)
     int2 p0 = int2(floor(ppf));
     int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
     int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+#ifdef VE_DIET2
     [unroll]
     for (int q = 0; q < 4; q++)
     {
@@ -4236,6 +4259,24 @@ uint2 SkyHistFetch(uint key, float3 hpVox, uint width, uint height)
         }
     }
     return none;
+#else
+    // TASK 206: the same answer (the FIRST probe, in order, whose key matches) without a return inside
+    // the unrolled loop. In the non-diet kernels HLSLcc turned that early return into a select of a bool
+    // reinterpreted as float (`as_type<float>(bool)`), which Metal rejects at run time, so CSMainFarShade
+    // failed to load in a player. Walking the probes BACKWARDS and keeping the last match = the first one.
+    uint2 found = none;
+    [unroll]
+    for (int q = 3; q >= 0; q--)
+    {
+        int2 pp = probes[q];
+        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+        {
+            uint2 hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.y == key) found = hv;
+        }
+    }
+    return found;
+#endif
 }
 
 // One half's running mean (SkyFillReference.Fold): 12-bit value, 4-bit count (samples so far, capped 15).

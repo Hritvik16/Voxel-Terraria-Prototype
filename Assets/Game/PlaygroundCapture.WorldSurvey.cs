@@ -390,6 +390,9 @@ public partial class PlaygroundCapture
             {   // task 193; task 205: also without "_dfN" (ApplyCompareArm read "native_df1"'s "df1" as rows and the survey died)
                 string a0 = arms[arms.Length - 1];
                 int dfi = a0.LastIndexOf("_df"); if (dfi >= 0) a0 = a0.Substring(0, dfi);
+                if (a0.EndsWith("_tf1")) a0 = a0.Substring(0, a0.Length - 4);                  // task 206
+                int dvi = a0.LastIndexOf("_dv"); if (dvi >= 0) a0 = a0.Substring(0, dvi);
+                if (a0.EndsWith("_px")) a0 = a0.Substring(0, a0.Length - 3);
                 int sfi = a0.LastIndexOf("_sf"); ApplyCompareArm(sfi >= 0 ? a0.Substring(0, sfi) : a0);
             }
             cam.ResetProjectionMatrix();
@@ -448,6 +451,16 @@ public partial class PlaygroundCapture
                 int df0 = RaymarchFeature.DashFix;
                 int dfAt = baseArm.LastIndexOf("_df");
                 if (dfAt >= 0 && int.TryParse(baseArm.Substring(dfAt + 3), out int dfv)) { RaymarchFeature.DashFix = RaymarchFeature.ValidDashFix(dfv); baseArm = baseArm.Substring(0, dfAt); }
+                // Task 206: "_tf1" = the torch flood ON for that shot (its far-shading twin, CSMainFarShadeFlood, draws once the
+                // pool is ready); "_dvN" = debug view N; "_px" = the debug pixel at the frame centre (debug view 0). _dvN / _px
+                // read the debug pixel after the shot. The pixel keeps diet 2 off for the rest of the run: put them LAST.
+                bool tf0 = VoxelEngine.Rendering.TorchFloodPool.Enabled, tfArm = false;
+                if (baseArm.EndsWith("_tf1")) { tfArm = true; VoxelEngine.Rendering.TorchFloodPool.SetEnabled(true); baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                int dvMode = -1;
+                int dvAt = baseArm.LastIndexOf("_dv");
+                if (dvAt >= 0 && int.TryParse(baseArm.Substring(dvAt + 3), out int dvv)) { dvMode = dvv; baseArm = baseArm.Substring(0, dvAt); }
+                bool pxArm = baseArm.EndsWith("_px");
+                if (pxArm) { dvMode = 0; baseArm = baseArm.Substring(0, baseArm.Length - 3); }
                 int sfAt = baseArm.LastIndexOf("_sf");
                 int sf0 = RaymarchFeature.SkyFill;
                 if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
@@ -455,6 +468,13 @@ public partial class PlaygroundCapture
                 ApplyCompareArm(baseArm);
                 cam.ResetProjectionMatrix();
                 cam.transform.SetPositionAndRotation(p.eye, rot);
+                if (dvMode >= 0)
+                {
+                    var res = RaymarchFeature.LastDispatchResolution;
+                    RaymarchFeature.DebugPixel = new Vector2Int(Mathf.Max(0, res.x / 2), Mathf.Max(0, res.y / 2));
+                    RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)dvMode;
+                    RaymarchFeature.UseDebugViewOverride = dvMode != 0;
+                }
                 // The 60 settle frames (the sky-fill history needs 16+), timed: a ROUGH cost per arm, not a rig.
                 var ft = new List<float>(60);
                 for (int f = 0; f < 60; f++) { yield return null; ft.Add(Time.unscaledDeltaTime * 1000f); }
@@ -473,6 +493,22 @@ public partial class PlaygroundCapture
                     CaptureNow($"ws_{p.name}_{arm}");
                 }
                 else yield return CaptureTo($"ws_{p.name}_{arm}");
+                // Task 206: which kernel drew the shot, did it load, and the debug pixel (NaN = the kernel did not run).
+                L($"  [kernel] {p.name} {arm}: primary {RaymarchFeature.PrimaryKernelLastFrame ?? "?"}, " +
+                  $"{(RaymarchFeature.KernelFailedLastFrame == null ? "loaded" : "FAILED " + RaymarchFeature.KernelFailedLastFrame)}, " +
+                  $"failed frames so far {RaymarchFeature.KernelFailFrames}, flood ready {VoxelEngine.Rendering.TorchFloodPool.Ready}");
+                if (dvMode >= 0 && RaymarchFeature.DebugBuffer != null)
+                {
+                    var d = new float[32];
+                    RaymarchFeature.DebugBuffer.GetData(d, 0, 0, 32);
+                    var px = RaymarchFeature.DebugPixel;
+                    L($"  [dbgpx] {p.name} {arm} view {dvMode} px ({px.x},{px.y}) of {RaymarchFeature.LastDispatchResolution}: " +
+                      $"dir ({d[0]:F4},{d[1]:F4},{d[2]:F4}) steps {d[7]:F0} iters {d[8]:F0} mode {d[11]:F0} maxDist {d[16]:F0} tier {d[17]:F0} " +
+                      $"dist {d[19]:F1} end voxel ({d[21]:F0},{d[22]:F0},{d[23]:F0})" +
+                      (float.IsNaN(d[0]) ? "  <- NaN: the kernel did NOT write the debug pixel" : ""));
+                }
+                if (dvMode >= 0) RaymarchFeature.UseDebugViewOverride = false;
+                if (tfArm) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(tf0);
                 // Task 198 (diagnostic): CPU oracle (generator shell cells) at the 1-px light lines.
                 if (ArgInt("-dashprobe", 0) == 1 && arm == poseArms[0]) yield return DashProbe(cam, sh, p.name);
                 else if (ArgInt("-dashprobe", 0) == 1) yield return DashCount(p.name, arm);   // task 205: later arms count only
@@ -494,6 +530,7 @@ public partial class PlaygroundCapture
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");
             L($"  {p.name}: yaw {rot.eulerAngles.y:F0} pitch {-pitch:F0} deg, distance {Vector3.Distance(p.eye, p.at):F0} m, {Time.realtimeSinceStartup - t0:F0} s");
         }
+        L(VoxelEngine.Rendering.KernelHealth.Summary());   // task 206
         Phase4Bootstrapper.DebugStreamCentre = null;
     }
 

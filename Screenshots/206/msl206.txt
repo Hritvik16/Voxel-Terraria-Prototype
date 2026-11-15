@@ -1,0 +1,22 @@
+Task 206: Raymarch.compute Metal source per kernel, pre-task build (20:35-20:49) vs build B (fixed). Kernels matched by binding set.
+  IDENTICAL      1136 B  max buffer index  3  (24ae1ccb = pre 66b7deb6)
+  IDENTICAL      1999 B  max buffer index  2  (a8f07a1c = pre 8faa0d6a)
+  IDENTICAL      2716 B  max buffer index  1  (8b1a733b = pre 88a06cc5)
+  IDENTICAL      2853 B  max buffer index  1  (bc88972b = pre 1d2f85a8)
+  IDENTICAL      3151 B  max buffer index  2  (a67a21a3 = pre 4bcbc98e)
+  IDENTICAL      3474 B  max buffer index  1  (e63a97dc = pre bd03fad9)
+  IDENTICAL      3498 B  max buffer index  2  (e57e36f2 = pre 228c4fa9)
+  IDENTICAL      3752 B  max buffer index  2  (adef6a7a = pre feb73fe3)
+  IDENTICAL      4008 B  max buffer index  3  (ae948bc4 = pre 052764d4)
+  IDENTICAL      4141 B  max buffer index  2  (b5fc5f54 = pre 127943f5)
+  IDENTICAL     45811 B  max buffer index  5  (b21c7443 = pre 6dded253)
+  IDENTICAL     50301 B  max buffer index  6  (8e482cdd = pre 126c9466)
+  IDENTICAL     61836 B  max buffer index  5  (f1493d86 = pre 3d61f19b)
+  IDENTICAL     74092 B  max buffer index  5  (2ef7b1c6 = pre 7e3f566e)
+  IDENTICAL    736717 B  max buffer index 20  (4ef59b2f = pre 333ac98a)
+  IDENTICAL    862289 B  max buffer index 23  (46004ba2 = pre 1337ae07)
+  IDENTICAL    870030 B  max buffer index 24  (dd37ddf9 = pre b162966d)
+  CHANGED     1635680 B  max buffer index 29 (pre 29)  (a92a37b9; nearest pre 31dc5280), as_type<float>(bool): 0
+  CHANGED     1858418 B  max buffer index 29 (pre 29)  (fb30ae7a; nearest pre 52b59c76), as_type<float>(bool): 0
+  CHANGED     2155578 B  max buffer index 28 (pre -1)  (1d5ba9d2; nearest pre ?), as_type<float>(bool): 0
+  CHANGED     2404240 B  max buffer index 28 (pre -1)  (bafdb2d0; nearest pre ?), as_type<float>(bool): 0
