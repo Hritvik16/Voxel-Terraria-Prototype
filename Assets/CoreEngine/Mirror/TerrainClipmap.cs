@@ -437,8 +437,8 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         // Fluid terrain directory (task 93e, TerrainClipmap.FluidDir.cs): drop
         // stale entries, give newly wanted out-of-box chunks one (marked dirty).
         SyncFluidDir(store);
-        // Chunks a full GPU body pool refused (task 93f): back in once a slot was freed.
-        RetryGpuRefused(store);
+        // Chunks a full GPU body pool refused (task 93f): back in as far as the free slots reach (task 207).
+        RetryGpuRefused(store, cameraChunk);
 
         // Parked out-of-box chunks: back in the box and still resident -> dirty
         // again; evicted -> forget (the eviction marked it dirty itself).
@@ -581,7 +581,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             // unloaded chunk reads as air on the CPU too (see ChunkStore's
             // GetVoxel note), so the two mirrors agree.
             bool evicted = chunk == null;
-            if (evicted) _gpuRefused.Remove(chunkCoord);
+            if (evicted) ForgetRefused(chunkCoord);
 
             // THE LOST-UPDATE BUG (2026-09-25, -lodpop's validator: 57-94 clean
             // resident chunks wrong on the GPU, "LOST 83,138"). The dirty set is
@@ -615,7 +615,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             if (SealActive && !evicted && cpuPool != null) { _sealPool = cpuPool; nSealed = ComputeSealed(chunk, cpuPool); }
             ulong[] sealedMask = nSealed > 0 ? _sealScratch : null;
             if (!AcquireHolder(slot, chunk, sealedMask)) { refused = true; Refuse(chunkCoord); }
-            else if (!evicted) _gpuRefused.Remove(chunkCoord);
+            else if (!evicted) ForgetRefused(chunkCoord);
             bool air = evicted || refused;
             if (air) sealedMask = null;
             if (SealActive || _sealedOfSlot != null) SetSlotSealed(slot, air ? 0 : nSealed);   // OFF uploads clear a slot's old mask

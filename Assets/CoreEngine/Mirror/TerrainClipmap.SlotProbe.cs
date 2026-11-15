@@ -32,8 +32,8 @@ public partial class TerrainClipmap
     /// different chunk wrote it (owner != c) -- unless c is uniform air and the slot holds nothing (air
     /// drawn as air is right). This is every way a resident column shows air (a PIT) or another chunk:
     ///   refused by the full GPU pool (task 194's path; IsGpuRefused implies it),
-    ///   refused, then RETRIED (RetryGpuRefused clears the refused set at once, but the re-upload waits
-    ///     in the budgeted, nearest-first dirty queue -- 194b's jungle_high pits with 0 refused),
+    ///   refused, then RETRIED (the re-upload waits in the budgeted, nearest-first dirty queue -- 194b's
+    ///     jungle_high pits with 0 refused; since task 207 only chunks whose bodies fit are retried),
     ///   first upload still queued (a chunk generated after the box reached it).
     /// chunk == null (not resident, still streaming) -> false: that column stays tier 0's (task 194's
     /// rule; near the camera it lies in shell 1's hole). Read-only.

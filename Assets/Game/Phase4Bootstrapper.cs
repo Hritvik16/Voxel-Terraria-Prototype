@@ -355,6 +355,7 @@ public class Phase4Bootstrapper : MonoBehaviour
             gpuBrickCap = Math.Min(gpuBrickCap, _pool.Capacity);
         }
         TerrainClipmap.SealHiddenBricks = ArgInt("-gpuseal", 1) == 1;   // task 201a: sealed bricks take no GPU body (pool on only)
+        TerrainClipmap.RetryOnlyWhatFits = ArgInt("-retryfit", 1) == 1;   // task 207: 0 = the old retry (whole refused set per freed slot)
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
         if (gpuBrickCap > 0)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f; " +

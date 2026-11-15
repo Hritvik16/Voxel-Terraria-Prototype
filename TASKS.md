@@ -1707,3 +1707,16 @@ read back at the next record; NaN = it never ran; 2 good reads = verified, then 
 MAGENTA, `RaymarchFeature.KernelFailFrames / KernelFailedLastFrame / PrimaryKernelLastFrame`. World survey arm suffixes `_tf1` (torch flood on for the shot),
 `_dvN` (debug view N), `_px` (debug pixel, view 0); `_dvN`/`_px` print `[dbgpx]` (put them LAST: the pixel keeps diet 2 off), every arm prints `[kernel]`, the
 survey ends with `KernelHealth.Summary()`. Tests `KernelHealthTests` (10). Driver `Logs/overnight/206/shoot.sh`; pictures `Screenshots/206/`. Result: HANDOFF 206.
+
+**Task 207 (bug, default ON; owner Q-AB (a), fix 1 of 2): the GPU retry re-queues only refused chunks that fit.** `TerrainClipmap.RetryGpuRefused`
+(TerrainClipmap.GpuPool.cs) used to clear the WHOLE refused set as soon as one GPU body slot freed (task 197's "retry gap" churn). Now, at the
+start of every upload pass, it re-queues refused chunks nearest the camera first (Chebyshev XZ, ties by y/z/x). A chunk is re-queued, and leaves
+the refused set, only if the bodies it asked for when it was refused (its dense, non-sealed bricks, stored by `Refuse`) fit in free bodies minus
+those promised to earlier re-queued chunks still in the dirty queue (`_gpuRetryPending`, purged every pass). A chunk that does not fit stays refused
+(197's hand-over keeps drawing it), and a farther, smaller one may still go. Evicted refused chunks are forgotten. A refused chunk that has left the
+box is re-queued so that it parks. The sort only runs when free-minus-promised or the camera chunk changed. No pool size, layout, shader or
+eviction change. `-retryfit 0` = the old retry (launch-wide, Phase4Bootstrapper; `TerrainClipmap.RetryOnlyWhatFits`). New counters
+`GpuPoolRetriesTotal`, `GpuPoolReRefusedTotal` (a retried chunk refused again = the churn), `GpuPoolRetryPending`, printed on `-mirrorprobe 1`'s
+`[mirror] box` line. Tests `GpuRetryFitTests` (8: min(k, N) nearest first for k = 1/2/4/6, promises held across passes, a near chunk too big
+stays refused while a farther one goes, evicted ones are forgotten, `-retryfit 0` churn). Driver `Logs/overnight/207_pair.sh` (b1 ON / b2 OFF,
+197's poses); shots `Screenshots/207/{a1,b1,b2}/`. Result: HANDOFF 207.
