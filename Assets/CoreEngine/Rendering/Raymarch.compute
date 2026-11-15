@@ -794,7 +794,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.522, 0.393),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
     float3(0.900, 0.100, 0.800),   // 146 (none)
-    float3(0.900, 0.100, 0.800),   // 147 (none)
+    float3(0.760, 0.734, 0.672),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.760, 0.548, 0.299),   // 149 packed sand
     float3(0.521, 0.681, 0.760),   // 150 packed ice
@@ -892,7 +892,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.788, 0.541, 0.408),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
     float3(0.900, 0.100, 0.800),   // 146 (none)
-    float3(0.900, 0.100, 0.800),   // 147 (none)
+    float3(0.816, 0.788, 0.722),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.788, 0.569, 0.310),   // 149 packed sand
     float3(0.624, 0.816, 0.910),   // 150 packed ice

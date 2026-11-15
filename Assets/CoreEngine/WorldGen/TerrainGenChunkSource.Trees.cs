@@ -128,17 +128,21 @@ namespace VoxelEngine.WorldGen
                 prims = new NativeArray<TerrainGen.TreePrim>(maxTrees * TerrainGen.Trees.MAX_PRIMS, _a, NativeArrayOptions.UninitializedMemory);
             }
 
-            /// Grow to hold `maxTrees` (contents lost).
-            internal void Ensure(int maxTrees)
+            /// Grow to hold `maxTrees` (contents lost). Task 210: `extra` more tree entries
+            /// without primitives (library instances, -trees2 1); 0 = the old sizes.
+            internal void Ensure(int maxTrees, int extra = 0)
             {
-                if (trees.Length >= maxTrees) return;
+                if (trees.Length >= maxTrees + extra && prims.Length >= maxTrees * TerrainGen.Trees.MAX_PRIMS) return;
+                int pt = math.max(maxTrees, prims.Length / TerrainGen.Trees.MAX_PRIMS);
                 trees.Dispose(); prims.Dispose();
-                Alloc(maxTrees);
+                trees = new NativeArray<TerrainGen.Tree>(math.max(1, pt + extra), _a, NativeArrayOptions.UninitializedMemory);
+                prims = new NativeArray<TerrainGen.TreePrim>(math.max(1, pt) * TerrainGen.Trees.MAX_PRIMS, _a, NativeArrayOptions.UninitializedMemory);
             }
 
             internal void CopyFrom(TreeScratch o)
             {
-                Ensure(o.trees.Length);
+                int pt = o.prims.Length / TerrainGen.Trees.MAX_PRIMS;
+                Ensure(pt, math.max(0, o.trees.Length - pt));
                 int nt = o.counts[0], np = o.counts[1];
                 NativeArray<TerrainGen.Tree>.Copy(o.trees, trees, nt);
                 NativeArray<TerrainGen.TreePrim>.Copy(o.prims, prims, np);
@@ -167,6 +171,14 @@ namespace VoxelEngine.WorldGen
             return TerrainGen.Trees.MaxTrees(origin.x + half, origin.z + half, origin.x + half + w, origin.z + half + w);
         }
 
+        /// Task 210: library trees a shell chunk's sampled footprint can gather (0 without -trees2 1).
+        internal int ShellMaxLibTrees(int shell, int3 origin, int half)
+        {
+            if (!Spec.Trees2 || shell > TerrainGen.Trees.MAX_SHELL) return 0;
+            int w = (EngineConfig.CHUNK_EDGE_VOXELS - 1) << shell;
+            return TerrainGen.Trees2.MaxTrees(origin.x + half, origin.z + half, origin.x + half + w, origin.z + half + w);
+        }
+
         /// Gather into a scratch from a Burst job (ColumnJob / ShellColumnJob).
         internal static unsafe void GatherTrees(in TerrainGen.TerrainSpec spec, in TerrainGen.MapView map, in TerrainGen.Offsets o,
                                                 int x0, int z0, int x1, int z1,
@@ -177,6 +189,9 @@ namespace VoxelEngine.WorldGen
             int nt = TerrainGen.Trees.Gather(in spec, in map, in o, x0, z0, x1, z1,
                 (TerrainGen.Tree*)trees.GetUnsafePtr(), trees.Length,
                 (TerrainGen.TreePrim*)prims.GetUnsafePtr(), prims.Length, out np, ref top);
+            if (spec.Trees2)   // task 210: the library trees after 192's (which they may empty)
+                nt += GatherLib(in spec, in map, in o, x0, z0, x1, z1, (TerrainGen.Tree*)trees.GetUnsafePtr(), trees.Length, nt,
+                                (TerrainGen.TreePrim*)prims.GetUnsafePtr(), ref top);
             counts[0] = nt; counts[1] = np;
             top = math.max(top, GalleryTop(x0, z0, x1, z1));   // task 200 (int.MinValue without a gallery)
         }
@@ -192,6 +207,7 @@ namespace VoxelEngine.WorldGen
         {
             OverlayGallery(origin, shift, half, toEngine, mats, brickMat, brickUniform);   // task 200 (returns at once without a gallery)
             if (nTrees <= 0) return;
+            OverlayLib(trees, nTrees, origin, shift, half, toEngine, mats, brickMat, brickUniform);   // task 210 (returns at once without library trees)
             const int E = 128;
             byte air = toEngine[TerrainGen.GenMat.Air];
             int step = 1 << shift;
@@ -266,16 +282,26 @@ namespace VoxelEngine.WorldGen
             if (!col.treesValid)
             {
                 int cap = TerrainGen.Trees.MaxTrees(v.x, v.z, v.x, v.z);
-                if (!col.treePrims.IsCreated || col.treePrims.Length < cap * TerrainGen.Trees.MAX_PRIMS)
+                int libCap = spec.Trees2 ? TerrainGen.Trees2.MaxTrees(v.x, v.z, v.x, v.z) : 0;   // task 210
+                if (!col.treePrims.IsCreated || col.treePrims.Length < cap * TerrainGen.Trees.MAX_PRIMS || col.treeList.Length < cap + libCap)
                 {
-                    col.treeList = new NativeArray<TerrainGen.Tree>(cap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                    col.treeList = new NativeArray<TerrainGen.Tree>(cap + libCap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
                     col.treePrims = new NativeArray<TerrainGen.TreePrim>(cap * TerrainGen.Trees.MAX_PRIMS, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
                 }
                 int top = 0;
-                TerrainGen.Trees.Gather(in spec, in map, in o, v.x, v.z, v.x, v.z,
-                    (TerrainGen.Tree*)col.treeList.GetUnsafePtr(), col.treeList.Length,
+                int nt = TerrainGen.Trees.Gather(in spec, in map, in o, v.x, v.z, v.x, v.z,
+                    (TerrainGen.Tree*)col.treeList.GetUnsafePtr(), cap,
                     (TerrainGen.TreePrim*)col.treePrims.GetUnsafePtr(), col.treePrims.Length, out col.treePrimCount, ref top);
+                col.treeCount = nt;
+                if (spec.Trees2)
+                    col.treeCount += GatherLib(in spec, in map, in o, v.x, v.z, v.x, v.z, (TerrainGen.Tree*)col.treeList.GetUnsafePtr(), cap + libCap, nt,
+                                               (TerrainGen.TreePrim*)col.treePrims.GetUnsafePtr(), ref top);
                 col.treesValid = true;
+            }
+            if (spec.Trees2 && col.treeCount > 0)   // task 210: library wood, then library leaves, before 192's
+            {
+                byte lm = TerrainGen.Trees2.At(in Trees2Shared.Lib.Data, (TerrainGen.Tree*)col.treeList.GetUnsafeReadOnlyPtr(), col.treeCount, v);
+                if (lm != 0) return lm;
             }
             if (col.treePrimCount == 0) return TerrainGen.GenMat.Air;
             return TerrainGen.Trees.MaterialAt((TerrainGen.TreePrim*)col.treePrims.GetUnsafeReadOnlyPtr(), col.treePrimCount, v);

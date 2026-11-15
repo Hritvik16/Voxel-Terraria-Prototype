@@ -1758,3 +1758,30 @@ inside the planner's ellipse, centre in, one 4-connected body, rings nested and 
 lobes, Pack / Decode with bit 30 only; `Logs/TerrainGen/shore209/shapes.txt`), `Shore_PlaneFingerprint` (Slow; seed 42: off = 203's FNV
 72CEA9A36AECA569, no site moved; `plane_fnv.txt`). Shots `Logs/overnight/209_shots.sh` (seed 42, `-tod 12`, `-pocketshore 0` vs default),
 `Screenshots/209/viewer.html`. Result: HANDOFF 209.
+
+**Task 210 -- WORLD space-colonization trees behind `-trees2 1` (owner 2026-11-14 Q-AD "a for all"; default OFF = today's trees byte for byte).**
+`Assets/TerrainGen/Trees2.cs` + `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees2.cs`. A tree is an INSTANCE of a shared prototype, not a
+per-position build: task 200's method (a) (`TreeGallery.Build`, M_SPACE, `world: true` = aerial roots 4 m into the ground) grows a LIBRARY once
+per process (oak, birch, spruce, acacia x 6 variants, banyan, redwood x 3; fixed seeds 1..V, so variants 1-3 are the trees of task 200's
+sheets), each prototype on its own worker thread (main thread packs + publishes through a SharedStatic `Trees2Shared.Lib`, refcounted by the
+sources; 30 prototypes, 10.6 MB, 2 bits a voxel; player 550 ms on 6 threads, EditMode ~4.3 s). An instance = (prototype, quarter turn, root
+snapped to a multiple of 8 on every axis): prototype bricks land on world bricks, so every copy of a prototype has the same bytes in the bricks
+it does not share with terrain. Placement, a pure function of seed + cell: NORMAL grid 12.8 m (one tree a cell; species by the biome's BRICK
+BUDGET: `BUDGET` = today's trees' expected bricks per 51.2 m square at full plane (density x 64 cells x 266), `SHARE`/16 per species, p =
+budget share / (16 cells x the species' MEAN prototype bricks, from the built library) -- a bigger prototype makes its species rarer, never
+the area costlier; x tree plane (capped 16/16) x `Trees.SlotMul`); GIANT grid 102.4 m (a banyan per jungle cell p 0.30; a grove of 3-5
+redwoods p 0.35 in forest cells with tree plane >= 18 = river plains / wetland). Site rules = Trees.Build's (land, dry, no stamp / opening,
+45 deg foot, canopy clearance) + the crown's reach over tree-plane cells (no crown over road / town / sea) + giants' root feet reach the ground.
+Suppression one level per tier (deterministic from any footprint): giants > oaks > birch / spruce / acacia, then 192's trees inside a library
+tree's keep radius are emptied (`Suppress192`). 192's trees kept (`Trees2.Keep192`, Trees.Build): forest none, desert all (cactus), snow 6/16
+(pines), jungle 14/16 (emergents + palms; the 2/16 pay for the banyans), savanna baobabs only (`Look.baobab`). Birch bark is a real GenMat
+(`GenMat.BirchBark` = 19, engine 147, palettes + Items / Tools; `FarField.GenToEngine` maps it generically). Hooks: `GatherTrees` ->
+`GatherLib` (library trees appended as `Tree` entries, shape `SHAPE_LIB` | turn, prim0 = prototype), `OverlayTrees` -> `OverlayLib` first
+(library wood, then leaves, AIR only; coarse bricks skipped by the prototype's brick flags at shells <= 2), `PointTree` -> `Trees2.At`;
+`MaxContentY` + 760 (a redwood) only with the flag; scratch room via `TreeScratch.Ensure(n, extra)`. Flag `-trees2 1` (needs trees on);
+tests `Trees2TestOverride`, `SetTrees2`, `LibTreesIn` (Burst gather, same view as the jobs). Tests `Trees2Tests`: `Library_Turns_Budget`
+(Slow; two builds equal, turns invert and map bricks to bricks, bounds, expected bricks <= budget; `Logs/TerrainGen/trees210/library.txt`),
+`Chunks_Deterministic_Border_PointAndShellsAgree` (Slow; an oak across a chunk border: runs equal, only air -> tree, FarQuery and shells
+0-3 agree; `chunks.txt`), `Poses210` (Explicit; `poses.txt`). Shots `Logs/overnight/210_shots.sh` (20 poses, both arms), `210_far.sh`,
+`210_final.sh`; table `Logs/overnight/210_table.py` -> `Screenshots/210/table210.txt`; `python3 -I tools/trees210.py` -> sheets + `viewer.html`.
+Result: HANDOFF 210.

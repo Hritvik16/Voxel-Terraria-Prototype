@@ -78,7 +78,8 @@ namespace TerrainGen
         public const byte ForestLeaves = 55, JungleLeaves = 56, SavannaLeaves = 57, PineNeedles = 58;
         public const byte ForestWood = 76, JungleWood = 77, AcaciaWood = 78, PineWood = 79;
         public const byte Cactus = 93;          // the desert's "tree": trunk class, no leaves
-        public static bool IsTreeTrunk(byte m) => (m >= ForestWood && m <= PineWood) || m == Cactus;
+        public const byte BirchBark = 19;       // task 210 (-trees2 1): the birch's pale bark, trunk class (a free code after Gravel)
+        public static bool IsTreeTrunk(byte m) => (m >= ForestWood && m <= PineWood) || m == Cactus || m == BirchBark;
         public static bool IsTreeLeaf(byte m) => m >= ForestLeaves && m <= PineNeedles;
 
         public static bool IsFluid(byte m) => m >= Water && m <= Quicksand;

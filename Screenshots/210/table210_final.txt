@@ -1,0 +1,11 @@
+Task 210: per pose, -trees2 1 (new world trees) vs -trees2 0 (today's trees); seed 42, noon, one build, lookwait 22 s.
+GPU body pool cap 254,400. 'tree' / 'terrain' = mapped bodies by source; 'ref now' = refused chunks at the shot; 'ref total' = launch total so far.
+pose            arm   in use     tree  terrain   dupes ref now ref total  mem peak CPU peak sh miss sh ms
+forest_100m     t2    51,837   14,539   37,252   7,660       0         0    2565.6  191,550   5,810    98
+forest_100m     t0    60,272   23,026   37,200   4,522       0         0    2570.6  207,103   4,931    53
+jungle_eye      t2   254,396  150,284  101,678  27,869     104       275    2565.6  491,727   4,475   139
+jungle_eye      t0   254,398  157,280   95,380  27,033     130       476    2570.6  494,346   2,853    86
+jungle_100m     t2   254,360  157,684   96,342  27,556      58       562    2565.6  493,119   2,642   175
+jungle_100m     t0   254,337  162,955   91,048  27,572      42       978    2570.6  494,369     696   119
+banyan_near     t2   254,399  112,154  112,575  33,160     111       678    2565.6  493,119   2,803   167
+banyan_near     t0   254,398  109,823  113,664  33,770     100     1,127    2570.6  494,369     928   120

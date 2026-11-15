@@ -34,6 +34,7 @@ namespace VoxelEngine.WorldGen
             // task 180: the trees touching this column (gathered on the first air voxel)
             internal bool treesValid;
             internal int treePrimCount;
+            internal int treeCount;   // task 210: 192's trees + the library trees in treeList
             internal NativeArray<TerrainGen.Tree> treeList;
             internal NativeArray<TerrainGen.TreePrim> treePrims;
         }

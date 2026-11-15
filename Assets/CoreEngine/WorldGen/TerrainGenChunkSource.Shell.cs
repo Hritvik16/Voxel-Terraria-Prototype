@@ -215,7 +215,7 @@ namespace VoxelEngine.WorldGen
             {
                 output.colValid = false;
                 int maxTrees = ShellMaxTrees(shell, origin, half);   // task 180
-                output.trees.Ensure(maxTrees);
+                output.trees.Ensure(maxTrees, ShellMaxLibTrees(shell, origin, half));   // task 210: + library trees (0 when off)
                 new ShellColumnJob
                 {
                     h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, ore = _ore, spec = Spec, o = O,

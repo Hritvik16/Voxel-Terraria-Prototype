@@ -147,6 +147,11 @@ PALETTES["D"][2].update(hexes({55: "47762b", 56: "2c7a34", 57: "6f792e", 58: "2f
 NAMES.update({55: "forest leaves", 56: "jungle leaves", 57: "savanna leaves", 58: "pine needles",
               76: "forest wood", 77: "jungle wood", 78: "acacia wood", 79: "pine wood", 93: "cactus"})
 BIOMES.append(("Trees", [55, 56, 57, 58, 76, 77, 78, 79, 93]))
+# Task 210 (-trees2 1, owner Q-AD2 (a): "birch bark: a real pale-bark GenMat"): GenMat.BirchBark = 19,
+# a free code after gravel. Pale cream-grey with a faint warm cast (real silver-birch bark, lit, ~ #d0c9b8).
+PALETTES["D"][2].update(hexes({19: "d0c9b8"}))
+NAMES.update({19: "birch bark"})
+BIOMES[-1][1].append(19)
 
 # Task 181 (latent ores, owner R2 (a)): cobalt and emberstone are generated as a
 # TWIN per host rock (TerrainGen.OreRules.TWINS). A twin wears its HOST's colour

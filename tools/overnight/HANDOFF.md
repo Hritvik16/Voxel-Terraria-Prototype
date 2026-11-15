@@ -1,61 +1,48 @@
-STOP_FOR_OWNER -- rule 11 budget: GPU refusals went UP (857 -> 1,190) with the fix ON. The fix itself works and is committed, default ON.
-Question (recommended: a):
-  (a) Keep ON. Queue a GPU-side follow-up: when an in-view chunk is refused, the GPU body pool drops the bodies of out-of-view chunks
-      in the mirror box first (the hand-over draws those). Same idea as this task, applied to the GPU pool. It needs your approval
-      because it is new eviction design.
-  (b) Keep ON and accept the higher refusals (refused chunks are drawn by 197's hand-over; the frames look clean).
-  (c) Default back to `-valveview 0` until the GPU side is fixed.
+# 210-look-trees-space-colonization-world: DONE, default OFF (`-trees2 1` turns it on; the owner decides after the pictures). Memory budget met: refusals DOWN, peak not up.
 
-# 208-bug-valve-spares-in-view-chunks: DONE (code), STOPPED on budget. The valve no longer evicts chunks the player can see: in-view victims 19,488 -> 0.
-## What changed (commit be67746; no pool size, layout, shader or API change)
-- `StreamManager.ApplyPoolPressureValve` with a frustum ranks victims in one scan + one sort per call. Order: out of view, then in view beyond
-  the load radius, then in view within it (last resort, counted + `[valve] evicted an IN-VIEW NEAR chunk` log). Farthest (Chebyshev XZ) first;
-  LRU then the coord break ties. Unchanged: pressure test, 32-victim guard per call, camera 5x5 exemption, EvictChunk (save before drop).
-- Efficient by construction: no per-chunk memory (a reused scratch list of ~3 k x 24 B). The old valve scanned every resident chunk once per
-  victim (up to 32 scans); the new one scans once. The frustum comes from `GeometryUtility.CalculateFrustumPlanes(Camera, Plane[])` into a
-  cached array (no alloc), main thread only.
-- Frustum: `Phase4Bootstrapper.LateUpdate` sets `SetViewFrustum` before `Streamer.Update`. With no frustum, the old LRU order runs.
-  `-valveview 0` = the old order (launch-wide, `StreamManager.ValveViewOrder`).
-- Counters `ValveInViewEvictionsTotal`, `ValveInViewNearEvictionsTotal` (counted in both orders) on `-mirrorprobe 1`'s `[mirror]` lines.
-- 197's hand-over and 207's retry: untouched. Tests `ValveViewOrderTests` (6). TASKS.md paragraph, KNOWN_ISSUES entry, CLAUDE.md index line.
+## What it is (efficient by construction, rule 11)
+- Trees are INSTANCES of a shared library: task 200's method (a), grown ONCE per process on worker threads.
+  - 30 prototypes (oak, birch, spruce, acacia x 6; banyan, redwood x 3; variants 1-3 = task 200's sheets), 10.6 MB, 2 bits a voxel, 550-695 ms on 6 threads (player).
+  - Chunks, shells and the point query all read the same prototype. Nothing is stored per tree and nothing is rebuilt per chunk.
+  - Roots snap to multiples of 8 voxels, so the bricks of every copy of a prototype are byte-identical wherever they don't touch terrain. Byte duplicates in the GPU box: forest_eye 50.7 k vs today's 21.8 k. That is the room a dedup pool would get back.
+- Brick budget per area: today's trees' expected bricks per 51.2 m square (forest 13,619; snow 3,191 for spruce; savanna 1,872 for acacia).
+  - Each species' probability = budget / (the prototypes' MEASURED mean bricks). A bigger tree is rarer, never costlier per area.
+  - Forest at full plane: 3.2 oaks + 11.9 birches per 51.2 m square (`trees210/library.txt`). Giants on a 102.4 m grid: banyan (jungle, p 0.30), groves of 3-5 69 m redwoods (wet forest, p 0.35).
+- 192's trees kept: desert cactus, snow pines (6/16), jungle emergents and palms (14/16; the 2/16 pay for the banyans), savanna baobabs. None in forest.
+- Birch bark is a real GenMat (`BirchBark` = 19, engine 147). Placement is deterministic (one suppression level per tier).
+- Code: `Assets/TerrainGen/Trees2.cs`, `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees2.cs` + hooks in `.Trees.cs`; note in TASKS.md "Task 210".
+
 ## Evidence
-- Whole suite **PASS 1123 FAIL 0 SKIP 30** (`Logs/overnight/208/all.out`). Fast before = 207's run on identical code (PASS 1041 FAIL 0).
-  Filter run 8/8 (`filter1.out`). Old order in the test world: 11 of 32 victims in view; new order: 0.
-- Launch pair, one build (`Logs/overnight/208_pair.sh`): b1 = ON (`Logs/overnight/208/look_b1.out`), b2 = `-valveview 0` (`look_b2.out`).
-  Poses: forest, jungle_high, walk1-3 (40 m steps from jungle_high along its view), town_eye; `-mirrorprobe 1`.
+- Tests:
+  - `Trees2Tests.Library_Turns_Budget`: builds are byte-equal; quarter turns map bricks to bricks; bounds hold; every biome stays within its budget.
+  - `Chunks_Deterministic_Border_PointAndShellsAgree`: an oak across a chunk border. Runs are equal and only air turns into tree. 126,447 FarQuery points match, and shells 0-3 match (`Logs/TerrainGen/trees210/chunks.txt`).
+  - Whole suite: SUITE=all PASS 1127 FAIL 0 SKIP 31 (`Logs/overnight/210/all.out`; 209: 1125), incl. `TodayTrees_Pinned` (off = today byte for byte).
+- Memory (one build, same poses, -trees2 1 vs -trees2 0; `Screenshots/210/table210.txt`, `table210_final.txt`):
+  - 20 poses: peak 2,485.3 vs 2,779.2 MB; GPU refusals 1,034 vs 1,470; GPU pool peak 254,400 in both (jungle box FULL with today's trees too); CPU pool peak 495,162 vs 495,117 (valve 484,500).
+  - final code, 4 poses: peak 2,565.6 vs 2,570.6 MB; refusals 678 vs 1,127; per pose jungle_eye 275 vs 476, jungle_100m 287 vs 502, banyan_near 116 vs 149 (was 110 vs 85 before jungle 14/16).
+  - No pool made bigger. Valve eviction counts print only with `-mirrorprobe` (not run).
+- GPU tree bodies: forest_eye 68.9 k vs 112.8 k, forest_100m 78.4 k vs 125.9 k, snow 51.7 k vs 62.1 k, savanna 17.3 k vs 14.9 k, redwood_near 98.2 k vs 111.3 k, jungle 150 k vs 157 k.
+- Rough cost (no timing arms), average shell chunk generation per launch: 100 vs 117 ms (main pair), 167 vs 120 ms (final pair). Launch order / chip heat dominates; no clear difference.
+- Pictures I looked at:
+  - forest: oaks, pale birches, a redwood grove behind (today: dense uniform canopy); jungle: as today + a banyan hidden in the canopy; savanna: acacias + baobabs; snow: spruces in front, 192's pines behind; desert: cacti (pose at a town on the forest edge).
+  - giants: the grove is clear at 300 m (`redwood_far1_t2.png`). At 1.5 km, once shells 3-4 have streamed (~3 min after a teleport), it shows as thin dark spikes beside the white stone arches (`final_redwood_far1500_farwait_t2.png`). With 40 s waits, shells 3-5 were empty and the far band (no trees) drew the ground, so the giants pop in with their shell chunk, like every tree.
+  - Broken shots: `redwood_far2` is black (the camera was inside a hill). `redwood_far3` / `banyan_far2` look behind a plateau.
 
-  | OFF -> ON | forest | jungle_high | walk1 | walk2 | walk3 | town_eye |
-  |---|---|---|---|---|---|---|
-  | in-view valve victims (running) | 3,777 -> 0 | 6,816 -> 0 | 10,444 -> 0 | 13,230 -> 0 | 16,315 -> 0 | 19,488 -> 0 |
-  | ABSENT over solid | 5 -> 0 | 5 -> 7 | 9 -> 3 | 21 -> 3 | 12 -> 5 | 0 -> 0 |
-  | hand-over columns | 66 -> 27 | 119 -> 66 | 95 -> 62 | 112 -> 50 | 65 -> 25 | 1 -> 0 |
-  | GPU refused at the shot | 0 -> 61 | 0 -> 138 | 0 -> 90 | 0 -> 78 | 0 -> 31 | 0 -> 0 |
-  | GPU pool in use | 217.6 k -> 254.4 k | 234.9 k -> 254.4 k | 251.4 k -> 254.4 k | 203.0 k -> 254.4 k | 224.6 k -> 254.4 k | 146 k both |
-
-  Total valve evictions 83,149 -> 78,139. Still ~12 k per pose: the load set is bigger than the valve line, so evicted far chunks reload.
-- Why refusals rose: the old valve dropped NEAR in-box chunks, and that freed GPU bodies. Now the victims are far out-of-view chunks, mostly
-  outside the 16-chunk mirror box, so they hold no GPU bodies. The GPU pool stays full (201a: demand > cap), and refused chunks stay refused
-  (`[mirror +5s]`: 24/24 still missing ON vs 1-5 OFF). They are drawn by the hand-over, and total hand-over columns are lower ON (230 vs 458).
-- Shots (looked at): jungle_high OFF has a coarse shell block on the right (blue water face, grey rock face, blocky grass). ON is clean forest.
-  walk2 has the same pattern (OFF: grey rock + water face at the right edge; ON: the lake shore is correct). 197's evicted-pit pose is
-  jungle_high (`Screenshots/197/v/2_evicted_before.png`): ON shows forest there.
-- Memory (rule 11), OFF -> ON: CPU pool peak 494,867 -> 495,648 (valve 484,500); GPU body pool peak 254,400 both, refusals 857 -> 1,190 (OVER
-  budget); process "now" at matching poses +24-30 MB; process peak 2,688 -> 2,821 MB (+133, over +50; at the jungle_high transition;
-  207 saw ~140 MB of launch noise with identical code. Unproven either way. The new code holds < 0.1 MB).
-- Rough cost (rule 10, not a timing claim; settle frames, one launch each): forest 153 -> 152 ms, jungle_high 205 -> 236, walk1-3
-  209/202/198 -> 215/209/195, town 134 -> 133. jungle_high +31 ms, as 207 saw +20 there; unverified.
-## Not done / next
-- GPU-side view priority (option a above), owner's call. The valve churn itself (load set > valve line) is the pool-size matter, unchanged.
-- Launches ran ~25 min each (6 poses x lookwait 45 + shells), over the ~10 min guideline. The next proof should use fewer poses.
+## Left / owner calls
+- Turning it on is the owner's call.
+- Forest density is capped by the 12.8 m grid, not by memory: 95 % of full-plane forest cells already hold a tree, and the forest uses 61 % of today's tree bodies. Its look is an open woodland with clearings from above and a forest at eye height.
+  - Denser = a 6.4 m grid for birches (code), or a bigger oak share.
+  - There is ~30 k bodies of room at forest_100m before the pool fills.
+- The banyan does not stand out inside the dense 192 jungle (emergents are 11-20 m, the banyan 21 m).
+- NOT done: the desert's "oasis palm near water" (Q-AD2). A follow-up needs a water-distance rule.
+- Birch leaves keep task 200's `GenMat.Leaves` (88, the look the owner saw); it is not in `IsTreeLeaf`.
 
 ## For the doc
-- Chunks the player can see, dropped by the CPU pool valve: 19,488 -> 0 over 6 poses (`Logs/overnight/208/look_b2.out` -> `look_b1.out`).
-- Columns drawn by shell 1's coarse copy at the shot: 458 -> 230 in total. Non-resident chunks over solid ground: 52 -> 18.
-- Cost found: the GPU body pool now stays full. Refusals 857 -> 1,190; 31-138 chunks wait at each shot (drawn by the hand-over). Owner question above.
-- Whole suite PASS 1123 FAIL 0 (+6 tests `ValveViewOrderTests`).
-- Images:
-  - `Screenshots/208/b2/ws_fixed_jungle_high_native_sf0.png` (BEFORE, old valve): look at the right third. There is a coarse block with a
-    vertical blue water face and a grey rock face: dropped in-view chunks drawn by shell 1.
-  - `Screenshots/208/b1/ws_fixed_jungle_high_native_sf0.png` (AFTER): the same view is full forest to the right edge.
-  - `Screenshots/208/b2/ws_fixed_walk2_native_sf0.png` vs `Screenshots/208/b1/ws_fixed_walk2_native_sf0.png`: right edge. Before has a grey
-    cliff and a blocky water face; after shows the lake shore and trees with their shadows.
+- Memory, -trees2 1 vs today (same build, same poses):
+  - peak 2,485 vs 2,779 MB (20 poses), 2,566 vs 2,571 MB (final 4); GPU refusals 1,034 vs 1,470 and 678 vs 1,127; no pool bigger (`Screenshots/210/table210*.txt`).
+- Forest GPU tree bodies 68.9 k vs 112.8 k (forest_eye): fewer, bigger trees. The library is 10.6 MB for the whole world, built in 0.55-0.7 s on 6 worker threads.
+- Density per 51.2 m square at full plane: forest 3.2 oaks + 11.9 birches; snow 3.7 spruces; savanna 3.4 acacias. Giants: a banyan per ~3 jungle hectares; redwood groves of 3-5 in wet forest.
+- Images (full-size flip viewer: `Screenshots/210/viewer.html`, Space = new / today at the same camera):
+  - `Screenshots/210/sheet_biomes.jpg`: left column = new trees, right = today. Rows 1-2 forest: oaks (broad dark crowns), birches (pale stems) and three 69 m redwoods at the back, against today's even canopy. Rows 5-6 savanna: acacias plus bottle-trunk baobabs.
+  - `Screenshots/210/forest_eye_t2.png`: eye height in the forest. Two-stemmed birches on the left, oaks on the right, a redwood grove behind the meadow.
+  - `Screenshots/210/final_redwood_far1500_farwait_t2.png`: 1.5 km away, shells streamed. The grove shows as dark spikes just right of the white stone arches in the centre.

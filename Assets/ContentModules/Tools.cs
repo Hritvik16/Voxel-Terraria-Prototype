@@ -144,6 +144,6 @@ public static class Tools
         T(91, 2); T(92, 2);                                    // volcanic rock, standing stone
         // ---- tg2: generated trees (task 180): woods, leaves, cactus ----
         T(55, 0); T(56, 0); T(57, 0); T(58, 0);
-        T(76, 0); T(77, 0); T(78, 0); T(79, 0); T(93, 0);
+        T(76, 0); T(77, 0); T(78, 0); T(79, 0); T(93, 0); T(19, 0);   // 19 birch bark (task 210)
     }
 }

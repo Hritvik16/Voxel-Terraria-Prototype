@@ -89,6 +89,14 @@ namespace TerrainGen
         /// A cover PATCH VARIANT reads as a clearing: x 10/16.
         private const int VARIANT_MUL = 10;
 
+        /// Task 210: Build's cover multiplier (1/256): the slot's SLOT_MUL x 16, a patch variant's x VARIANT_MUL.
+        public static int SlotMul(byte cover)
+        {
+            int slot = Cover.Slot(cover);
+            int mul = slot < SLOT_MUL.Length ? SLOT_MUL[slot] : 0;
+            return Cover.IsVariant(cover) ? mul * VARIANT_MUL : mul * 16;
+        }
+
         /// Per-mille density of biome `b` (0 for unknown / badlands).
         public static int Density(byte b) => b < GenBiome.Count ? DENSITY[b] : 0;
 
@@ -200,6 +208,12 @@ namespace TerrainGen
             int mul = slot < SLOT_MUL.Length ? SLOT_MUL[slot] : 0;
             if (Cover.IsVariant(c.cover)) mul = mul * VARIANT_MUL;
             else mul *= 16;
+            if (spec.Trees2 && forced < 0)
+            {   // task 210: the library grows this biome's broadleaf / conifer trees; 192 keeps the other forms
+                int k2 = Trees2.Keep192(biome);
+                if (k2 == 0) return false;
+                mul = mul * k2 >> 4;
+            }
             // P = Density/1000 x plane/16 x mul/256; roll/256000 < P  <=>  roll x 16 < Density x plane x mul (integers)
             if (forced >= 0) biome = (byte)forced;   // every cell that passes the physical rules below gets this family
             else if ((long)roll * 16 >= (long)Density(biome) * plane * mul) return false;
@@ -226,6 +240,7 @@ namespace TerrainGen
             {   // task 192: this tree's own numbers, drawn inside its biome x slot ranges
                 P = Pick(biome, slot, LeafFill(in spec), ref rng);
                 if (P.form == 255) return false;
+                if (spec.Trees2 && forced < 0 && biome == GenBiome.Savanna && !P.baobab) return false;   // task 210: acacias come from the library
                 shape = P.form;
                 trunkR = P.footR;
             }
@@ -509,6 +524,7 @@ namespace TerrainGen
             public float rise, flat, droop;
             public int limbs, twigs;   // palm: limbs = fronds; cactus: limbs = arms
             public bool buttress, barrel;
+            public bool baobab;        // task 210: savanna's bottle-trunked giant (Trees2 keeps it)
             public float lean, leanSlope;  // lean (fraction of H) on flat ground; extra per unit of foot slope
             public float fill;         // the leaf fill target, 0-1
             public float spacing, curve;   // conifer: tier spacing, radius profile exponent; palm: curve = bend
@@ -578,6 +594,7 @@ namespace TerrainGen
                     P.form = FORM_BROAD; P.wood = GenMat.AcaciaWood; P.leaf = leafRoll < 0.7f ? GenMat.SavannaLeaves : GenMat.ForestLeaves;
                     if (formRoll < 0.12f)
                     {
+                        P.baobab = true;
                         P.H = r.Range(60f, 85f) * s;
                         P.rt = P.H * r.Range(0.12f, 0.17f);
                         P.cb = P.H * r.Range(0.6f, 0.75f);

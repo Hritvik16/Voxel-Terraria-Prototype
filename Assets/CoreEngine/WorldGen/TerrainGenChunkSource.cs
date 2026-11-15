@@ -270,6 +270,7 @@ namespace VoxelEngine.WorldGen
             if (TreesArg()) spec.treesOn = 1;   // task 180
             spec.treeLeafFill = LeafFillArg();   // task 192
             if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
+            if (spec.treesOn != 0 && Trees2Arg()) spec.trees2On = 1;   // task 210 (-trees2 1; default off)
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183 / 201: ON unless -fluidpockets 0
@@ -301,6 +302,7 @@ namespace VoxelEngine.WorldGen
             string gallery = TreeGalleryArg();   // task 200: -treegallery <layout> (examples only; default off)
             if (gallery != null) BuildGallery(gallery, treeCells);
             _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
+            InitTrees2();   // task 210 (returns at once unless -trees2 1)
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             BuildPocketPlane();   // task 183 (length 1 = none under -fluidpockets 0)
             if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
@@ -323,7 +325,8 @@ namespace VoxelEngine.WorldGen
             for (int i = 0; i < Map.Height.Length; i++) { maxMacro = math.max(maxMacro, Map.Height[i]); maxRough = math.max(maxRough, Map.Rough[i]); }
             float detailMax = 0f;
             for (int i = 0; i < TerrainGen.ShapeField.DETAIL_OCTAVES; i++) detailMax += TerrainGen.ShapeField.Amplitude(i);
-            MaxContentY = Spec.seaLevelY + (int)math.ceil(maxMacro + detailMax * maxRough) + STAMP_RISE_BOUND;
+            MaxContentY = Spec.seaLevelY + (int)math.ceil(maxMacro + detailMax * maxRough)
+                        + (Spec.trees2On != 0 ? math.max(STAMP_RISE_BOUND, TerrainGen.Trees2.MAX_HEIGHT + 8) : STAMP_RISE_BOUND);   // task 210: a redwood's crown
             TopLayerChunkY = MaxContentY >> 7;
         }
 
@@ -349,6 +352,7 @@ namespace VoxelEngine.WorldGen
             if (_town.IsCreated) _town.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             DisposeGallery();   // task 200
+            DisposeTrees2();   // task 210
             Map?.Dispose();
         }
 
@@ -488,6 +492,7 @@ namespace VoxelEngine.WorldGen
                 if (!shared)
                 {
                     cp.valid = false;
+                    if (Spec.Trees2) cp.trees.Ensure(ChunkMaxTrees, ChunkMaxLibTrees);   // task 210: room for the library trees
                     new ColumnJob
                     {
                         h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, ore = _ore, spec = Spec, o = O, origin = coord * E,

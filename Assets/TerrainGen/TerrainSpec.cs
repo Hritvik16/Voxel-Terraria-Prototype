@@ -138,6 +138,12 @@ namespace TerrainGen
         /// per biome, one solid crown), `-treestyle 0`. 0 (the default) = 192's open
         /// crowns on a branch skeleton. Columns only.
         public byte treeStyle180;
+        /// Task 210 (owner 2026-11-14 Q-AD (a)): 1 = the WORLD space-colonization trees
+        /// (Trees2.cs: a shared prototype library, a brick budget per area, giants on their
+        /// own sparse grid; 192's trees kept only for the forms the library does not grow).
+        /// 0 (the default, a bare spec) = today's trees byte for byte. Needs treesOn and
+        /// the library the chunk source builds (`-trees2 1`). Read it through Trees2, never directly.
+        public byte trees2On;
         /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
         /// = the simple material rules (GroundRules.cs: one palette row per biome
         /// paints skin, soil, subsoil and stone; a short slot list over local
@@ -266,6 +272,8 @@ namespace TerrainGen
 
         /// Task 180's generated trees in force (see treesOn): v4 only, opt-in.
         public bool Trees => mapVersion >= 4 && treesOn != 0;
+        /// Task 210's world trees in force (see trees2On): only with Trees.
+        public bool Trees2 => Trees && trees2On != 0;
 
         /// Task 180b's material rules in force (see matRulesOff): v4 only, ON by
         /// default since task 186.

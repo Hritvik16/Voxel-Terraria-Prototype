@@ -1,7 +1,7 @@
 Task 180b: a dug pit's cut-away (depth where each material starts; GenMat ids), one per slot/biome, seed 42
   flat/snow          pit at (50325,47575): 0.0 m 13 | 0.3 m 22 | 0.6 m 17 | 2.2 m 33
   flat/jungle        pit at (58882,49355): 0.0 m 11 | 0.3 m 23 | 0.7 m 62 | 2.4 m 60
-  flat/desert        pit at (27040,38334): 0.0 m 21 | 0.8 m 44 | 2.8 m 42
+  flat/desert        pit at (27040,38334): 0.0 m 12 | 0.3 m 21 | 0.8 m 44 | 2.8 m 42
   steep/desert       pit at (35874,44688): 0.0 m 35
   bare/badlands      pit at (54393,27956): 0.0 m 45
   bare/desert        pit at (42501,30591): 0.0 m 42
@@ -17,22 +17,22 @@ Task 180b: a dug pit's cut-away (depth where each material starts; GenMat ids), 
   shore/desert       pit at (48164,19057): 0.0 m 14 | 1.2 m 44 | 2.0 m 42
   scree/snow         pit at (55108,41164): 0.0 m 17 | 1.8 m 54
   scree/desert       pit at (41937,26307): 0.0 m 17 | 1.4 m 44 | 2.3 m 42
-  dip/desert         pit at (50301,25513): 0.0 m 21 | 1.8 m 44 | 5.1 m 42
+  dip/desert         pit at (50301,25513): 0.0 m 12 | 0.3 m 21 | 1.8 m 44 | 5.1 m 42
   bare/snow          pit at (41049,57889): 0.0 m 54
   dip/forest         pit at (52126,34323): 0.0 m 10 | 0.3 m 20 | 1.4 m 32 | 4.0 m 33
   bare/forest        pit at (32346,54504): 0.0 m 33
   dip/badlands       pit at (33840,25704): 0.0 m 16 | 0.3 m 25 | 1.3 m 47 | 3.8 m 45
   steep/savanna      pit at (43682,35818): 0.0 m 35
-  hollow/snow        pit at (29875,27857): 0.0 m 13 | 0.3 m 22 | 0.8 m 17 | 2.0 m 54
+  hollow/snow        pit at (29875,27857): 0.0 m 22 | 0.8 m 17 | 2.0 m 54
   shore/savanna      pit at (19809,53395): 0.0 m 14 | 1.1 m 44 | 1.8 m 35
   shore/jungle       pit at (57693,58040): 0.0 m 14 | 1.9 m 62 | 3.2 m 60
-  scree/forest       pit at (48976,36869): 0.0 m 17 | 1.7 m 32 | 2.8 m 33
+  scree/forest       pit at (42556,38720): 0.0 m 17 | 1.3 m 32 | 2.1 m 33
   dip/jungle         pit at (43144,52257): 0.0 m 11 | 0.3 m 23 | 1.4 m 62 | 4.1 m 60
   shore/snow         pit at (30434,23410): 0.0 m 13 | 1.3 m 17 | 2.2 m 54
-  high/forest        pit at (39616,38147): 0.0 m 33
+  shore/forest       pit at (31418,63378): 0.0 m 14 | 1.6 m 32 | 2.6 m 33
+  high/forest        pit at (39616,38147): 0.0 m 17 | 0.3 m 20 | 0.4 m 32 | 1.5 m 33
   bare/jungle        pit at (40100,43274): 0.0 m 33
-  shore/forest       pit at (41067,68172): 0.0 m 14 | 1.5 m 32 | 2.5 m 33
-  high/savanna       pit at (38976,34342): 0.0 m 17 | 0.3 m 24 | 0.4 m 44 | 1.6 m 35
+  high/savanna       pit at (38976,34342): 0.0 m 35
   scree/badlands     pit at (55456,29453): 0.0 m 25 | 1.1 m 47 | 1.8 m 45
   hollow/savanna     pit at (43594,32593): 0.0 m 10 | 0.3 m 24 | 0.7 m 44 | 1.8 m 35
   hollow/desert      pit at (42671,24677): 0.0 m 10 | 0.3 m 21 | 1.2 m 44 | 3.1 m 42

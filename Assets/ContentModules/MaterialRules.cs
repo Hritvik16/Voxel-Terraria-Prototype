@@ -662,7 +662,7 @@ public static class MaterialPalette
             0.760f, 0.522f, 0.393f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
             -1f, -1f, -1f,   // 146
-            -1f, -1f, -1f,   // 147
+            0.760f, 0.734f, 0.672f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.760f, 0.548f, 0.299f,   // 149 packed sand
             0.521f, 0.681f, 0.760f,   // 150 packed ice
@@ -816,7 +816,7 @@ public static class MaterialPalette
             0.788f, 0.541f, 0.408f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
             -1f, -1f, -1f,   // 146
-            -1f, -1f, -1f,   // 147
+            0.816f, 0.788f, 0.722f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.788f, 0.569f, 0.310f,   // 149 packed sand
             0.624f, 0.816f, 0.910f,   // 150 packed ice

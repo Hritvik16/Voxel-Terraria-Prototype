@@ -1,5 +1,5 @@
 Task 188a: share of the SURFACE (DetailField.TopMaterial, land above the sea, no fluid on top) per material per skin biome,
-seeds 42 / 7 / 2026 / 31337, 3,000 random land columns each. before = -matvariant 1 (today), after = -matvariant 0 (no spray).
+seeds 42 / 7 / 2026 / 31337, 3,000 random land columns each. before = -matvariant 1 (today), after = the default since task 190a (no spray).
 Stone names are the bare rock showing (steep / crest / sunny faces); stamp, lip and pocket materials are included as they are.
 
 forest: 2489 columns
@@ -18,9 +18,9 @@ forest: 2489 columns
   RiverLip             0.1 % ->   0.1 %
 
 desert: 1515 columns
-  Sand                39.9 % ->  52.7 %
+  Sand                39.1 % ->  51.9 %
   OrangeSandstone     33.5 % ->  33.5 %
-  PackedSand          13.7 % ->   0.2 %
+  PackedSand          14.3 % ->   0.9 %
   BeachSand            3.4 % ->   3.4 %
   Gravel               2.0 % ->   2.6 %
   VolcanicRock         2.3 % ->   2.3 %
@@ -31,23 +31,23 @@ desert: 1515 columns
   RedBand              0.7 % ->   0.7 %
   Granite              0.3 % ->   0.3 %
 
-snow: 2628 columns
-  Snow                45.1 % ->  59.5 %
-  PackedIce           25.7 % ->  15.5 %
-  SilverSchist        17.6 % ->  14.6 %
+snow: 2627 columns
+  Snow                45.0 % ->  59.3 %
+  PackedIce           25.7 % ->  15.6 %
+  SilverSchist        17.7 % ->  14.7 %
   VolcanicRock         8.9 % ->   8.9 %
-  Gravel               2.1 % ->   0.9 %
+  Gravel               2.0 % ->   0.9 %
   RedBand              0.2 % ->   0.2 %
-  Granite              0.1 % ->   0.0 %   (GONE from the surface)
+  Granite              0.2 % ->   0.1 %
   Sinter               0.1 % ->   0.1 %
   Bone                 0.1 % ->   0.1 %
 
-jungle: 1519 columns
-  JungleGrass         47.2 % ->  62.1 %
-  KarstLimestone      22.3 % ->  25.0 %
-  Grass               15.4 % ->   0.0 %   (GONE from the surface)
-  BeachSand            4.9 % ->   4.9 %
-  MossRock             3.8 % ->   1.4 %
+jungle: 1516 columns
+  JungleGrass         47.0 % ->  61.8 %
+  KarstLimestone      22.4 % ->  25.0 %
+  Grass               15.3 % ->   0.0 %   (GONE from the surface)
+  BeachSand            5.2 % ->   5.2 %
+  MossRock             3.8 % ->   1.5 %
   VolcanicRock         3.2 % ->   3.2 %
   Mud                  1.1 % ->   1.6 %
   Granite              0.7 % ->   0.7 %
@@ -58,33 +58,33 @@ jungle: 1519 columns
   SilverSchist         0.1 % ->   0.1 %
   Bone                 0.1 % ->   0.1 %
 
-savanna: 1405 columns
-  SavannaGrass        44.6 % ->  57.4 %
-  KopjeGranite        23.1 % ->  26.2 %
-  PackedSand          12.8 % ->   0.0 %   (GONE from the surface)
-  BeachSand            5.4 % ->   5.4 %
-  Gravel               5.2 % ->   2.3 %
+savanna: 1404 columns
+  SavannaGrass        44.4 % ->  57.1 %
+  KopjeGranite        23.3 % ->  26.4 %
+  PackedSand          12.7 % ->   0.0 %   (GONE from the surface)
+  BeachSand            5.6 % ->   5.6 %
+  Gravel               4.9 % ->   2.1 %
   VolcanicRock         4.7 % ->   4.7 %
   Grass                1.4 % ->   2.1 %
-  Granite              0.6 % ->   0.8 %
+  Granite              0.7 % ->   0.9 %
   KarstLimestone       0.6 % ->   0.7 %
   RedEarth             0.6 % ->   0.0 %   (GONE from the surface)
   Mud                  0.6 % ->   0.0 %   (GONE from the surface)
   OrangeSandstone      0.1 % ->   0.2 %
   Sinter               0.1 % ->   0.1 %
 
-badlands: 1802 columns
-  BadlandsClay        46.1 % ->  60.8 %
+badlands: 1801 columns
+  BadlandsClay        46.0 % ->  60.7 %
   RedBand             20.6 % ->  22.4 %
-  Hardpan             18.8 % ->   1.6 %
-  BeachSand            7.2 % ->   7.2 %
+  Hardpan             18.7 % ->   1.6 %
+  BeachSand            7.3 % ->   7.3 %
   VolcanicRock         3.8 % ->   3.8 %
   Mud                  1.7 % ->   2.1 %
   OrangeSandstone      0.3 % ->   0.5 %
   SilverSchist         0.4 % ->   0.4 %
   Granite              0.3 % ->   0.4 %
   CreamBand            0.2 % ->   0.3 %
-  PackedSand           0.2 % ->   0.2 %
+  PackedSand           0.3 % ->   0.3 %
   Bone                 0.2 % ->   0.2 %
 
 Palette variant entries that are on NO main skin entry of their biome (they leave the surface with the spray off):

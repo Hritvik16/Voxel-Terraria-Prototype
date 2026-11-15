@@ -151,7 +151,7 @@ namespace TerrainGen
                     s.tropism = -0.12f; s.leader = true; s.stems = r.Chance(0.5f) ? r.Int(2, 3) : 1;
                     s.clumpR = r.Range(4.5f, 5.5f); s.clumpFlat = 0.75f; s.density = 0.45f;
                     s.flare = 0.25f; s.flareH = 5; s.flutes = 0;
-                    s.wood = GenMat.MushroomStem; s.leaf = GenMat.Leaves;   // examples only: a pale bark stand-in (a real birch needs its own GenMat)
+                    s.wood = GenMat.BirchBark; s.leaf = GenMat.Leaves;   // task 210: the real pale bark (task 200 used MushroomStem as a stand-in)
                     s.n1 = 14; s.n2 = 4; s.n3 = 3; s.down1 = 45; s.down2 = 60; s.ratio2 = 0.45f; s.ratio3 = 0.4f; s.curve = 0.3f;
                     break;
                 case SP_SPRUCE:   // narrow cone to the ground, drooping whorled branches, dark needles
@@ -202,7 +202,9 @@ namespace TerrainGen
         // =====================================================================
         // Entry points
         // =====================================================================
-        public static Skeleton Grow(int species, int method, uint seed, Ground ground)
+        /// `world` (task 210, Trees2's library): aerial roots run ROOT_DEPTH into the ground
+        /// (not 6 voxels), so a prototype built on flat ground still reaches a gently uneven site.
+        public static Skeleton Grow(int species, int method, uint seed, Ground ground, bool world = false)
         {
             uint ts = TreeSeed(species, method, seed);
             var r = new Rng(ts);
@@ -216,15 +218,15 @@ namespace TerrainGen
                 case M_LSYS: LSystem(k, ref r); break;
                 default: Template(k, ref r); break;
             }
-            if (k.sp.aerial) AerialRoots(k, ref r, ground);
+            if (k.sp.aerial) AerialRoots(k, ref r, ground, world);
             Finish(k, ref r);
             return k;
         }
 
-        public static Vol Build(int species, int method, uint seed, Ground ground, out Stats st, out Skeleton k)
+        public static Vol Build(int species, int method, uint seed, Ground ground, out Stats st, out Skeleton k, bool world = false)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            k = Grow(species, method, seed, ground ?? Flat);
+            k = Grow(species, method, seed, ground ?? Flat, world);
             double g = sw.Elapsed.TotalMilliseconds; sw.Restart();
             var v = Voxelise(k, out st);
             st.msGrow = g; st.msVox = sw.Elapsed.TotalMilliseconds;
@@ -589,7 +591,7 @@ namespace TerrainGen
         // =====================================================================
         // Banyan aerial roots: drop from the main limbs; some thicken into prop trunks
         // =====================================================================
-        private static void AerialRoots(Skeleton k, ref Rng r, Ground ground)
+        private static void AerialRoots(Skeleton k, ref Rng r, Ground ground, bool world)
         {
             var s = k.sp;
             var picks = new List<float3>(k.pendingRoots);
@@ -626,7 +628,7 @@ namespace TerrainGen
                 {
                     float t = (float)i / n;
                     float3 p = new float3(top.x, top.y - drop * reach * t, top.z) + sway * math.sin(t * 3.14159f) * 6f;
-                    if (reach >= 1f && i == n) p.y = gy - 6f;   // into the ground
+                    if (reach >= 1f && i == n) p.y = gy - (world ? ROOT_DEPTH : 6f);   // into the ground
                     cur = AddNode(k, cur, p, ROLE_ROOT, math.lerp(rTop, rBot, t * t));
                 }
                 if (prop)
