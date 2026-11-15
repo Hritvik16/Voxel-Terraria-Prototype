@@ -134,6 +134,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// and the far band keep following the camera. Builds the 0.1 m reference patch
     /// round a distant point. Off by default.
     internal static Vector3? RefTier0Centre;
+    private readonly Plane[] _valvePlanes = new Plane[6];   // task 208: the camera frustum for the CPU valve
 
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
@@ -356,6 +357,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         TerrainClipmap.SealHiddenBricks = ArgInt("-gpuseal", 1) == 1;   // task 201a: sealed bricks take no GPU body (pool on only)
         TerrainClipmap.RetryOnlyWhatFits = ArgInt("-retryfit", 1) == 1;   // task 207: 0 = the old retry (whole refused set per freed slot)
+        StreamManager.ValveViewOrder = ArgInt("-valveview", 1) == 1;   // task 208: 0 = the old valve order (pure LRU, in-view chunks too)
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
         if (gpuBrickCap > 0)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f; " +
@@ -596,6 +598,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // world.state is only written when the run saves terrain (WorldState header).
         Streamer.AdvanceClock(Time.deltaTime);
         UploadRing.TickShared();   // task 168e: poll the staging slots' GPU guards (once per frame)
+        // Task 208: the valve evicts out-of-view chunks first (the camera frustum, no alloc).
+        if (Camera.main != null) { GeometryUtility.CalculateFrustumPlanes(Camera.main, _valvePlanes); Streamer.SetViewFrustum(_valvePlanes); }
+        else Streamer.ClearViewFrustum();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(RefTier0Centre ?? camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;

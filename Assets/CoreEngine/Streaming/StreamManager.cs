@@ -1755,6 +1755,7 @@ namespace VoxelEngine.Streaming
         private void ApplyPoolPressureValve(int3 camChunk)
         {
             RelievePoolFromQueue();   // task 123: queued chunks before any in-range victim
+            if (ValveViewOrder && _viewValid) { ApplyPoolPressureValveByView(camChunk); return; }
             int guard = 0;
             while (_store.IsUnderPoolPressure && guard++ < 32)
             {
@@ -1777,6 +1778,148 @@ namespace VoxelEngine.Streaming
                 }
 
                 if (!found) break;
+                CountValveVictim(victim, camChunk);   // task 208: the in-view counters, also for the old order
+                EvictChunk(victim);
+                LruEvictionsTotal++;
+            }
+        }
+
+        // ---- Task 208: the valve spares chunks the player can see ----------
+        // Owner, 2026-11-14 (Q-AB (a), fix 2): "Never drop a chunk the player can
+        // see; drop chunks behind or far away first." The ORDER changes, nothing
+        // else: the same pressure test, the same 32-victim guard per call, the
+        // same 5x5 exemption, the same EvictChunk (save before drop). Victim key,
+        // most evictable first:
+        //   class 0 = outside the view frustum (behind / beside the camera),
+        //   class 1 = inside the frustum, beyond the near range (load radius),
+        //   class 2 = inside the frustum within the near range: only when nothing
+        //             else is left (counted, logged);
+        // then farthest (Chebyshev XZ) first, then LRU (oldest touched), then the
+        // coord (deterministic). One scan + one sort per call under pressure (the
+        // old code scanned every resident chunk once PER victim); no per-chunk
+        // memory, the scratch list is reused. Main thread only (Update's valve).
+
+        /// `-valveview 0` = the old order (pure LRU); launch-wide, for before/after.
+        public static bool ValveViewOrder = true;
+
+        /// Valve victims that were inside the view frustum (classes 1+2), and of
+        /// those, within the near range (class 2). Counted in both orders.
+        public long ValveInViewEvictionsTotal { get; private set; }
+        public long ValveInViewNearEvictionsTotal { get; private set; }
+
+        private readonly float4[] _viewPlanes = new float4[5];
+        private bool _viewValid;
+        private long _inViewNearLogFrame = long.MinValue / 2;
+
+        /// The camera's frustum for the valve, in world metres. Unity's plane
+        /// order (left, right, bottom, top, near, far); the far plane is not used
+        /// (the raymarch draws past it). Null / fewer than 5 = no view: the valve
+        /// falls back to the old LRU order.
+        public void SetViewFrustum(Plane[] planes)
+        {
+            if (planes == null || planes.Length < 5) { _viewValid = false; return; }
+            for (int i = 0; i < 5; i++)
+            {
+                Vector3 n = planes[i].normal;
+                _viewPlanes[i] = new float4(n.x, n.y, n.z, planes[i].distance);
+            }
+            _viewValid = true;
+        }
+
+        public void ClearViewFrustum() => _viewValid = false;
+        public bool HasViewFrustum => _viewValid;
+
+        /// Does chunk c's world AABB touch the frustum (5 planes, positive-vertex test)?
+        public bool ChunkInView(int3 c)
+        {
+            if (!_viewValid) return false;
+            const float E = EngineConfig.CHUNK_EDGE_VOXELS / 10f;   // 12.8 m (10 voxels per metre, CoordMath)
+            float3 lo = (float3)c * E, hi = lo + E;
+            for (int i = 0; i < 5; i++)
+            {
+                float4 p = _viewPlanes[i];
+                float3 pv = math.select(lo, hi, p.xyz >= 0f);
+                if (math.dot(p.xyz, pv) + p.w < 0f) return false;
+            }
+            return true;
+        }
+
+        /// 0 = out of view, 1 = in view beyond the near range, 2 = in view and near.
+        private int ValveClass(int3 c, int dist)
+        {
+            if (!ChunkInView(c)) return 0;
+            return dist <= _loadRadiusChunks ? 2 : 1;
+        }
+
+        private void CountValveVictim(int3 c, int3 camChunk)
+        {
+            if (!_viewValid) return;
+            int dist = math.max(math.abs(c.x - camChunk.x), math.abs(c.z - camChunk.z));
+            int cls = ValveClass(c, dist);
+            if (cls == 0) return;
+            ValveInViewEvictionsTotal++;
+            if (cls < 2) return;
+            ValveInViewNearEvictionsTotal++;
+            if ((long)_frame - _inViewNearLogFrame >= 300)
+            {
+                _inViewNearLogFrame = _frame;
+                Debug.Log($"[valve] evicted an IN-VIEW NEAR chunk {c} ({(ValveViewOrder ? "nothing else left; " : "")}total {ValveInViewNearEvictionsTotal:N0}, " +
+                          $"in view {ValveInViewEvictionsTotal:N0}, LRU valve {LruEvictionsTotal:N0}, order {(ValveViewOrder ? "view" : "LRU")})");
+            }
+        }
+
+        private struct ValveCandidate
+        {
+            public int3 coord; public int cls, dist; public uint touched;
+        }
+
+        private sealed class ValveCandidateOrder : IComparer<ValveCandidate>
+        {
+            public int Compare(ValveCandidate a, ValveCandidate b)
+            {
+                if (a.cls != b.cls) return a.cls.CompareTo(b.cls);             // out of view first
+                if (a.dist != b.dist) return b.dist.CompareTo(a.dist);         // farthest first
+                if (a.touched != b.touched) return a.touched.CompareTo(b.touched); // LRU breaks ties
+                if (a.coord.x != b.coord.x) return a.coord.x.CompareTo(b.coord.x);
+                if (a.coord.z != b.coord.z) return a.coord.z.CompareTo(b.coord.z);
+                return a.coord.y.CompareTo(b.coord.y);
+            }
+        }
+
+        private static readonly ValveCandidateOrder s_valveOrder = new ValveCandidateOrder();
+        private readonly List<ValveCandidate> _valveCands = new List<ValveCandidate>();
+
+        /// The victim order the valve would use right now (tests; allocates).
+        public List<int3> ValveOrderForTest(int3 camChunk)
+        {
+            BuildValveCandidates(camChunk);
+            var r = new List<int3>(_valveCands.Count);
+            foreach (var v in _valveCands) r.Add(v.coord);
+            return r;
+        }
+
+        private void BuildValveCandidates(int3 camChunk)
+        {
+            _valveCands.Clear();
+            foreach (var chunk in _store.ResidentChunks())
+            {
+                int dist = math.max(math.abs(chunk.coord.x - camChunk.x), math.abs(chunk.coord.z - camChunk.z));
+                if (dist <= 2) continue; // never evict the player's immediate neighbourhood (as the LRU order)
+                uint touched = _table.TryGetValue(chunk.coord, out var r) ? r.lastTouchedFrame : 0;
+                _valveCands.Add(new ValveCandidate { coord = chunk.coord, cls = ValveClass(chunk.coord, dist), dist = dist, touched = touched });
+            }
+            _valveCands.Sort(s_valveOrder);
+        }
+
+        private void ApplyPoolPressureValveByView(int3 camChunk)
+        {
+            if (!_store.IsUnderPoolPressure) return;
+            BuildValveCandidates(camChunk);
+            int guard = 0;
+            for (int i = 0; i < _valveCands.Count && _store.IsUnderPoolPressure && guard++ < 32; i++)
+            {
+                int3 victim = _valveCands[i].coord;
+                CountValveVictim(victim, camChunk);
                 EvictChunk(victim);
                 LruEvictionsTotal++;
             }

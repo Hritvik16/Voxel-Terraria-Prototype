@@ -1720,3 +1720,18 @@ eviction change. `-retryfit 0` = the old retry (launch-wide, Phase4Bootstrapper;
 `[mirror] box` line. Tests `GpuRetryFitTests` (8: min(k, N) nearest first for k = 1/2/4/6, promises held across passes, a near chunk too big
 stays refused while a farther one goes, evicted ones are forgotten, `-retryfit 0` churn). Driver `Logs/overnight/207_pair.sh` (b1 ON / b2 OFF,
 197's poses); shots `Screenshots/207/{a1,b1,b2}/`. Result: HANDOFF 207.
+
+**Task 208 (bug, default ON; owner Q-AB (a), fix 2 of 2): the CPU pool valve spares chunks the player can see.** §3.6's valve
+(`StreamManager.ApplyPoolPressureValve`) used to take the oldest-admitted chunks outside the camera's 5x5. Those are the NEAR ones, because
+admission runs nearest first, so 23 % of its victims were in view (19,488 of 83,149 in the proof's OFF launch). Now, when a camera frustum is
+set (`SetViewFrustum`, from `Phase4Bootstrapper.LateUpdate` via `GeometryUtility.CalculateFrustumPlanes`, no alloc), one scan + one sort per
+call ranks the victims: out of view first, then in view beyond the load radius, then in view within it (last resort: counted and logged as
+`[valve] evicted an IN-VIEW NEAR chunk`). Within a class the farthest (Chebyshev XZ) goes first; LRU then the coord break ties. The pressure
+test, the 32-victim guard per call, the 5x5 exemption and EvictChunk (save before drop) are unchanged. There is no per-chunk memory (reused
+scratch list), and the old code scanned every resident chunk once per victim. With no frustum, or with `-valveview 0` (launch-wide,
+`StreamManager.ValveViewOrder`), the old LRU order runs. New counters `ValveInViewEvictionsTotal` / `ValveInViewNearEvictionsTotal` (counted in
+both orders), printed on `-mirrorprobe 1`'s `[mirror]` lines. Tests `ValveViewOrderTests` (6: a full pool evicts 32 out-of-view farthest-first
+chunks = the order's first 32, the order is deterministic and class/far/LRU ranked, a 1-brick overshoot stops on the order's prefix, everything
+in view still relieves the pool and counts, the old order's per-call count and in-view counter, no frustum = LRU). Driver
+`Logs/overnight/208_pair.sh` (b1 ON / b2 `-valveview 0`; 197's poses + a 3-step walk from jungle_high); shots `Screenshots/208/{b1,b2}/`.
+Side effect: the GPU body pool stays full (the old valve freed GPU bodies by dropping in-view chunks), so refusals went up. See HANDOFF 208.

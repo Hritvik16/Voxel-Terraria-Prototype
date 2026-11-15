@@ -77,7 +77,7 @@ public partial class PlaygroundCapture
         }
         lines.Add($"  [mirror] box {o}..{o + d - 1} layers {lo}..{hi} | MISSING (resident, not air, slot not its own): refused {nRefused}, dirty {nDirty}, parked {nParked}, LOST {nLost} | " +
                   $"ABSENT over solid {nAbsentOverSolid} (queued {nAbsentQueued}, loading {nAbsentLoading}) | dirty set {clip.DirtyCount:N0}, pending loads {smr?.PendingLoads ?? -1}, in flight {smr?.InFlightLoads ?? -1}, refused now {clip.GpuPoolRefusedNow} (refusals total {clip.GpuPoolRefusedTotal:N0}, retries total {clip.GpuPoolRetriesTotal:N0}, re-refused {clip.GpuPoolReRefusedTotal:N0}, retry pending {clip.GpuPoolRetryPending}) | " +
-                  $"evicted total {smr?.ChunksEvictedTotal ?? -1:N0} (LRU valve {smr?.LruEvictionsTotal ?? -1:N0}) | hand-over columns {FarField.Active?.HandOverColumns ?? -1}");
+                  $"evicted total {smr?.ChunksEvictedTotal ?? -1:N0} (LRU valve {smr?.LruEvictionsTotal ?? -1:N0}, in view {smr?.ValveInViewEvictionsTotal ?? -1:N0}, in view near {smr?.ValveInViewNearEvictionsTotal ?? -1:N0}) | hand-over columns {FarField.Active?.HandOverColumns ?? -1}");
         Vector3 e = cam.transform.position;
         float H(int3 c) => math.length(new float2(c.x * 12.8f + 6.4f - e.x, c.z * 12.8f + 6.4f - e.z));
         cand.Sort((a, b) => H(a).CompareTo(H(b)));
@@ -220,7 +220,7 @@ public partial class PlaygroundCapture
         }
         var smr = Phase4Bootstrapper.Streamer;
         lines.Insert(0, $"  [mirror +{dt:F0}s] of {_mirrorProbeLast.Count} listed: still missing/absent {still} | dirty set {clip.DirtyCount:N0}, refused now {clip.GpuPoolRefusedNow} | " +
-                        $"evicted total {smr?.ChunksEvictedTotal ?? -1:N0} (LRU valve {smr?.LruEvictionsTotal ?? -1:N0})");
+                        $"evicted total {smr?.ChunksEvictedTotal ?? -1:N0} (LRU valve {smr?.LruEvictionsTotal ?? -1:N0}, in view {smr?.ValveInViewEvictionsTotal ?? -1:N0}, in view near {smr?.ValveInViewNearEvictionsTotal ?? -1:N0})");
         return lines;
     }
 }
