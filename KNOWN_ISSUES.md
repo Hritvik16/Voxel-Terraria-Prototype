@@ -42,6 +42,13 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **A CLICK ON THE PLAYER WINDOW TURNS A CAPTURE RUN'S CAMERA (task 205, 2026-11-14; fixed for `-worldsurvey` only).**
+  Once a click captures the mouse, `PlaygroundFlyCamera.Update` writes its own yaw / pitch into the camera EVERY frame, overriding the
+  capture's `SetPositionAndRotation`. With the queue running while the owner uses the Mac, 205's first launch shot 6 of 20 frames at the
+  wrong view (and the dash oracle followed the wrong camera). The world survey now disables the fly camera; other capture modes
+  (look review, cost split, ...) still have the trap. Tell: arms of one pose that show different views, or numbers that move far from
+  an earlier run at the same pose. Also (fixed in 205): the survey pre-applies its LAST arm before each pose; an arm ending in
+  `_df1`/`_rh0`-style suffixes there used to reach `ApplyCompareArm` and kill the survey (no shots, player idles) -- `_dfN` is stripped now.
 - **IL2CPP (THE PLAYER) MIS-TYPES A VALUE CARRIED ACROSS A `?:` INSIDE AN EXPRESSION (task 203, 2026-11-14; worked around, NOT a bug in our logic).**
   `w = (uint)byteField | (uint)a << 8 | ... | (flag ? 1u << 31 : 0u)` compiled in IL2CPP to a C++ temp typed `uint8_t` (the type of the
   FIRST operand) held across the branch: everything above bit 7 was lost in the PLAYER only. Mono (EditMode) and Burst were right, so every

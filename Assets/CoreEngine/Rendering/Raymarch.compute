@@ -3825,6 +3825,36 @@ float FarShadeBlend(float distVoxels)
 // over the four texel centres around p, at the finest level whose texel is
 // >= 2 px there. False where no ring holds p, or p is more than one texel below
 // the lowest / above the highest of the four tops (a cave, an overhang).
+// Task 205: the same test, as a code: 0 = no ring holds p (n = +Y); 2 = on the surface
+// (FarSlopeNormal's true, same math); outside the four tops' bracket (n = the column slope
+// anyway): 1 = BELOW it (a recess, a cave, a 3D wall under the column heights), 3 = ABOVE it
+// (something the 2.5D heights do not hold: a tree, an overhang's lip).
+uint FarSlopeCode(float3 p, float distVoxels, out float3 n)
+{
+    n = float3(0.0, 1.0, 0.0);
+    if (_FarEnabled == 0) return 0u;
+    float2 camV = _CameraPos.xz * 10.0;
+    float cheb = max(abs(p.x - camV.x), abs(p.z - camV.y));
+    float fp = 2.0 * distVoxels * _ShellPixelAngle;
+    int L = 0;
+    [loop] while (L < FAR_LEVELS - 1 && ((float)(8 << L) < fp || cheb >= (float)((FAR_USE_RADIUS - 2) * (8 << L)))) L++;
+    float tv = (float)(8 << L);
+    if (cheb >= (float)(FAR_USE_RADIUS - 2) * tv) return 0u;
+    float2 f = p.xz / tv - 0.5;
+    int2 c = int2(floor(f));
+    float2 fr = f - float2(c);
+    float h00 = (float)(FarTexelAt(L, c) & 0xFFFFu);
+    float h10 = (float)(FarTexelAt(L, c + int2(1, 0)) & 0xFFFFu);
+    float h01 = (float)(FarTexelAt(L, c + int2(0, 1)) & 0xFFFFu);
+    float h11 = (float)(FarTexelAt(L, c + int2(1, 1)) & 0xFFFFu);
+    float lo = min(min(h00, h10), min(h01, h11));
+    float hi = max(max(h00, h10), max(h01, h11));
+    float dx = lerp(h10 - h00, h11 - h01, fr.y);
+    float dz = lerp(h01 - h00, h11 - h10, fr.x);
+    n = normalize(float3(-dx, tv, -dz));
+    return (p.y < lo - tv) ? 1u : (p.y > hi + tv) ? 3u : 2u;
+}
+
 bool FarSlopeNormal(float3 p, float distVoxels, out float3 n)
 {
     n = float3(0.0, 1.0, 0.0);
@@ -3945,6 +3975,33 @@ float CubeFilterWeight(float3 p, float distVoxels, uint m, out float3 nS)
     float w = CubeFilterBlend(distVoxels);
     if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u || !FarSlopeNormal(p, distVoxels, nS)) return 0.0;
     return w;
+}
+
+// ===========================================================================
+// TASK 205 (task 198's option 1, `-dashfix 1|2`, default 0 = OFF): white 1-px dashes on steep walls
+// are sun-lit voxel TREADS (top faces) lit by their OWN face where the bracket test above fails
+// (CubeFilterWeight 0; 205's oracle: every such dash lies ABOVE the four column tops). With _DashFix
+// the filtered light also applies there -- with the column slope -- scaled by `open`, the hit's sky
+// visibility (skyVis: the tier-0 sky probe, 1 where none runs, e.g. shell hits), so sky-closed hits
+// (caves) keep their face light. Which faces (the caller passes open 0 for the others):
+// 1 = every face but undersides (y < 0): kills the dashes, but trees / cacti (also above the
+//     column tops) lose their cube look -- lit by the ground's slope;
+// 2 = TOP faces only (y > 0): the treads take their staircase's mean, every side face keeps its own
+//     light; a top face over flat ground is lit the same either way (the mean of nS = +Y is the top).
+// Off: exactly CubeFilterWeight.
+// ===========================================================================
+int _DashFix;
+
+float CubeFilterWeightOpen(float3 p, float distVoxels, uint m, float open, out float3 nS)
+{
+    nS = float3(0.0, 1.0, 0.0);
+    float w = CubeFilterBlend(distVoxels);
+    if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u) return 0.0;
+    uint code = FarSlopeCode(p, distVoxels, nS);
+    if (code == 2u) return w;
+    if (code == 1u || code == 3u) return w * saturate(open);
+    nS = float3(0.0, 1.0, 0.0);
+    return 0.0;
 }
 
 float FarShadeHaze(float distVoxels, float y0, float y1)
@@ -5713,7 +5770,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float cubeW = 0.0;
             if (_CubeFilter != 0)
             {
-                if (!selfLit) cubeW = CubeFilterWeight(rayStart + rayDir * currentDist, currentDist, lm, nSlope);
+                if (!selfLit)
+                {
+                    if (_DashFix != 0)   // task 205: sky-open hits keep the filtered light past the bracket test
+                        cubeW = CubeFilterWeightOpen(rayStart + rayDir * currentDist, currentDist, lm,
+                                                     (normal.y > 0 || (_DashFix == 1 && normal.y == 0)) ? skyVis : 0.0, nSlope);
+                    else
+                        cubeW = CubeFilterWeight(rayStart + rayDir * currentDist, currentDist, lm, nSlope);
+                }
                 if (cubeW > 0.0) nF = normalize(lerp(nF, nSlope, cubeW));
             }
             else if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);

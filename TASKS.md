@@ -1681,3 +1681,17 @@ random sites: lobes in the box, one 4-connected pond, rings nested, bed step <= 
 off = the ellipse, Pack / Decode; writes `Logs/TerrainGen/outline203/shapes.txt`); `Sites_AtRest_PathsAgree_Adversarial` also renders CPU
 top views `Screenshots/203/cpu_top_*.png`. Shots `Logs/overnight/203_shots.sh` (seed 42, `-tod 12`, `-pocketoutline 0` vs default),
 `Screenshots/203/viewer.html`. Result: HANDOFF 203.
+
+**Task 205 (look, 2026-11-14; flag only, default OFF -- the look call is the owner's): white dashes in play + `-dashfix 0|1|2`.**
+Play check (198's poses, noon, sun behind): FSR 3 dyn does NOT hide the dashes. It turns them into a fainter light line (forest_breaks wall box:
+66 predicted-dash px showing at native -> 14-18 in play; cliff_snow ledge 122 -> 8-9; tree crowns 784 -> 296-321). New finding (oracle side split): EVERY
+predicted dash lies ABOVE the four far-texel column tops (forest 374/374, cliff_snow 1,296/1,296, 0 below), so trees and cacti (also above) fail the bracket the same way.
+`-dashfix` (`RaymarchFeature.DashFix`, `_DashFix`; `Raymarch.compute` `FarSlopeCode` / `CubeFilterWeightOpen`, voxel / shell path only, the far band's call unchanged):
+where the bracket test fails, sky-open hits (x skyVis; caves keep face light; undersides never) take task 120's filtered cube light with the column slope.
+**2 = TOP faces only (recommended)**: dashes gone at native and in play (forest box 66 -> 0, cliff_snow 122 -> 1-6), side faces keep their light; changes
+0.42 % (forest) / 1.05 % (cliff_snow) / 4.4 % (overhang: crowns lose their tread stripes, a little darker) / 0.16 % (cave) of pixels.
+1 = every face but undersides: also kills them, but flattens trees / cacti and adds pale side-face stripes (7.4 % on overhang). 0 = byte for byte the old
+call (`fixed_cliff` identical to 198's pre-change frame; others within launch-to-launch streaming noise). Survey arms `native_df2` / `fsr3_dyn_df2`
+(suffix `_dfN`); `-dashprobe 1` now also counts later arms (`DashCount`) against the first arm's predicted pixels and splits predictions ABOVE / below the
+bracket. The world survey disables `PlaygroundFlyCamera` (a click on the window turned the camera; KNOWN_ISSUES). Tests `DashFixTests` (2). Drivers
+`Logs/overnight/205/shoot1-4.sh`; pictures `Screenshots/205/viewer.html`. Result: HANDOFF 205.

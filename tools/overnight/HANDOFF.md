@@ -1,59 +1,49 @@
-# 204-plan-fluid-pocket-streams: DONE (plan only, no code). Rec.: (A) streams built the river way, at rest, every fluid; (C) held water later; not (B).
-## 1. Rivers today, and can a stream be one scaled down? YES
-- Map (8 m cells): Hydrology catchment (`WorldMap.Flow`, kept). River = 800+ cells. `Rivers.Profile` gives a level per cell that never
-  rises downstream and ends AT the lake/sea. `FlowDir` (16 bits/cell) = direction, fall, slope, size, uploaded as the renderer's flow map.
-- Column: a carved channel on 179's meander curve. The surface steps 1 voxel every few m. Each step is held by a LIP (engine 136, solid
-  to the CPU, drawn as water by `RiverLipAsWater`). riverLook adds ripples and foam. Seed 42: 3,354 river cells, 85.6 M water voxels, UNSETTLED 0
-  = 0 fluid tiles, 0 tick cost until touched. Touched river water drains a finite amount: no source (R3 "held water" is unbuilt).
-- Narrowest river = 2.4 m (HALF_W_MIN 12 vox). A stream is the same code at half width 3-6 vox (0.6-1.2 m), 0.15-0.35 m deep by 179's section rule.
-  `Rivers` already takes the fluid as a parameter (Q5).
-- **Truly flowing costs too much.** An awake 100 m stream needs ~40-80 tiles (20-40 MB, 8-17 % of the pool), held ALL the time: flowing
-  water never settles. It is ~36 k voxels, much of it moving each tick, so thousands of ops/tick vs ~1,024 that keep 6.5 Hz at 20 FPS
-  (97). The tick slows for every fluid, chunks dirty every tick (§4.3 upload p99 already red under fluid), and it freezes at the 128 m edge (8.15).
-
-## 2. Sources and surplus (data-derived, the same rule for every biome)
-- Path: UPSTREAM from the pond on the 8 m map: the higher 8-neighbour draining into this cell with the largest `Flow` (ties by index).
-  Stop at a catchment floor, a 2 m/cell rise (spring at the cliff foot) or 6-16 cells (48-128 m, by pond size). No catchment = a 1-cell
-  spring at the high rim. Cut at route corridors, Walk band, start zone, signature features. The inlet is on the high side; 203's
-  lobe 1 already points to the LOW rim = the outlet side.
-- Head per fluid: water = spring/seep; lava = small crusted vent (volcanic only); acid = hot spring with a sinter head; oil = tar seep, short;
-  sludge = mud seep, short; honey = trickle from rock/tree, short; quicksand = NO stream. v1 = the channel head only, stamps later.
-- Surplus (the pond stays at rest by construction in all): (i) OUTLET stream from the low rim down the drainage line to the next river,
-  lake or sea, or a small terminal seep pool within the cap; (ii) SEEP: a damp lining patch on the low rim only; (iii) NONE.
-  Suggest (i) where the catchment is over the floor, else (ii). The mouth stands AT the pond level L (the river MOUTH rule).
-
-## 3. Options
-- **(A) River way, at rest (REC.)** Sees: a 0.6-1.2 m winding channel into the pond: 10 cm steps, ripples, foam (cf. the rivers in
-  `Screenshots/179/river_2_after.png`). Gameplay: like rivers today. Digging releases a finite amount that drains into the hole. The
-  pond is not refilled and the stream cannot be diverted for good. Cost: 0 tiles, 0 tick. Memory: stream cells go into the existing
-  map arrays as RIVER class + a 1-bit stream mask (128 KB) for the width rule, so every river keep-out (trees, ores, stamps, Cover),
-  the flow map, far band and minimap work unchanged. Gen: ~131 ponds x <= 16 cells, est. < 20 ms/world (pocket plane = 68 ms). Columns
-  near streams ~0.6 % of land, chunk gen < +1 %. Risk: the pond plane must ignore its own stream (32 m keep-out); route test. Non-water lips:
-  lining-coloured (0 ids) or 6 per-fluid lip ids drawn as the fluid (`RiverLipAsWater` table, `GenToEngine`); a lava flow look = shader work.
-- **(B) Flowing in the CA.** Sees: moving voxels, but a hopping thin film on a 10 cm stair; lava at R/6, ~1 voxel/s. Gameplay:
-  divertable and the pond really fills, but only within 128 m; frozen past it. Cost: see section 1, plus new spring + sink rules in
-  `FluidCA.compute` AND `FluidReferenceCPU`. Risk HIGH, performance-changing; needs its own measured task.
-- **(C) A + held water (R3).** Sees: A. Gameplay: a touched held cell turns to water, and a held cell beside air feeds it within the fluid
-  budget, so a trench DIVERTS a stream (and rivers) for good. Cost: 0 tiles until touched, then only along the new flow, with ops capped.
-  Memory: material ids only. Risk medium: CA change in both implementations; the motor, underwater view, see-through and edit tools must
-  treat held as fluid. Effort M-L, measured. Touches no memory layout.
-
-## 4. Frozen APIs / amendments touched
-- A: none. Generator change (SUITE=all, `FluidAtRestTests`); 8.15/8.16 untouched; new GenMat ids only for per-fluid lips (KNOWN_ISSUES GenToEngine row).
-- B: 8.15 (NEAR 128 m), 8.16 (fall on a stepped bed), 8.14 row 5 tick contract (6.5 Hz), §4.3 upload budget, CPU/GPU CA parity, pool size (55).
-- C: new material ids. Conversion goes op list -> `ChunkStore.SetVoxel`, so D.1, §4.4 and the sole writer are unchanged.
-  `IWorldQuery.GetVoxel`'s signature is unchanged, but "is fluid" callers must learn the held ids. New CA rule in both CA implementations.
-- Not done: nothing built, no follow-up queued (needs the owner). 131 ponds on seed 42 (~0.1 in the 128 m disc). Deep pockets: no streams.
+# 205-look-white-dashes-play-check: DONE. Dashes STILL SHOW in play (FSR 3 only dims them). Fix built behind `-dashfix` (default 0 = OFF); mode 2 recommended.
+## Step 1: play check (198's poses + overhang + cave mouth; noon, sun behind; arms native / play FSR 3 dyn; `-dashprobe 1` both arms)
+- FSR 3 turns a dash row into a fainter light line or a soft streak; it does not remove it. Predicted-dash pixels that show as dashes,
+  native -> play: forest_breaks wall box 66 -> 14-18, cliff_snow ledge 122 -> 8-9, overhang tree crowns 784 -> 296-321 (`Logs/overnight/205/look_a3.out`, `look_a4.out`).
+- NEW (oracle side split): EVERY predicted dash lies ABOVE the four far-texel column tops (forest 374/374, cliff_snow 1,296/1,296, 0 below).
+  Tree crowns and cacti sit above the tops too, so they fail the same test and ALSO show tread stripes (overhang pose).
+## Step 3: the fix, `-dashfix 0|1|2` (`RaymarchFeature.DashFix` -> `_DashFix`)
+- Where the bracket test fails, sky-open hits (x skyVis, so caves keep their face light; undersides never change) get task 120's filtered cube
+  light with the column slope. `Raymarch.compute`: `FarSlopeCode` (FarSlopeNormal's test as 0/1/2/3), `CubeFilterWeightOpen`, one call site
+  in the voxel/shell path under `if (_DashFix != 0)`. The far band's call is unchanged.
+- **2 = TOP faces only (REC.):** dashes gone at native and in play (forest box 66 -> 0, play 14 -> 0; cliff_snow 122 -> 6, play 8 -> 1). Side faces keep their light.
+  Changed px: forest 0.42 % (ledge lines + pine crowns), cliff_snow 1.05 % (2 ledge bands), overhang 4.4 % (crowns lose their stripes, a little
+  darker: mean -6.8 lum on changed px), cave 0.16 % (cactus tops, far ridge; the cave interior unchanged).
+- 1 = every face but undersides: kills the dashes too, but flattens trees/cacti into a camouflage pattern and adds pale side-face stripes (overhang 7.4 %).
+- 0 = the old call byte for byte by construction. Evidence: `fixed_cliff` native is pixel-identical to 198's pre-change frame; forest 99.83 % /
+  cliff_snow 99.96 % identical, which is under the noise between two OFF launches of the same build (99.05 %, overhang 84.65 %).
+- Efficient by construction: one int uniform, no buffers, no extra rays. Memory: all arms in the same launches: ledger peak/pools identical OFF vs
+  ON, GPU body pool refused 0, CPU pool peak 423,864 < valve. No timing arms (rule 10). The extra cost is one `FarSlopeCode` per far voxel/shell hit
+  where the old code returned early, so it costs about the same as before.
+## Also changed
+- World survey disables `PlaygroundFlyCamera`: a click on the player window (owner at the Mac) made it overwrite the camera rotation every frame;
+  launch 1 shot 6/20 frames at the wrong view. KNOWN_ISSUES entry (other capture modes still have it).
+- Survey pre-apply of the last arm strips `_dfN`. Launch 2 died on `native_df1` as the last arm (FormatException; player killed, relaunched SKIP_BUILD).
+- `-dashprobe`: later arms counted (`DashCount`) against arm 1's predicted pixels; ABOVE/below split. Arm suffix `_dfN`. `LadderArms` keeps any `native_*`.
+- Commit: see `git log -1` (205: ...). Files: Raymarch.compute, RaymarchFeature.cs, PlaygroundCapture.{DashProbe,WorldSurvey,RowsLook}.cs,
+  Tests/DashFixTests.cs, TASKS.md, KNOWN_ISSUES.md, `Logs/overnight/205/*` (drivers, logs, diff tools).
+## Evidence
+- Fast suite PASS 1023 FAIL 0 SKIP 21 (`Logs/overnight/205/fast.out`); filter DashFixTests + CubeLookTests 5/5 earlier.
+- 4 launches (budget overrun, reasons): L1 camera turned by a click; L2 died (arm parse); L3 OK (mode 2 was "below only" = no effect, data
+  showed why); L4 OK with the top-face mode. L4's forest OFF shot caught a loading shell: the forest OFF frame is L3's (same OFF code).
+- Looked at: all zooms below + full frames + diff maps.
+## Not done / next
+- No default change (owner). If (a) is chosen: default `DashFix = 2` (+ PlaySettings entry if wanted), a fast-suite run, one look launch.
+- Not checked: motion (FSR 3 in motion is likely worse than these still frames), night / low sun, a sun-facing camera.
 
 ## For the doc
-- Result: plan for streams feeding every pond. Rec. (A): built like the rivers, at rest. 0 fluid tiles, 0 tick, ~128 KB, < 20 ms/world.
-- Numbers: river at rest 0 tiles, UNSETTLED 0 (`Logs/TerrainGen/fluid_at_rest_42.txt`). A flowing 100 m stream: ~40-80 tiles (20-40 MB)
-  + thousands of ops/tick vs ~1,024 at 6.5 Hz.
-- **Question (Q-AF, streams):** how should streams feed the ponds? (a) REC: like the rivers, a thin carved stream at rest, every fluid
-  but quicksand. It looks fed; digging drains it a little; no refill. (b) Truly flowing in the fluid sim: divertable, but 20-40 MB and a
-  slower fluid tick per stream, frozen past 128 m. (c) (a) now, then "held water" (R3) later: streams AND rivers become endless sources
-  a trench can divert (an engine task). Sub-questions: surplus = outlet stream else a seep (rec.) / seep only / none? Non-water step
-  lips = lining-coloured (free) or drawn as the fluid (6 new ids)?
-- Images: `Screenshots/179/river_2_after.png`: rivers at mid-frame (blue channels, white foam steps), what a stream scales down from.
-  `Screenshots/203/side_water_after.png`: the pond at centre has no inlet today; a stream would enter from the upslope side.
-  `Screenshots/203/top_lava_after.png`: the lava pond at centre; a lava stream would come from a vent and needs its own lip/flow look.
+- Result: the white wall dashes still show in play (FSR 3 dims them to a faint line). New `-dashfix 2` removes them at native and in play. Default is OFF until you decide.
+- Numbers (`Logs/overnight/205/look_a4.out`, `look_a3.out`): forest wall box dash px over sun-lit treads 66 (native) -> 14 (play) -> 0 (play + fix 2);
+  cliff_snow ledge 122 -> 8 -> 1. Pixels changed by fix 2: forest 0.42 %, cliff_snow 1.05 %, tree pose 4.4 %, cave 0.16 % (cave interior 0).
+  Memory: +0 (one shader int); refusals 0 both ways.
+- **Question (Q-AG, wall dashes):** turn the fix on by default? (a) REC: yes, `-dashfix 2` (top faces only). The dashes go; ledges at 100+ m read
+  as wall, and tree crowns lose their bright tread stripes and get a little darker. (b) `-dashfix 1`: also removes them, but trees and cacti look flat (not rec.).
+  (c) Leave it OFF: the dashes stay as faint lines in play.
+- Images (`Screenshots/205/viewer.html`, full size):
+  - `Screenshots/205/205_forest_dashes_4x.png`: the forest wall, 4x. Top-left native: the row of white dashes at the bottom. Top-right play:
+    still a faint line. Bottom: fix 2, native and play: the line is gone and nothing else moves.
+  - `Screenshots/205/205_trees_4x.png`: tree crowns, 4x (what the fix also changes). Top-left native: bright stripes. Top-right fix 2: no stripes, slightly darker.
+    Bottom-left fix 1: flat camouflage (why not 1).
+  - `Screenshots/205/205_diff_overhang_df2.png`: where fix 2 changes a frame (blue = darker): the tree crowns and the far cliff only. Arches, ground and caves are unchanged.

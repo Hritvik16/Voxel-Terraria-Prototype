@@ -424,6 +424,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CellHash = CubeLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cellhash");
     public static float CubeBounceStrength = 0.25f;
     public static float CubeFilterStartM = 20f, CubeFilterFullM = 50f;
+    /// Task 205 (task 198's option 1; look call = the owner's, so default 0 = OFF): the white 1-px dashes on steep walls
+    /// are sun-lit treads (top faces) lit by their own face where FarSlopeNormal's bracket test fails. There, for sky-open
+    /// voxel / shell hits (x the hit's sky visibility; caves keep their face light), `-dashfix 1` gives every face but
+    /// undersides the filtered cube light with the column slope (kills the dashes; trees and cacti lose their cube look),
+    /// `-dashfix 2` only TOP faces (kills the dashes; side faces keep their own light, so crowns keep their look).
+    /// Needs CubeFilter. 0 = unchanged.
+    public static int DashFix = ValidDashFix(ParseArgInt(System.Environment.GetCommandLineArgs(), "-dashfix", 0));
+    public static int ValidDashFix(int v) => v == 1 || v == 2 ? v : 0;
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face
     /// sees), haze range and scale height (metres), and the share of the haze that
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
@@ -534,6 +542,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
     /// `-farrockslope 0|1` (last match wins); ON unless the last value is "0".
     public static bool ParseFarRockSlope(string[] a) => ParseFlagOn(a, "-farrockslope");
+
+    /// `<flag> N`, last match wins; `def` when absent or not an integer (task 205).
+    public static int ParseArgInt(string[] a, string flag, int def)
+    {
+        int v = def;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag) v = int.TryParse(a[i + 1], out int n) ? n : def;
+        return v;
+    }
 
     /// `<flag> 0|1`, last match wins; ON unless the last value is "0".
     public static bool ParseFlagOn(string[] a, string flag)
@@ -1714,6 +1731,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_CubeBounce", CubeBounce ? CubeBounceStrength : 0f);   // task 120
                         cmd.SetComputeIntParam(data.compute, "_CubeFilter", CubeFilter ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_CellHash", CellHash ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_DashFix", DashFix);   // task 205
                         cmd.SetComputeVectorParam(data.compute, "_CubeFilterRange", new Vector4(CubeFilterStartM * 10f, CubeFilterFullM * 10f, 0f, 0f));
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);

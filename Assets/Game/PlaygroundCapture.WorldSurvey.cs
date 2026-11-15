@@ -55,6 +55,11 @@ public partial class PlaygroundCapture
         LightingDriver.ClockPaused = true;
         Playground.DebugSuspendFluidSim = true;
         Playground.DebugHideUi = true;
+        // Task 205: the fly camera writes its own yaw / pitch into the camera EVERY frame once a click on the
+        // player window captures the mouse (PlaygroundFlyCamera.Update), so a click while the survey runs turned
+        // later shots to the wrong view (205's first launch). The survey places the camera itself: switch it off.
+        var flyCam = cam != null ? cam.GetComponent<PlaygroundFlyCamera>() : null;
+        if (flyCam != null) flyCam.enabled = false;
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
         float3 sun = SunCycle.DirectionAt(noon);
@@ -382,7 +387,11 @@ public partial class PlaygroundCapture
             float t0 = Time.realtimeSinceStartup;
             Phase4Bootstrapper.DebugStreamCentre = p.eye;
             cam.transform.SetPositionAndRotation(p.eye, Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up));
-            { string a0 = arms[arms.Length - 1]; int sfi = a0.LastIndexOf("_sf"); ApplyCompareArm(sfi >= 0 ? a0.Substring(0, sfi) : a0); }   // task 193
+            {   // task 193; task 205: also without "_dfN" (ApplyCompareArm read "native_df1"'s "df1" as rows and the survey died)
+                string a0 = arms[arms.Length - 1];
+                int dfi = a0.LastIndexOf("_df"); if (dfi >= 0) a0 = a0.Substring(0, dfi);
+                int sfi = a0.LastIndexOf("_sf"); ApplyCompareArm(sfi >= 0 ? a0.Substring(0, sfi) : a0);
+            }
             cam.ResetProjectionMatrix();
             yield return NearSettle(far, sm);
             if (p.scan != 0)
@@ -435,6 +444,10 @@ public partial class PlaygroundCapture
                 // "_gs1" = restaged with the seal ON (the identity arms' first shot, after the same restage).
                 bool gs0 = baseArm.EndsWith("_gs0"), gs1 = baseArm.EndsWith("_gs1");
                 if (gs0 || gs1) { baseArm = baseArm.Substring(0, baseArm.Length - 4); yield return RestageBox(gs1, p.name); }
+                // Task 205: "_df0|1|2" = RaymarchFeature.DashFix for that shot (task 198's option 1; 2 = below the bracket only).
+                int df0 = RaymarchFeature.DashFix;
+                int dfAt = baseArm.LastIndexOf("_df");
+                if (dfAt >= 0 && int.TryParse(baseArm.Substring(dfAt + 3), out int dfv)) { RaymarchFeature.DashFix = RaymarchFeature.ValidDashFix(dfv); baseArm = baseArm.Substring(0, dfAt); }
                 int sfAt = baseArm.LastIndexOf("_sf");
                 int sf0 = RaymarchFeature.SkyFill;
                 if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
@@ -462,6 +475,7 @@ public partial class PlaygroundCapture
                 else yield return CaptureTo($"ws_{p.name}_{arm}");
                 // Task 198 (diagnostic): CPU oracle (generator shell cells) at the 1-px light lines.
                 if (ArgInt("-dashprobe", 0) == 1 && arm == poseArms[0]) yield return DashProbe(cam, sh, p.name);
+                else if (ArgInt("-dashprobe", 0) == 1) yield return DashCount(p.name, arm);   // task 205: later arms count only
                 if (mprobe)
                 {
                     float tw = Time.realtimeSinceStartup;
@@ -471,6 +485,7 @@ public partial class PlaygroundCapture
                 if (gs0) yield return RestageBox(true, p.name);
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
                 RaymarchFeature.SkyFill = sf0;
+                RaymarchFeature.DashFix = df0;
                 RaymarchFeature.RefusedHandOver = rh0;
                 FarField.LackHandOver = true;
             }

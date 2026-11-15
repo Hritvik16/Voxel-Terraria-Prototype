@@ -92,7 +92,7 @@ public partial class PlaygroundCapture
         for (int i = 0; i < parts.Length; i++)
         {
             string t = parts[i].Trim();
-            parts[i] = t == "native" || t.StartsWith("native_sf") || t == "native_rh0" ? t : t.StartsWith("none") ? $"none_{int.Parse(t.Substring(4))}" : $"fsr3_{t}";
+            parts[i] = t == "native" || t.StartsWith("native_") ? t : t.StartsWith("none") ? $"none_{int.Parse(t.Substring(4))}" : $"fsr3_{t}";
         }
         return parts;
     }

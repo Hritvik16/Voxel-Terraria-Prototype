@@ -31,6 +31,54 @@ using VoxelEngine.WorldGen;
 public partial class PlaygroundCapture
 {
     private const float DASH_RATIO = 1.2f;
+    // Task 205: the first arm's oracle windows (texture-row origin + PREDICTED DASH mask), so a later arm
+    // (play's FSR 3) can count how many of the same predicted pixels still show as dashes. Keyed by pose.
+    private static readonly Dictionary<string, List<(int2 o, bool[] pred)>> _dashPred = new Dictionary<string, List<(int2, bool[])>>();
+    private const int DASH_WW = 192, DASH_WH = 108;
+
+    /// 1-px horizontal light lines of a frame (texture rows: 0 = bottom); the task 198 detector.
+    private static bool[] DashMask(Color32[] bp, int w, int h, out int count)
+    {
+        float Lum(Color32 c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        var dash = new bool[w * h]; count = 0;
+        for (int y = 1; y < h - 1; y++)
+        for (int x = 0; x < w; x++)
+        {
+            float l = Lum(bp[y * w + x]), la = Lum(bp[(y + 1) * w + x]), lb = Lum(bp[(y - 1) * w + x]);
+            if (l > 40f && l >= DASH_RATIO * math.max(la, lb)) { dash[y * w + x] = true; count++; }
+        }
+        return dash;
+    }
+
+    /// Task 205: a later arm's dash count (no oracle): the whole frame, and in each of the first arm's windows
+    /// the dash pixels and how many of the first arm's PREDICTED DASH pixels are dashes in THIS arm's frame.
+    private IEnumerator DashCount(string pose, string arm)
+    {
+        yield return new WaitForEndOfFrame();
+        Texture2D beauty = ScreenCapture.CaptureScreenshotAsTexture();
+        int w = beauty.width, h = beauty.height;
+        Color32[] bp = beauty.GetPixels32();
+        Destroy(beauty);
+        var dash = DashMask(bp, w, h, out int n);
+        L($"  [dash] {pose} [{arm}]: frame {w}x{h}, DASH pixels {n} ({100.0 * n / (w * h):F2} %)");
+        if (!_dashPred.TryGetValue(pose, out var wins)) yield break;
+        for (int wi = 0; wi < wins.Count; wi++)
+        {
+            var (o, pred) = wins[wi];
+            int wDash = 0, wPred = 0, wPredDash = 0;
+            for (int y = 0; y < DASH_WH; y++)
+            for (int x = 0; x < DASH_WW; x++)
+            {
+                int px = o.x + x, py = o.y + y;
+                if (px >= w || py >= h) continue;
+                bool d = dash[py * w + px], pr = pred[y * DASH_WW + x];
+                if (d) wDash++;
+                if (pr) { wPred++; if (d) wPredDash++; }
+            }
+            L($"  [dash] {pose} [{arm}] WINDOW {wi} x {o.x}-{o.x + DASH_WW - 1}, y {h - o.y - DASH_WH}-{h - 1 - o.y} (top-left rows): dash pixels {wDash}; " +
+              $"first arm's PREDICTED DASH pixels {wPred}, of them dash in this arm {wPredDash}");
+        }
+    }
 
     private sealed class GenCells : System.IDisposable
     {
@@ -126,6 +174,7 @@ public partial class PlaygroundCapture
     /// four texel tops around it), where CubeFilterWeight is 0 and the hit is lit by its own cube face.
     private static bool OracleSlopeHolds(uint[] tex, float3 p, float distVoxels, float3 cam10, float pixelAngle)
     {
+        _slopeSide = 0;
         if (tex == null) return true;
         const int USE_R = 440, LT = 1024 * 1024;
         float cheb = math.max(math.abs(p.x - cam10.x), math.abs(p.z - cam10.z));
@@ -139,8 +188,10 @@ public partial class PlaygroundCapture
         float H(int2 t) => tex[L * LT + ((t.y & 1023) << 10) + (t.x & 1023)] & 0xFFFFu;
         float h00 = H(c), h10 = H(c + new int2(1, 0)), h01 = H(c + new int2(0, 1)), h11 = H(c + new int2(1, 1));
         float lo = math.min(math.min(h00, h10), math.min(h01, h11)), hi = math.max(math.max(h00, h10), math.max(h01, h11));
+        _slopeSide = p.y < lo - tv ? 1 : p.y > hi + tv ? 3 : 0;   // task 205: Raymarch.compute's FarSlopeCode 1 / 3
         return !(p.y < lo - tv || p.y > hi + tv);
     }
+    private static int _slopeSide;   // task 205: the last OracleSlopeHolds failure's side: 1 below the bracket, 3 above, 0 none
 
     private static bool RealTop(in OracleHit h) => h.hit && !h.inside && h.normal.y == 1 && h.above == 0;
 
@@ -156,16 +207,12 @@ public partial class PlaygroundCapture
         int w = beauty.width, h = beauty.height;
         Color32[] bp = beauty.GetPixels32();
         Destroy(beauty);
-        float Lum(Color32 c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
         // 1. dash pixels (texture rows: 0 = bottom)
-        var dash = new bool[w * h];
+        var dash = DashMask(bp, w, h, out _);
         var dashList = new List<int2>();
         for (int y = 1; y < h - 1; y++)
         for (int x = 0; x < w; x++)
-        {
-            float l = Lum(bp[y * w + x]), la = Lum(bp[(y + 1) * w + x]), lb = Lum(bp[(y - 1) * w + x]);
-            if (l > 40f && l >= DASH_RATIO * math.max(la, lb)) { dash[y * w + x] = true; dashList.Add(new int2(x, y)); }
-        }
+            if (dash[y * w + x]) dashList.Add(new int2(x, y));
         Vector3 eye = cam.transform.position;
         Ray RayAt(float px, float py) => cam.ScreenPointToRay(new Vector3(px / w * Screen.width, py / h * Screen.height, 0f));
         float[] sub = { 0.125f, 0.375f, 0.625f, 0.875f };
@@ -181,10 +228,10 @@ public partial class PlaygroundCapture
             float pixAng = LODConfig.PixelAngleRad(cam.fieldOfView, RaymarchFeature.LastDispatchResolution.y > 0 ? RaymarchFeature.LastDispatchResolution.y : h);
             float cubeFullV = RaymarchFeature.CubeFilterFullM * 10f;
             if (farTex == null) L("  [dash] NOTE: no far texel CPU copy (FarField.Shadow): the slope test is not emulated");
-            int predTops = 0; bool centreSlope = true;
+            int predTops = 0, predAbove = 0; bool centreSlope = true;
             int Probe(int2 p, out OracleHit centre, out int litTops, out bool centreLit)
             {
-                int tops = 0; centre = default; litTops = 0; centreLit = false; predTops = 0; centreSlope = true;
+                int tops = 0; centre = default; litTops = 0; centreLit = false; predTops = 0; predAbove = 0; centreSlope = true;
                 for (int s = 0; s < 4; s++)
                 {
                     Ray r = RayAt(p.x + 0.5f, p.y + sub[s]);
@@ -193,13 +240,14 @@ public partial class PlaygroundCapture
                     bool lit = (top || s == 1) && oh.hit && OracleSunLit(g, outer, cam10, oh, sunDir, SUNM);
                     bool slope = !oh.hit || oh.tM * 10f < cubeFullV || OracleSlopeHolds(farTex, oh.pos, oh.tM * 10f, cam10, pixAng);
                     if (s == 1) { centre = oh; centreLit = lit; centreSlope = slope; }
-                    if (top) { tops++; if (lit) { litTops++; if (!slope) predTops++; } }
+                    int side = _slopeSide;
+                    if (top) { tops++; if (lit) { litTops++; if (!slope) { predTops++; if (side == 3) predAbove++; } } }
                 }
                 return tops;
             }
             var rng = new Unity.Mathematics.Random(198u);
             int nD = math.min(300, dashList.Count);
-            int dTop = 0, dHit = 0, dInside = 0, dLit = 0, dPred = 0;
+            int dTop = 0, dHit = 0, dInside = 0, dLit = 0, dPred = 0, dPredAbove = 0;
             var shellN = new int[outer.Length]; float dSum = 0f;
             var mats = new Dictionary<int, int>();
             int shown = 0;
@@ -209,6 +257,7 @@ public partial class PlaygroundCapture
                 int tops = Probe(p, out var c, out int lt, out bool cl);
                 if (lt > 0) dLit++;
                 if (predTops > 0) dPred++;
+                if (predAbove > 0) dPredAbove++;
                 if (c.hit) { dHit++; shellN[c.k]++; dSum += c.tM; mats.TryGetValue(c.mat, out int mc); mats[c.mat] = mc + 1; }
                 if (c.inside) dInside++;
                 if (tops > 0) dTop++;
@@ -235,12 +284,14 @@ public partial class PlaygroundCapture
             L($"  [dash] {pose}: frame {w}x{h}, DASH pixels (>= x{DASH_RATIO} brighter than the pixels above and below) {dashList.Count} " +
               $"({100.0 * dashList.Count / (w * h):F2} %)");
             L($"  [dash] {pose} ORACLE: dash pixels probed {nD}: CPU centre ray hits {dHit}, pixel holds a REAL TOP FACE (any of 4 sub-rays) {dTop} " +
-              $"({100.0 * dTop / math.max(nD, 1):F0} %), a SUN-LIT real top face {dLit} ({100.0 * dLit / math.max(nD, 1):F0} %), a sun-lit top where the SLOPE TEST FAILS (predicted dash) {dPred} ({100.0 * dPred / math.max(nD, 1):F0} %), inside-start {dInside}; centre hits by shell{ss}, mean {dSum / math.max(dHit, 1):F0} m; mats{ms}");
+              $"({100.0 * dTop / math.max(nD, 1):F0} %), a SUN-LIT real top face {dLit} ({100.0 * dLit / math.max(nD, 1):F0} %), a sun-lit top where the SLOPE TEST FAILS (predicted dash) {dPred} ({100.0 * dPred / math.max(nD, 1):F0} %; ABOVE the bracket {dPredAbove}, below {dPred - dPredAbove}), inside-start {dInside}; centre hits by shell{ss}, mean {dSum / math.max(dHit, 1):F0} m; mats{ms}");
             L($"  [dash] {pose} CONTROL: random hit pixels {nC}: hold a real top face {cTop} ({100.0 * cTop / math.max(nC, 1):F0} %), a sun-lit one {cLit} ({100.0 * cLit / math.max(nC, 1):F0} %), predicted dash {cPred} ({100.0 * cPred / math.max(nC, 1):F0} %), flagged dash {cDashFlag}");
             // 4. CPU top-face map of 192 x 108 windows: -dashwin "pose:x,y;..." (top-left of the window, screenshot
             //    rows from the top) for this pose, else the densest dash window.
-            const int WW = 192, WH = 108;
+            const int WW = DASH_WW, WH = DASH_WH;
             var wins = new List<int2>();
+            var predWins = new List<(int2, bool[])>();
+            _dashPred[pose] = predWins;
             string dw = ArgValue("-dashwin");
             if (!string.IsNullOrEmpty(dw))
                 foreach (string item in dw.Split(';'))
@@ -267,7 +318,9 @@ public partial class PlaygroundCapture
             {
             int bx = wins[wi].x, by = wins[wi].y;
             var map = new Texture2D(WW, WH, TextureFormat.RGB24, false);
-            int wTop = 0, wDash = 0, wBoth = 0, wLit = 0, wLitDash = 0, wPred = 0, wPredDash = 0;
+            var predMask = new bool[WW * WH];
+            predWins.Add((new int2(bx, by), predMask));
+            int wTop = 0, wDash = 0, wBoth = 0, wLit = 0, wLitDash = 0, wPred = 0, wPredDash = 0, wPredAbove = 0, wPredAboveDash = 0;
             for (int y = 0; y < WH; y++)
             {
                 for (int x = 0; x < WW; x++)
@@ -290,7 +343,8 @@ public partial class PlaygroundCapture
                     if (d) wDash++;
                     if (d && tops > 0) wBoth++;
                     if (lt > 0) { wLit++; if (d) wLitDash++; }
-                    if (predTops > 0) { wPred++; if (d) wPredDash++; }
+                    if (predTops > 0) { wPred++; if (d) wPredDash++; predMask[y * WW + x] = true; }
+                    if (predAbove > 0) { wPredAbove++; if (d) wPredAboveDash++; }
                 }
                 yield return null;
             }
@@ -300,7 +354,7 @@ public partial class PlaygroundCapture
             Destroy(map);
             L($"  [dash] {pose} WINDOW x {bx}-{bx + WW - 1}, y {h - by - WH}-{h - 1 - by} (top-left rows): dash pixels {wDash}, CPU top-face pixels {wTop}, " +
               $"both {wBoth} (dash pixels holding a top face {100.0 * wBoth / math.max(wDash, 1):F0} %); SUN-LIT top-face pixels {wLit}, of them dash {wLitDash}; " +
-              $"dash pixels with a sun-lit top {100.0 * wLitDash / math.max(wDash, 1):F0} %; PREDICTED DASH pixels {wPred}, of them dash {wPredDash} " +
+              $"dash pixels with a sun-lit top {100.0 * wLitDash / math.max(wDash, 1):F0} %; PREDICTED DASH pixels {wPred}, of them dash {wPredDash} (ABOVE the bracket {wPredAbove}, of them dash {wPredAboveDash}) " +
               $"(dash pixels predicted {100.0 * wPredDash / math.max(wDash, 1):F0} %, predicted pixels that are dashes {100.0 * wPredDash / math.max(wPred, 1):F0} %) -> {mapName}.png; " +
               $"{g.Generated} generator chunks, {Time.realtimeSinceStartup - t0:F0} s");
             }
