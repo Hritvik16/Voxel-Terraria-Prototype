@@ -10,7 +10,7 @@
   - Forest at full plane: 3.2 oaks + 11.9 birches per 51.2 m square (`trees210/library.txt`). Giants on a 102.4 m grid: banyan (jungle, p 0.30), groves of 3-5 69 m redwoods (wet forest, p 0.35).
 - 192's trees kept: desert cactus, snow pines (6/16), jungle emergents and palms (14/16; the 2/16 pay for the banyans), savanna baobabs. None in forest.
 - Birch bark is a real GenMat (`BirchBark` = 19, engine 147). Placement is deterministic (one suppression level per tier).
-- Code: `Assets/TerrainGen/Trees2.cs`, `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees2.cs` + hooks in `.Trees.cs`; note in TASKS.md "Task 210".
+- Commit ef6f12f. Code: `Assets/TerrainGen/Trees2.cs`, `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees2.cs` + hooks in `.Trees.cs`; note in TASKS.md "Task 210".
 
 ## Evidence
 - Tests:
