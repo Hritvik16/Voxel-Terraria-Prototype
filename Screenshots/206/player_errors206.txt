@@ -1,0 +1,30 @@
+Task 206: Player.log excerpts. Launch A (shader unchanged):
+2695:program_source:559:58: error: 'buffer' attribute parameter is out of bounds: must be between 0 and 30
+2696-    const device ShellBricks_Type *ShellBricks [[ buffer(31) ]],
+--
+2698:program_source:560:52: error: 'buffer' attribute parameter is out of bounds: must be between 0 and 30
+2699-    const device SkyHistR_Type *SkyHistR [[ buffer(32) ]],
+--
+2701:program_source:10552:62: error: as_type cast from 'bool' to 'float' is not allowed
+2702-                            u_xlat13.x = (u_xlati309 != 0) ? as_type<float>(u_xlatb102.x) : u_xlat15.x;
+--
+2704:program_source:10567:63: error: as_type cast from 'bool' to 'float' is not allowed
+2705-                            u_xlat0.x = (u_xlati102.x != 0) ? as_type<float>(u_xlatb0.x) : u_xlat13.x;
+--
+27241:Metal: Failed to create compute library
+27242-Internal: JobTempAlloc has allocations that are more than the maximum lifespan of 4 frames old - this is not allowed and likely a leak
+--
+27544:program_source:10542:63: error: as_type cast from 'bool' to 'float' is not allowed
+27545-                            u_xlat219.x = (u_xlati312 != 0) ? as_type<float>(u_xlatb103.x) : u_xlat20.x;
+--
+27547:program_source:10557:63: error: as_type cast from 'bool' to 'float' is not allowed
+27548-                            u_xlat0.x = (u_xlati103.x != 0) ? as_type<float>(u_xlatb0.x) : u_xlat219.x;
+--
+47664:Metal: Failed to create compute library
+47665-Internal: JobTempAlloc has allocations that are more than the maximum lifespan of 4 frames old - this is not allowed and likely a leak
+
+Launch B (fixed): program_source errors 0; [kernels] lines:
+[kernels] Raymarch.CSMainFarShadeFlood verified: it ran (2 heartbeat reads)
+[kernels] this player build left out CSMainFarShadeDiag, CSShellPrepassDiag, CSShellProbe, CSMainChecker, CSMainDetail (task 194b; play never uses them; build with VE_ALL_KERNELS=1 to keep them)
+[kernels] CSMainFarShadeDiag was asked for, but this player build left it out (task 194b): drawing with play's kernel; shadow/shell counters read 0 and debug views 12-14 draw as play. Rebuild with VE_ALL_KERNELS=1 to hav
+[kernels] Raymarch.CSMainFarShade verified: it ran (2 heartbeat reads)

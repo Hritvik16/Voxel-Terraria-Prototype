@@ -1,49 +1,46 @@
-# 205-look-white-dashes-play-check: DONE. Dashes STILL SHOW in play (FSR 3 only dims them). Fix built behind `-dashfix` (default 0 = OFF); mode 2 recommended.
-## Step 1: play check (198's poses + overhang + cave mouth; noon, sun behind; arms native / play FSR 3 dyn; `-dashprobe 1` both arms)
-- FSR 3 turns a dash row into a fainter light line or a soft streak; it does not remove it. Predicted-dash pixels that show as dashes,
-  native -> play: forest_breaks wall box 66 -> 14-18, cliff_snow ledge 122 -> 8-9, overhang tree crowns 784 -> 296-321 (`Logs/overnight/205/look_a3.out`, `look_a4.out`).
-- NEW (oracle side split): EVERY predicted dash lies ABOVE the four far-texel column tops (forest 374/374, cliff_snow 1,296/1,296, 0 below).
-  Tree crowns and cacti sit above the tops too, so they fail the same test and ALSO show tread stripes (overhang pose).
-## Step 3: the fix, `-dashfix 0|1|2` (`RaymarchFeature.DashFix` -> `_DashFix`)
-- Where the bracket test fails, sky-open hits (x skyVis, so caves keep their face light; undersides never change) get task 120's filtered cube
-  light with the column slope. `Raymarch.compute`: `FarSlopeCode` (FarSlopeNormal's test as 0/1/2/3), `CubeFilterWeightOpen`, one call site
-  in the voxel/shell path under `if (_DashFix != 0)`. The far band's call is unchanged.
-- **2 = TOP faces only (REC.):** dashes gone at native and in play (forest box 66 -> 0, play 14 -> 0; cliff_snow 122 -> 6, play 8 -> 1). Side faces keep their light.
-  Changed px: forest 0.42 % (ledge lines + pine crowns), cliff_snow 1.05 % (2 ledge bands), overhang 4.4 % (crowns lose their stripes, a little
-  darker: mean -6.8 lum on changed px), cave 0.16 % (cactus tops, far ridge; the cave interior unchanged).
-- 1 = every face but undersides: kills the dashes too, but flattens trees/cacti into a camouflage pattern and adds pale side-face stripes (overhang 7.4 %).
-- 0 = the old call byte for byte by construction. Evidence: `fixed_cliff` native is pixel-identical to 198's pre-change frame; forest 99.83 % /
-  cliff_snow 99.96 % identical, which is under the noise between two OFF launches of the same build (99.05 %, overhang 84.65 %).
-- Efficient by construction: one int uniform, no buffers, no extra rays. Memory: all arms in the same launches: ledger peak/pools identical OFF vs
-  ON, GPU body pool refused 0, CPU pool peak 423,864 < valve. No timing arms (rule 10). The extra cost is one `FarSlopeCode` per far voxel/shell hit
-  where the old code returned early, so it costs about the same as before.
-## Also changed
-- World survey disables `PlaygroundFlyCamera`: a click on the player window (owner at the Mac) made it overwrite the camera rotation every frame;
-  launch 1 shot 6/20 frames at the wrong view. KNOWN_ISSUES entry (other capture modes still have it).
-- Survey pre-apply of the last arm strips `_dfN`. Launch 2 died on `native_df1` as the last arm (FormatException; player killed, relaunched SKIP_BUILD).
-- `-dashprobe`: later arms counted (`DashCount`) against arm 1's predicted pixels; ABOVE/below split. Arm suffix `_dfN`. `LadderArms` keeps any `native_*`.
-- Commit: e32ed45 (+ this HANDOFF hash commit). Files: Raymarch.compute, RaymarchFeature.cs, PlaygroundCapture.{DashProbe,WorldSurvey,RowsLook}.cs,
-  Tests/DashFixTests.cs, TASKS.md, KNOWN_ISSUES.md, `Logs/overnight/205/*` (drivers, logs, diff tools).
-## Evidence
-- Fast suite PASS 1023 FAIL 0 SKIP 21 (`Logs/overnight/205/fast.out`); filter DashFixTests + CubeLookTests 5/5 earlier.
-- 4 launches (budget overrun, reasons): L1 camera turned by a click; L2 died (arm parse); L3 OK (mode 2 was "below only" = no effect, data
-  showed why); L4 OK with the top-face mode. L4's forest OFF shot caught a loading shell: the forest OFF frame is L3's (same OFF code).
-- Looked at: all zooms below + full frames + diff maps.
-## Not done / next
-- No default change (owner). If (a) is chosen: default `DashFix = 2` (+ PlaySettings entry if wanted), a fast-suite run, one look launch.
-- Not checked: motion (FSR 3 in motion is likely worse than these still frames), night / low sun, a sun-facing camera.
+# 206-bug-debug-views-player-build: DONE. Debug views 1-3 + the debug pixel work in a player; the torch-flood kernel (play's, flood on) was broken too and is fixed.
+## What was really broken (launch A, shader unchanged: `Logs/overnight/206/look_A.out`, `Screenshots/206/player_errors206.txt`)
+- Metal compiles a kernel at its FIRST dispatch. Three kernels failed there (Player.log `program_source:..: error`, `Metal: Failed to create compute library`):
+  `CSMainFarShade` (debug views / pixel): `as_type<float>(bool)` from SkyHistFetch's early return in an unrolled loop (task 193);
+  `CSMainFarShadeFlood` + `CSMainFlood`: the same AND 33 Metal buffer slots (cap 31) since 193's SkyHistR/W. Play with the flood on (175's default) uses
+  `CSMainFarShadeFlood` once the pool is ready, so **play in a player has drawn stale frames with the torch flood ready since task 193 (2026-11-13)**.
+- 198's "more uavs (9) > 8" message did NOT appear in either launch; the UAV cut (below) was done anyway (cheap, exact).
+- Launch A: debug views 1-3 = beauty, 0 px differ; the whole 2nd pose = the 1st pose's last frame (0 px differ): stale images, as 198 said.
+## Fix (commit 6a61ea5)
+- `Raymarch.compute`, outside diet 2 only: `HEIGHT_MIP_READ` = read-only `HeightMipRO` (9 -> 8 UAVs; RaymarchFeature binds the same buffer);
+  SkyHistFetch walks the 4 probes backwards and keeps the last match (= the first; CPU twin test on all 3,888 patterns); flood twins fold
+  `_UseLODCascade` to 0 (`#define` after diet 2's pair: 33 -> 29 slots), RaymarchFeature picks a flood twin only while the cascade is off (always with shells on).
+- Exact: 17 of 21 compiled kernels have byte-identical Metal source vs the pre-task build, incl. CSMainFarShadeLean/LeanRoof/LeanSun, CSSunDeferLean,
+  CSShellPrepass(Lean), Build*, Far*, Taa* (`Screenshots/206/msl206.txt`). Changed: CSMain, CSMainFarShade, CSMainFlood, CSMainFarShadeFlood; 0 bool casts left.
+- LOUD: `ComputeShader.IsSupported` said TRUE for the broken kernels, and native Metal errors never reach `Application.logMessageReceived` (tried in A: 0 seen).
+  So `KernelHealth` (new) runs a GPU HEARTBEAT: before an unverified non-diet kernel's dispatch DebugBuffer[0..2] = NaN, read back next record; NaN = never
+  ran -> ONE `[kernels] FAILED` error, blit pass clears to MAGENTA, `RaymarchFeature.KernelFailFrames`. 2 good reads = verified, then nothing per frame.
+- Survey arms `_tf1` (flood on), `_dvN` (debug view N), `_px` (debug pixel); `[kernel]` / `[dbgpx]` lines; summary at the end. TASKS.md paragraph; KNOWN_ISSUES entry rewritten (FIXED).
+## Evidence (launch B, fixed: `Logs/overnight/206/look_B.out`; 2 poses fixed_cliff / fixed_forest_breaks, native 1920x1080 no upscaler)
+- Player.log B: 0 `program_source` errors. Heartbeat: `CSMainFarShade` and `CSMainFarShadeFlood` verified; FAILED none; KernelFailFrames 0.
+- Debug pixel (centre): dir (0.0007,0.5529,-0.8332), 12 steps, 529 iters, hit 822.9 (cliff); (-0.0005,-0.1956,-0.9807), 11 steps, 287 iters, 1150.2 (forest).
+  Launch A, same arms: dir NaN (the kernel never ran: the heartbeat's signal, seen on the real bug).
+- Debug views vs beauty, B: 100 % px differ at both poses (mean |d| 64-113); A: 0 % (the bug). Magenta 0 % everywhere (nothing failed in B).
+- Beauty before/after: fixed_cliff raw native A vs B 0 px. The 2nd pose has no valid "before" (A's were stale frames); the byte-identical diet-2 Metal
+  covers every pose. In B, CSMainFarShade's beauty = Lean's at fixed_cliff (0 px); the flood twin with no torches = Lean (0 px).
+- Fast suite PASS 1033 FAIL 0 SKIP 21 (`Logs/overnight/206/fast.out`); filter runs 16/16.
+- Memory (rule 11): no new buffers (an alias of the same buffer, a 4-byte readback while kernels are unverified). Ledger at the first pose A -> B: GPU body pool
+  peak 90,984 -> 91,781, refused 0 -> 0; CPU pool peak 172,304 both (valve 484,500); process peak 2,533 -> 2,651 MB. Shell pools are the same, and the same
+  code gives 2,512-2,652 MB across 198/205's launches, so I read the +118 MB as launch noise. It is not proven: no OFF/ON pair in one build.
+- Looked at `Screenshots/206/206_debug_views_sheet.png` (below).
+## Not done / caveats
+- The magenta paint has not run in a player (no broken kernel was left to trip it); its input (NaN on a broken kernel) was read in launch A, the state machine is CPU-tested.
+- Diet-2 kernels have no DebugOut, so the heartbeat cannot check them; `run-look-review.sh`'s Player.log grep still covers them.
+- Flood + tier cascade (shells OFF + torch flood) now draws analytic torches. It never worked anywhere since 193.
+- 2 launches (A = the bug's evidence + the "before", B = the proof), not 1.
+- Next: owner/supervisor may want to know that play's torch flood was broken in players for a day (no action needed now).
 
 ## For the doc
-- Result: the white wall dashes still show in play (FSR 3 dims them to a faint line). New `-dashfix 2` removes them at native and in play. Default is OFF until you decide.
-- Numbers (`Logs/overnight/205/look_a4.out`, `look_a3.out`): forest wall box dash px over sun-lit treads 66 (native) -> 14 (play) -> 0 (play + fix 2);
-  cliff_snow ledge 122 -> 8 -> 1. Pixels changed by fix 2: forest 0.42 %, cliff_snow 1.05 %, tree pose 4.4 %, cave 0.16 % (cave interior 0).
-  Memory: +0 (one shader int); refusals 0 both ways.
-- **Question (Q-AG, wall dashes):** turn the fix on by default? (a) REC: yes, `-dashfix 2` (top faces only). The dashes go; ledges at 100+ m read
-  as wall, and tree crowns lose their bright tread stripes and get a little darker. (b) `-dashfix 1`: also removes them, but trees and cacti look flat (not rec.).
-  (c) Leave it OFF: the dashes stay as faint lines in play.
-- Images (`Screenshots/205/viewer.html`, full size):
-  - `Screenshots/205/205_forest_dashes_4x.png`: the forest wall, 4x. Top-left native: the row of white dashes at the bottom. Top-right play:
-    still a faint line. Bottom: fix 2, native and play: the line is gone and nothing else moves.
-  - `Screenshots/205/205_trees_4x.png`: tree crowns, 4x (what the fix also changes). Top-left native: bright stripes. Top-right fix 2: no stripes, slightly darker.
-    Bottom-left fix 1: flat camouflage (why not 1).
-  - `Screenshots/205/205_diff_overhang_df2.png`: where fix 2 changes a frame (blue = darker): the tree crowns and the far cliff only. Arches, ground and caves are unchanged.
+- Result: debug views and the debug pixel work in a player build again. Play's torch-light kernel had been broken in player builds since task 193 by the
+  same kind of fault, and is fixed too. A kernel that fails to load now shows a magenta frame plus an error line instead of the last good image.
+- Numbers: kernels failing in a player 3 -> 0 (Player.log errors 6 -> 0, `Screenshots/206/player_errors206.txt`); debug view vs beauty, px differ 0 % -> 100 %;
+  debug pixel NaN -> real values (12 steps, hit 823 m); torch-flood kernel Metal buffer slots 33 -> 29 (cap 31); play kernels' compiled code 17/21 kernels byte-identical
+  incl. all play (diet-2) ones, beauty 0 px at fixed_cliff (`Screenshots/206/msl206.txt`, `cmp206.txt`); memory +0 by design (refusals 0 -> 0).
+- Image: `Screenshots/206/206_debug_views_sheet.png`. Top row = cliff pose, bottom row = forest pose. Columns 1-2 are BEFORE: debug view 1 is the plain
+  picture, and in the bottom row both frames still show the cliff (stale frames). Columns 3-5 are AFTER: step heat, uniform/dense and normals are real debug
+  colours. Column 6 is the torch-flood kernel, now drawing the forest wall. Full-size shots are in `Screenshots/206/A|B/`.
