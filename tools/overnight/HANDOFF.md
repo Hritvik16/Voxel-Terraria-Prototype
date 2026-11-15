@@ -1,64 +1,61 @@
-# 207-bug-gpu-retry-only-what-fits: DONE. A full GPU body pool now retries only the refused chunks that fit. Over the same 3 poses, refusals fell 2,806 -> 685 and chunks refused again after a retry fell 2,180 -> 41.
-## What changed (commit 93494bd; no pool size, layout, shader, eviction or CPU-valve change)
-- `TerrainClipmap.RetryGpuRefused` (TerrainClipmap.GpuPool.cs) runs at the start of every upload pass and works nearest to the camera first
-  (Chebyshev XZ, the dirty queue's own order). A refused chunk is re-queued, and leaves the refused set, only if the bodies it asked for when it
-  was refused fit. "Fit" means: free bodies minus the bodies promised to earlier re-queued chunks that are still in the dirty queue.
-  - `Refuse` stores the bodies asked for (dense, non-sealed bricks). Promises (`_gpuRetryPending`) end once that upload has run (purged per pass).
-  - A chunk that does not fit stays refused (197's hand-over keeps drawing it); a farther, smaller one may go ahead of it. Evicted refused
-    chunks are forgotten; one that left the box is re-queued to park. The sort runs only when free-minus-promised or the camera chunk changed.
-- 197's hand-over rule (`Tier0LacksChunk`, `FarField.ColumnState`) is unchanged.
-- `-retryfit 0` = the old retry (launch-wide; `TerrainClipmap.RetryOnlyWhatFits`), used for the before pictures.
-- New counters `GpuPoolRetriesTotal`, `GpuPoolReRefusedTotal` (retried, then refused again = the churn), `GpuPoolRetryPending` on `[mirror] box`.
-- Tests: `GpuRetryFitTests` (8). They check that k freed slots re-queue exactly min(k, N), nearest first (k = 1/2/4/6, N = 4), and that nothing
-  leaves the refused set without a slot. They also cover promises held across deferred passes (a 3rd free slot takes exactly one more), a near
-  chunk too big for the free slots staying refused while a farther one goes, evicted chunks being forgotten, and the `-retryfit 0` churn.
-  `Tier0LackHandOverTests` (6) are still green and unchanged.
-- TASKS.md paragraph added. The KNOWN_ISSUES "GPU body pool full" entry has a 207 line.
+STOP_FOR_OWNER -- rule 11 budget: GPU refusals went UP (857 -> 1,190) with the fix ON. The fix itself works and is committed, default ON.
+Question (recommended: a):
+  (a) Keep ON. Queue a GPU-side follow-up: when an in-view chunk is refused, the GPU body pool drops the bodies of out-of-view chunks
+      in the mirror box first (the hand-over draws those). Same idea as this task, applied to the GPU pool. It needs your approval
+      because it is new eviction design.
+  (b) Keep ON and accept the higher refusals (refused chunks are drawn by 197's hand-over; the frames look clean).
+  (c) Default back to `-valveview 0` until the GPU side is fixed.
+
+# 208-bug-valve-spares-in-view-chunks: DONE (code), STOPPED on budget. The valve no longer evicts chunks the player can see: in-view victims 19,488 -> 0.
+## What changed (commit be67746; no pool size, layout, shader or API change)
+- `StreamManager.ApplyPoolPressureValve` with a frustum ranks victims in one scan + one sort per call. Order: out of view, then in view beyond
+  the load radius, then in view within it (last resort, counted + `[valve] evicted an IN-VIEW NEAR chunk` log). Farthest (Chebyshev XZ) first;
+  LRU then the coord break ties. Unchanged: pressure test, 32-victim guard per call, camera 5x5 exemption, EvictChunk (save before drop).
+- Efficient by construction: no per-chunk memory (a reused scratch list of ~3 k x 24 B). The old valve scanned every resident chunk once per
+  victim (up to 32 scans); the new one scans once. The frustum comes from `GeometryUtility.CalculateFrustumPlanes(Camera, Plane[])` into a
+  cached array (no alloc), main thread only.
+- Frustum: `Phase4Bootstrapper.LateUpdate` sets `SetViewFrustum` before `Streamer.Update`. With no frustum, the old LRU order runs.
+  `-valveview 0` = the old order (launch-wide, `StreamManager.ValveViewOrder`).
+- Counters `ValveInViewEvictionsTotal`, `ValveInViewNearEvictionsTotal` (counted in both orders) on `-mirrorprobe 1`'s `[mirror]` lines.
+- 197's hand-over and 207's retry: untouched. Tests `ValveViewOrderTests` (6). TASKS.md paragraph, KNOWN_ISSUES entry, CLAUDE.md index line.
 ## Evidence
-- Fast suite: **PASS 1041 FAIL 0 SKIP 21** (`Logs/overnight/207/fast.out`; before: 1033 / 0 / 21, HANDOFF 206). Filter run 35/35 (`filter3.out`).
-- Launch pair, one build, 197's poses (forest, jungle_high, town_eye), `-mirrorprobe 1`. b1 = ON (`Logs/overnight/207/look_b1.out`),
-  b2 = `-retryfit 0` (`look_b2.out`). Driver: `Logs/overnight/207_pair.sh`.
+- Whole suite **PASS 1123 FAIL 0 SKIP 30** (`Logs/overnight/208/all.out`). Fast before = 207's run on identical code (PASS 1041 FAIL 0).
+  Filter run 8/8 (`filter1.out`). Old order in the test world: 11 of 32 victims in view; new order: 0.
+- Launch pair, one build (`Logs/overnight/208_pair.sh`): b1 = ON (`Logs/overnight/208/look_b1.out`), b2 = `-valveview 0` (`look_b2.out`).
+  Poses: forest, jungle_high, walk1-3 (40 m steps from jungle_high along its view), town_eye; `-mirrorprobe 1`.
 
-  | per pose, OFF -> ON | forest | jungle_high | town_eye |
-  |---|---|---|---|
-  | refusals total (running) | 126 -> 72 | 2,806 -> 685 | 2,806 -> 685 |
-  | retries total | 126 -> 72 | 2,806 -> 685 | 2,806 -> 685 |
-  | re-refused (churn) | 52 -> 0 | 2,180 -> 41 | 2,180 -> 41 |
-  | refused at the shot | 0 -> 0 | 0 -> 18 | 0 -> 0 |
-  | resident-but-missing at the shot (dirty) | 0 -> 0 | 28 -> 58 | 0 -> 11 |
-  | hand-over columns | 47 -> 43 | 98 -> 94 | 3 -> 22 |
-  | dirty set at the shot | 230 -> 0 | 573 -> 86 | 0 -> 37 |
+  | OFF -> ON | forest | jungle_high | walk1 | walk2 | walk3 | town_eye |
+  |---|---|---|---|---|---|---|
+  | in-view valve victims (running) | 3,777 -> 0 | 6,816 -> 0 | 10,444 -> 0 | 13,230 -> 0 | 16,315 -> 0 | 19,488 -> 0 |
+  | ABSENT over solid | 5 -> 0 | 5 -> 7 | 9 -> 3 | 21 -> 3 | 12 -> 5 | 0 -> 0 |
+  | hand-over columns | 66 -> 27 | 119 -> 66 | 95 -> 62 | 112 -> 50 | 65 -> 25 | 1 -> 0 |
+  | GPU refused at the shot | 0 -> 61 | 0 -> 138 | 0 -> 90 | 0 -> 78 | 0 -> 31 | 0 -> 0 |
+  | GPU pool in use | 217.6 k -> 254.4 k | 234.9 k -> 254.4 k | 251.4 k -> 254.4 k | 203.0 k -> 254.4 k | 224.6 k -> 254.4 k | 146 k both |
 
-  197's f1-f3 at jungle_high (pre-201a code): refused 0, missing-dirty 107, hand-over 139 / 135 / 129, dirty set 832.
-- Read this honestly: the fix cut the CHURN, i.e. re-uploads that were refused again (2,180 -> 41) and total refusals (-76 %). The single-frame
-  "missing at the shot" count is NOT lower. Since 201a (sealed bricks), the pool is only full while a pose settles. At the shot, 0-18 chunks are
-  refused, and both modes have caught up within 5 s (`[mirror +5s]`: 1 of 24 still missing ON, 2 of 14 OFF).
-- A first launch a1 (`look_a1.out`) used an in-launch `_rf0` arm. It never exercised the old retry (0 refused at that arm: retries did not move),
-  so the arm was dropped and replaced by the launch-wide flag. 3 launches in total; a1 is kept only as an extra ON jungle_high frame.
-- Shots: b2 jungle_high (OFF) has the blue water face + grey rock face at the lake shore (right edge); b1 (ON) has forest there with a thin
-  grey face; a1 (ON, same code) has the water face again. So it is 197's hand-over side effect (87-98 hand-over columns in all three frames),
-  varying by frame; this fix does not remove it.
-- Rough cost (rule 10, not a timing claim; one launch each): settle frames, OFF -> ON: forest 152.7 -> 152.9 ms, jungle_high 214.1 -> 234.0 ms,
-  town_eye 133.8 -> 149.4 ms. The streaming state differed (pending loads at jungle 436 OFF vs 742 ON). Per pass, the new code does one dictionary
-  purge (<= pending entries) plus a sort of the refused set only when its key changes (<= a few hundred int3). Not believed to cost 15-20 ms;
-  unverified.
-- Memory (rule 11), OFF -> ON: GPU body pool peak 254,400 both, refusals 2,806 -> 685; CPU pool peak 493,475 -> 494,431 (valve 484,500;
-  valve evictions 40,111 -> 41,214). Process peak 2,673 -> 2,741 MB (+68, over the +50 default). The new data is bounded by the refused set
-  (two Dictionary<int3,int> + two lists, < 0.2 MB at 3 k entries); 206 saw 2,512-2,652 MB with identical code. Read as launch noise, unproven.
-## Not done / caveats
-- The pool is still full while a pose settles (jungle_high +552 refusals ON). That is the pool-size matter (201a: chunk-border sealed bricks, duplicates).
-- Valve evictions (~41 k per run) are untouched: that is task 208.
-- Next: task 208 (keep in-view chunks out of the CPU valve).
+  Total valve evictions 83,149 -> 78,139. Still ~12 k per pose: the load set is bigger than the valve line, so evicted far chunks reload.
+- Why refusals rose: the old valve dropped NEAR in-box chunks, and that freed GPU bodies. Now the victims are far out-of-view chunks, mostly
+  outside the 16-chunk mirror box, so they hold no GPU bodies. The GPU pool stays full (201a: demand > cap), and refused chunks stay refused
+  (`[mirror +5s]`: 24/24 still missing ON vs 1-5 OFF). They are drawn by the hand-over, and total hand-over columns are lower ON (230 vs 458).
+- Shots (looked at): jungle_high OFF has a coarse shell block on the right (blue water face, grey rock face, blocky grass). ON is clean forest.
+  walk2 has the same pattern (OFF: grey rock + water face at the right edge; ON: the lake shore is correct). 197's evicted-pit pose is
+  jungle_high (`Screenshots/197/v/2_evicted_before.png`): ON shows forest there.
+- Memory (rule 11), OFF -> ON: CPU pool peak 494,867 -> 495,648 (valve 484,500); GPU body pool peak 254,400 both, refusals 857 -> 1,190 (OVER
+  budget); process "now" at matching poses +24-30 MB; process peak 2,688 -> 2,821 MB (+133, over +50; at the jungle_high transition;
+  207 saw ~140 MB of launch noise with identical code. Unproven either way. The new code holds < 0.1 MB).
+- Rough cost (rule 10, not a timing claim; settle frames, one launch each): forest 153 -> 152 ms, jungle_high 205 -> 236, walk1-3
+  209/202/198 -> 215/209/195, town 134 -> 133. jungle_high +31 ms, as 207 saw +20 there; unverified.
+## Not done / next
+- GPU-side view priority (option a above), owner's call. The valve churn itself (load set > valve line) is the pool-size matter, unchanged.
+- Launches ran ~25 min each (6 poses x lookwait 45 + shells), over the ~10 min guideline. The next proof should use fewer poses.
 
 ## For the doc
-- Over the same 3 poses in one build, the retry now re-queues only chunks with free slots. Chunks refused again after a retry: 2,180 -> 41.
-  Total refusals: 2,806 -> 685 (`Logs/overnight/207/look_b2.out` -> `look_b1.out`, `[mirror] box` lines).
-- jungle_high dirty upload queue at the shot: 573 -> 86 chunks. Hand-over columns about the same (98 -> 94). Missing chunks at the shot are not
-  lower (28 -> 76 incl. 18 still refused, one frame each); both catch up within 5 s.
-- Fast suite PASS 1041 FAIL 0 (+8 tests `GpuRetryFitTests`). Memory: GPU pool peak unchanged; process peak +68 MB between launches (see caveat).
+- Chunks the player can see, dropped by the CPU pool valve: 19,488 -> 0 over 6 poses (`Logs/overnight/208/look_b2.out` -> `look_b1.out`).
+- Columns drawn by shell 1's coarse copy at the shot: 458 -> 230 in total. Non-resident chunks over solid ground: 52 -> 18.
+- Cost found: the GPU body pool now stays full. Refusals 857 -> 1,190; 31-138 chunks wait at each shot (drawn by the hand-over). Owner question above.
+- Whole suite PASS 1123 FAIL 0 (+6 tests `ValveViewOrderTests`).
 - Images:
-  - `Screenshots/207/b2/ws_fixed_jungle_high_native_sf0.png` (BEFORE, old retry): look at the right edge, the vertical blue water face and
-    grey rock face at the lake shore.
-  - `Screenshots/207/b1/ws_fixed_jungle_high_native_sf0.png` (AFTER): the right edge is forest with a thin grey face. But
-    `Screenshots/207/a1/ws_fixed_jungle_high_native_sf0.png` (also AFTER) still shows the water face. It is a hand-over effect that varies
-    by frame, not something this fix removes.
+  - `Screenshots/208/b2/ws_fixed_jungle_high_native_sf0.png` (BEFORE, old valve): look at the right third. There is a coarse block with a
+    vertical blue water face and a grey rock face: dropped in-view chunks drawn by shell 1.
+  - `Screenshots/208/b1/ws_fixed_jungle_high_native_sf0.png` (AFTER): the same view is full forest to the right edge.
+  - `Screenshots/208/b2/ws_fixed_walk2_native_sf0.png` vs `Screenshots/208/b1/ws_fixed_walk2_native_sf0.png`: right edge. Before has a grey
+    cliff and a blocky water face; after shows the lake shore and trees with their shadows.
