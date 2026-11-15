@@ -1,46 +1,45 @@
-# Session handoff -- 2026-11-13 ~21:00 (supervisor; queue RUNNING 197; ONE owner question open: Q-AA)
+# Session handoff -- 2026-11-14 ~18:45 (supervisor; queue RUNNING 205; owner questions open: Q-AF, Q-AG)
 
 ## For the owner
-Why: four tasks finished in this chat (194b, 195, 195a, 196), the point where the rules say to start a fresh, cheaper session.
-Covered in this chat (13 Nov, 12:45-21:00):
-- You closed the old supervisor (`40`).
+Why: this chat grew past 11 MB (every turn re-sends it), so the rules say to start a fresh, cheaper session.
+Covered in this chat (14 Nov, 06:30-18:45):
 - Done and reported in the doc with pictures:
-  - **194b**: the lighting shader compiles 25 % faster (25 -> 19 min; whole build 31 -> 20 min; C#-only rebuild under 5 min). Nothing on screen changes.
-  - **195**: ores ON in every world (`-ores 0` = old world). +47 MB; far chunks ~1/3 slower to build (perf stage note).
-  - **195a**: trees + towns ON in every world (`-trees 0 -towns 0` = old). Memory peak 2,504 of 3,000 MB. The near memory pool is now full
-    everywhere, no holes in the shots.
-  - **196**: pool walls are now natural basins (30 deg banks, shore level with the fluid). Pools still OFF -> your question **Q-AA**.
-- 194b's pictures showed the rectangular pits come back in 1 of 3 launches, and 195 had one launch with a whole rock wall missing.
-  You said it might just be terrain not loading in time -> task **197** checks that first (running now).
-- Queued behind it: **198**, a check of the faint white dashes on steep rock faces (world or drawing bug; fix only a drawing bug).
-**Open for you:** Q-AA in the "Questions for you" tab: turn the surface pools ON now? (recommended (a) ON).
-Close THIS window (tmux session `voxel-sup`) once the new one is up: `! tmux kill-session -t voxel-sup`.
+  - **200** tree examples: space colonization looks most natural; giants cost 10-38x the memory. You answered **Q-AD** (a for all) -> task 210.
+  - **201** surface pools ON in every world (131 on seed 42, no cost).
+  - **201a** the graphics-card block store no longer overflows: buried blocks take no space; 0 turned away at 5 spots, picture identical.
+  - **202** first Game design draft (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8). You answered **Q-AE** -> task 211 writes it in.
+  - **203** ponds get lumpy natural outlines for every fluid (+16 MB) -> your **Q-AF** (rougher shores + bank follows the outline?).
+  - **204** streams plan -> your **Q-AG** (still streams like rivers vs truly flowing).
+- You answered Q-AB (a) -> tasks 207 / 208, and Q-AC (a for all) -> render plan adopted + T0 measurement (now task **212**, runs LAST and
+  only while you are away from the Mac; arms with keyboard/mouse input are thrown away).
+- New standing rule from you: **efficient by construction** -- every task builds the memory/perf-efficient way first and reports its memory
+  cost vs its switch OFF (PREAMBLE rule 11, CLAUDE.md, memory). Default budget: refusals not up, peak +50 MB.
+- Pauses: 08:07-08:37 and 16:21-16:41 (both resumed; runner never stopped).
+**Open for you:** Q-AF and Q-AG in "Questions for you".
+Close THIS window once the new one is up (tmux session `voxel-sup-2052`): `! tmux kill-session -t voxel-sup-2052`.
 
 ## Next supervisor
-- On every `done NAME`: read tools/overnight/HANDOFF.md `## For the doc`, look at 1-2 pictures (side-by-side with PIL into the scratchpad), upload,
-  Task reports entry (newest first), Now table cells, archive folder. Then a 3-5 line chat note.
-- If the owner answers Q-AA (a): write `199-defaults-fluidpockets-on.md` like 195/195a (TerrainGenChunkSource default flip; `-fluidpockets 0`
-  = old world byte for byte; whole suite; one launch of 3 pool poses + memory). (c) = water only. Move Q-AA to answered.
-- 197 may STOP_FOR_OWNER if the fix needs a pool/eviction/layout change -> question with its pictures.
-- NEVER-IDLE: after 197 only 198 is queued. Next owner-independent ideas: 194's open item (refused chunk inside shell 1's hole draws the far
-  band) if 197 shows it; perf-stage notes collected so far (generation +30-40 % from ores/trees, near pool full, lean kernels unused under torch
-  flood -- 194b note 2) go into a plan task only when the look stage ends (owner order 2026-11-05). Water look and arches are look questions -- ask first.
+- Queue now: 205 (running since 18:31: white dashes play check, fix behind a switch), 206 debug views, 207 retry only what fits,
+  208 valve spares in-view chunks (requires 207), 210 trees2 world (budget uses 201a's headroom), 211 GDD batch-A answers (Claude Doc edit
+  allowed), 212 T0 (last; idle-guarded). Estimate ~18 h of work + usage-limit waits.
+- If Q-AF (a): queue a small look task: ragged shore noise inside 203's containment + bank terraces follow the new outline (`-pocketoutline`,
+  `FluidPockets`, 196 basins); pictures; rule 11 memory line. If Q-AG (a): queue a streams task like rivers (`Rivers.cs`), at rest, every
+  fluid but quicksand, outlet stream else seep; details in 204's HANDOFF (commit 8a719b1, `git show 8a719b1:tools/overnight/HANDOFF.md`).
+- 211 will print new town-safety questions in its HANDOFF -> copy them to the Questions tab with recommendation first.
+- When the owner accepts the Game design draft: CLAUDE.md rule 5 should point at it (supervisor edit).
 - DOC (Queue decisions, https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq; container {kind:project,id:DrfR6aQJHYmhnQ2Syu33Hq}):
-  - Task reports tab node d611dfba-5116: newest report heading is 196 `mk2vq5dkmp6.146052` -> insert new reports BEFORE it.
-  - Now tab node e04dd89d-c6f3, queue table mk2vq5dkmp6.7022. Rows (0 = header): ... 14 194b done, 15 195 done, 16 195a done, 17 196 done,
-    18 197 running, 19 198 queued. Cols: 0 status, 1 task, 2 result. Whole-cell edit: `replace` target {kind:cell, table, row, col} +
-    with {as:'text', from:{kind:'inline',content}} + `ifRev` (Now tab rev 59 at handoff). New rows: insert side:'end' on the table id,
-    as:'blocks', content [{type:row,content:[{type:cell,content:[{type:paragraph,content:[{type:text,text}]}]}, ...]}] (key is `content`, not `children`).
-  - Questions tab node 08a1b590-58d9: Q-AA (open) heading `mk2vq5dkmp6.30338`, its "Your answer:" paragraph `.31730`. New questions go BEFORE `.30338`.
-  - Screenshot Archive: https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d -- recipe in `tools/archive/README.md`; a new session's first publish is
-    refused until it has viewed the live page: Read a few lines of the saved copy, check the sheet list matches (only your new folder differs),
-    publish again unchanged. Commit tools/archive/index.json by path.
-- Doc tool notes: images: Artifact publish {url: doc url, asset:true, file_paths:[...]} -> `mcp__claude_ai_Claude_Docs__create` object=blob
-  engine=blob container=C payload {asset:<id>} -> `![alt](blob/<id>)`. Search reads use payload {kind:'search', text:'...'}.
-- Runner: tmux session `overnight`. If it ENDS, give the owner ONE line: `! tmux kill-session -t overnight; IDLE_MIN=0 tools/overnight/start.sh --resume`.
-  Usage-limit waits resolve by themselves. If `tmux ls` says "error connecting": `mkdir -m 700 /private/tmp/tmux-501; kill -USR1 <tmux server pid>`.
+  - Task reports tab node d611dfba-5116: newest report heading is 204 `mk2vq5dkmp6.159087` -> insert new reports BEFORE it.
+  - Questions tab node 08a1b590-58d9: newest is Q-AG heading `mk2vq5dkmp6.45376` -> new questions BEFORE it. Answered ones get an
+    "ANSWERED (x) " prefix on the heading + a "Queued: ..." paragraph after "Your answer:" (that is the current practice).
+  - Now tab node e04dd89d-c6f3, table mk2vq5dkmp6.7022 (rev 97). Rows (0 = header): 21 200 done, 22 201 done, 23 201a done, 24 202 done,
+    25 203 done, 26 204 done, 27 205 running, 28 206, 29 207, 30 208, 31 212 (T0, text says 212), 32 210. Cols: 0 status, 1 task, 2 result.
+    Whole-cell edit: replace {kind:cell, table, row, col} + ifRev + with {as:'text', ...}. COUNT ROWS before editing (I hit the wrong row once).
+  - Images: Artifact publish {url: doc url, asset:true, file_paths:[...]} -> batch create object=blob engine=blob payload {asset:<id>} -> `![alt](blob/<id>)`.
+  - Use payload `{"kind":"view","sinceRev":N}` to see owner answers; Questions tab was rev 1049 at handoff.
 - Waiter: one background until-loop on Logs/overnight/runner.log (BLOCKED|done |queue runner end|FAILED|INCOMPLETE); count lines first; re-arm after each event.
-- Owner rules (memory dir): plain words, look at every picture before captioning, questions in the doc tab, no paid-plan suggestions, max two Claude sessions.
+- "Pause builds for N min": `tools/heavy.sh pause` + `touch tools/overnight/PAUSE`, a background `sleep` timer, then `rm` PAUSE + `tools/heavy.sh resume`.
+- Owner rules (memory dir): plain words, look at every picture before captioning, questions in the doc tab, no paid-plan suggestions,
+  max two Claude sessions, efficient by construction.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight queue. You do no engineering yourself.
