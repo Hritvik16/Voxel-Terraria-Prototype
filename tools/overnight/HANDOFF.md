@@ -1,7 +1,4 @@
 # 204-plan-fluid-pocket-streams: DONE (plan only, no code). Rec.: (A) streams built the river way, at rest, every fluid; (C) held water later; not (B).
-
-No code/tests changed. Sources: Rivers/Hydrology headers, TASKS 183/196/203, `RIVERS_WATERFALLS_PLAN.md`, KNOWN_ISSUES "POOL FULL" (tile 0.5 MiB, pool 480).
-
 ## 1. Rivers today, and can a stream be one scaled down? YES
 - Map (8 m cells): Hydrology catchment (`WorldMap.Flow`, kept). River = 800+ cells. `Rivers.Profile` gives a level per cell that never
   rises downstream and ends AT the lake/sea. `FlowDir` (16 bits/cell) = direction, fall, slope, size, uploaded as the renderer's flow map.
@@ -31,25 +28,22 @@ No code/tests changed. Sources: Rivers/Hydrology headers, TASKS 183/196/203, `RI
   pond is not refilled and the stream cannot be diverted for good. Cost: 0 tiles, 0 tick. Memory: stream cells go into the existing
   map arrays as RIVER class + a 1-bit stream mask (128 KB) for the width rule, so every river keep-out (trees, ores, stamps, Cover),
   the flow map, far band and minimap work unchanged. Gen: ~131 ponds x <= 16 cells, est. < 20 ms/world (pocket plane = 68 ms). Columns
-  near streams ~0.6 % of land, chunk gen < +1 %. Risk: the pond plane must ignore its own stream (32 m keep-out); route test. Non-water
-  lips: lining-coloured (0 ids, visible lines) or 6 per-fluid lip ids drawn as their fluid (table in place of `RiverLipAsWater`, `GenToEngine`).
-  A lava flow look = shader work.
+  near streams ~0.6 % of land, chunk gen < +1 %. Risk: the pond plane must ignore its own stream (32 m keep-out); route test. Non-water lips:
+  lining-coloured (0 ids) or 6 per-fluid lip ids drawn as the fluid (`RiverLipAsWater` table, `GenToEngine`); a lava flow look = shader work.
 - **(B) Flowing in the CA.** Sees: moving voxels, but a hopping thin film on a 10 cm stair; lava at R/6, ~1 voxel/s. Gameplay:
   divertable and the pond really fills, but only within 128 m; frozen past it. Cost: see section 1, plus new spring + sink rules in
   `FluidCA.compute` AND `FluidReferenceCPU`. Risk HIGH, performance-changing; needs its own measured task.
 - **(C) A + held water (R3).** Sees: A. Gameplay: a touched held cell turns to water, and a held cell beside air feeds it within the fluid
   budget, so a trench DIVERTS a stream (and rivers) for good. Cost: 0 tiles until touched, then only along the new flow, with ops capped.
   Memory: material ids only. Risk medium: CA change in both implementations; the motor, underwater view, see-through and edit tools must
-  treat held as fluid. Effort M-L, measured.
+  treat held as fluid. Effort M-L, measured. Touches no memory layout.
 
 ## 4. Frozen APIs / amendments touched
 - A: none. Generator change (SUITE=all, `FluidAtRestTests`); 8.15/8.16 untouched; new GenMat ids only for per-fluid lips (KNOWN_ISSUES GenToEngine row).
 - B: 8.15 (NEAR 128 m), 8.16 (fall on a stepped bed), 8.14 row 5 tick contract (6.5 Hz), §4.3 upload budget, CPU/GPU CA parity, pool size (55).
 - C: new material ids. Conversion goes op list -> `ChunkStore.SetVoxel`, so D.1, §4.4 and the sole writer are unchanged.
   `IWorldQuery.GetVoxel`'s signature is unchanged, but "is fluid" callers must learn the held ids. New CA rule in both CA implementations.
-
-## Not done / next
-Nothing built; no follow-up queued (needs the owner's answer). 131 ponds on seed 42 (~0.1 in the 128 m disc on average). Deep pockets: no streams.
+- Not done: nothing built, no follow-up queued (needs the owner). 131 ponds on seed 42 (~0.1 in the 128 m disc). Deep pockets: no streams.
 
 ## For the doc
 - Result: plan for streams feeding every pond. Rec. (A): built like the rivers, at rest. 0 fluid tiles, 0 tick, ~128 KB, < 20 ms/world.
