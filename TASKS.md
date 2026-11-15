@@ -1735,3 +1735,26 @@ chunks = the order's first 32, the order is deterministic and class/far/LRU rank
 in view still relieves the pool and counts, the old order's per-call count and in-view counter, no frustum = LRU). Driver
 `Logs/overnight/208_pair.sh` (b1 ON / b2 `-valveview 0`; 197's poses + a 3-step walk from jungle_high); shots `Screenshots/208/{b1,b2}/`.
 Side effect: the GPU body pool stays full (the old valve freed GPU bodies by dropping in-view chunks), so refusals went up. See HANDOFF 208.
+
+**Task 209 (look, owner 2026-11-14 Q-AF (a): "why can't we use the same rules we use for the island coast? I want the ponds to have a natural outline"; DEFAULT ON, `-pocketshore 0` = 203).**
+`FluidPockets` (header "TASK 209"): a surface pond's shore is now the ISLAND COAST'S RULE. `WorldMap.Coast` is the envelope 1 - d plus two fBm
+bands (wavelength 9000 / 2600 voxels, 5 / 3 octaves, amplitude 0.45 / 0.12 island radii, R 24,000), land where the sum > 0; task 209 names those
+numbers (`WorldMap.COAST_*`, Coast / Macro compile unchanged) and the pond takes them scaled from the island's radius to the pond's: shore radius
+(in units of a base ellipse S * (rx, rz)) = 1 + N, N = the two bands with the island's amplitudes, lattice units per radius (K = R / wavelength),
+lacunarity 2.03 and octave shift, sampled on the nominal shore in the column's direction (`ShoreOf`, `ShoreAt`, `InShore`, `ShoreRing`, `ShoreDepth`,
+`ApplyShore`). What could not be copied, and why: (1) the 2-D threshold makes islets and closed-off lakes; a pond must be ONE body, so N is a function
+of direction only (every ray leaves the pond once), faded in from the centre (w = min(1, rho); any fade stays star-shaped) so the bed has no centre
+seam; (2) Unity's float simplex is not byte-identical across Burst / Mono / IL2CPP and the seal needs one footprint everywhere, so the noise is an
+integer Q16 gradient noise (8 gradients, quintic fade, x sqrt 2, clamped to [-1, 1]) with Noise.Fbm's sums; (3) the island is drawn at ~300 map cells
+of radius, a pond at 10-50 voxels: an octave is kept only while its lattice unit spans >= 4 voxels along the shore (bumps >= 2 voxels; the first octave
+always), so ponds show the coast's 1-2 coarsest octaves (band 2 never fits). Containment is exact, not tuned: S = 1 / (1 + B), B = the exact bound of the
+KEPT octaves, so the shore never leaves the planner's ellipse (Shore_Rules checks InFoot(rx, rz) with no + 1). Depth: the ray distance to the shore
+measured on the short axis, shelving at 196's 30 deg (no steeper in any direction); rim / bank / lining as 203 on the new shore (each column's shore
+ellipse grown by t: rings nest). 203's lowest-rim lobe is gone (the coast rule has no such term); `lowDir` is still stored. Ponds are ~63 % of the
+planner's ellipse (203: 55 %): slightly MORE fluid per pond. Plane bit: word [3] bit 30 (depth <= 20 needs bits 24-28; Decode masks 63);
+`-pocketshore 0` leaves it 0 = 203's plane byte for byte; the shore needs the outline (`-pocketoutline 0` = 196's ellipse). No stored data, no memory:
+the shape is recomputed per column from the site hash. Tests (`FluidPocketTests`): `Shore_Rules` (fast; 600 sites: the Q16 numbers equal WorldMap's,
+inside the planner's ellipse, centre in, one 4-connected body, rings nested and in the box, bed step <= 2, not its base ellipse, shore off = 203's
+lobes, Pack / Decode with bit 30 only; `Logs/TerrainGen/shore209/shapes.txt`), `Shore_PlaneFingerprint` (Slow; seed 42: off = 203's FNV
+72CEA9A36AECA569, no site moved; `plane_fnv.txt`). Shots `Logs/overnight/209_shots.sh` (seed 42, `-tod 12`, `-pocketshore 0` vs default),
+`Screenshots/209/viewer.html`. Result: HANDOFF 209.

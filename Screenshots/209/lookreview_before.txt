@@ -1,0 +1,165 @@
+UPSCALER CLIPS -- 2026-11-15_035817
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 35 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 35 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  47 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1429/741/0  s3 77/1916/8  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3676, missing 4322, pending 0; requested 4327, generated 4319 (55 ms each on a worker), dropped stale 10, over-budget frames 0 (of 1055)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 47559/47559/150016 270/270/1540 r0  s2 34564/34564/119296 190/190/1392 r0  s3 2337/2337/102400 7/7/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 447,724 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 155,654 refused 0 (124.2 MB), in use 155,654, sealed 96,337 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2329.4 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_side_lava native: settle frames mean 132.6 ms, p50 132.6 ms, max 138.9 ms (skyfill 0)
+  [refused] now 0, total 0, in use 155,654 of 254,400 | box chunks int3(419, 36, 270)..int3(434, 51, 285) | shell 1 cam chunk int3(213, 22, 139) hole +-1 (25.6 m chunks: tier-0 x/z 424..429 / 276..281) [native]
+  [kernel] fixed_side_lava native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_side_lava|5478.1,566.0,3560.0|5492.1,560.0,3566.1|fixed pose side_lava (-wsfixed)
+  fixed_side_lava: yaw 66 pitch -21 deg, distance 16 m, 91 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1330/832/8  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3500, missing 4498, pending 0; requested 7989, generated 7981 (62 ms each on a worker), dropped stale 18, over-budget frames 0 (of 1863)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 46386/47559/150016 293/293/1540 r0  s2 35544/35544/119296 147/190/1392 r0  s3 0/5621/102400 0/18/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 447,724 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 185,161 refused 0 (124.2 MB), in use 185,161, sealed 79,160 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2340.9 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_side_water native: settle frames mean 152.8 ms, p50 152.8 ms, max 163.1 ms (skyfill 0)
+  [refused] now 0, total 0, in use 185,161 of 254,400 | box chunks int3(385, 33, 408)..int3(400, 48, 423) | shell 1 cam chunk int3(196, 20, 208) hole +-1 (25.6 m chunks: tier-0 x/z 390..395 / 414..419) [native]
+  [kernel] fixed_side_water native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_side_water|5040.2,535.0,5335.0|5040.2,519.1,5305.9|fixed pose side_water (-wsfixed)
+  fixed_side_water: yaw 180 pitch -29 deg, distance 33 m, 106 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1863/304/3  s3 470/1526/5  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4503, missing 3495, pending 0; requested 9350, generated 9342 (71 ms each on a worker), dropped stale 18, over-budget frames 0 (of 2337)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 48201/48201/150016 313/313/1540 r0  s2 49732/49732/119296 202/202/1392 r0  s3 13881/13881/102400 48/48/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 447,724 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 185,199 refused 0 (124.2 MB), in use 162,568, sealed 70,539 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2342.9 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_water native: settle frames mean 112.6 ms, p50 112.6 ms, max 120.8 ms (skyfill 0)
+  [refused] now 0, total 0, in use 162,568 of 254,400 | box chunks int3(385, 33, 406)..int3(400, 48, 421) | shell 1 cam chunk int3(196, 21, 207) hole +-1 (25.6 m chunks: tier-0 x/z 390..395 / 412..417) [native]
+  [kernel] fixed_top_water native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_water|5040.3,541.1,5301.0|5040.3,519.1,5306.0|fixed pose top_water (-wsfixed)
+  fixed_top_water: yaw 0 pitch -77 deg, distance 23 m, 54 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2130/37/3  s2 773/1392/5  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2903, missing 5095, pending 0; requested 12422, generated 12414 (71 ms each on a worker), dropped stale 26, over-budget frames 0 (of 3320)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 47503/48201/150016 271/313/1540 r0  s2 17868/51543/119296 104/209/1392 r0  s3 0/17116/102400 0/59/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 447,724 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 185,199 refused 0 (124.2 MB), in use 144,762, sealed 92,154 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2343.4 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_lava native: settle frames mean 82.6 ms, p50 82.8 ms, max 88.7 ms (skyfill 0)
+  [refused] now 0, total 0, in use 144,762 of 254,400 | box chunks int3(421, 37, 270)..int3(436, 52, 285) | shell 1 cam chunk int3(214, 22, 139) hole +-1 (25.6 m chunks: tier-0 x/z 426..431 / 276..281) [native]
+  [kernel] fixed_top_lava native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_lava|5492.1,582.0,3561.1|5492.1,560.0,3566.1|fixed pose top_lava (-wsfixed)
+  fixed_top_lava: yaw 0 pitch -77 deg, distance 23 m, 77 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 2005/161/4  s3 573/1424/4  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4748, missing 3250, pending 0; requested 17394, generated 17386 (89 ms each on a worker), dropped stale 34, over-budget frames 0 (of 5725)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 42955/48201/150016 294/313/1540 r0  s2 44028/51543/119296 267/267/1392 r0  s3 13804/17116/102400 67/67/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 198,490 refused 0 (124.2 MB), in use 198,490, sealed 104,038 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2344.9 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_oil native: settle frames mean 106.1 ms, p50 106.5 ms, max 114.1 ms (skyfill 0)
+  [refused] now 0, total 0, in use 198,490 of 254,400 | box chunks int3(253, 43, 218)..int3(268, 58, 233) | shell 1 cam chunk int3(130, 26, 113) hole +-1 (25.6 m chunks: tier-0 x/z 258..263 / 224..229) [native]
+  [kernel] fixed_top_oil native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_oil|3348.1,687.5,2898.0|3348.1,665.5,2903.0|fixed pose top_oil (-wsfixed)
+  fixed_top_oil: yaw 0 pitch -77 deg, distance 23 m, 229 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1077/1085/8  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3247, missing 4751, pending 0; requested 20748, generated 20740 (87 ms each on a worker), dropped stale 42, over-budget frames 0 (of 6711)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 44872/48201/150016 268/313/1540 r0  s2 24701/51543/119296 138/273/1392 r0  s3 0/17116/102400 0/73/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 198,490 refused 0 (124.2 MB), in use 165,478, sealed 98,853 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2347.4 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_acid native: settle frames mean 93.5 ms, p50 94.4 ms, max 101.9 ms (skyfill 0)
+  [refused] now 0, total 0, in use 165,478 of 254,400 | box chunks int3(409, 37, 241)..int3(424, 52, 256) | shell 1 cam chunk int3(208, 22, 124) hole +-1 (25.6 m chunks: tier-0 x/z 414..419 / 246..251) [native]
+  [kernel] fixed_top_acid native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_acid|5348.5,584.3,3191.2|5348.5,562.3,3196.2|fixed pose top_acid (-wsfixed)
+  fixed_top_acid: yaw 0 pitch -77 deg, distance 23 m, 89 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 1999/166/5  s2 570/1597/3  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2569, missing 5429, pending 0; requested 23586, generated 23578 (88 ms each on a worker), dropped stale 50, over-budget frames 0 (of 7667)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 49150/49150/150016 320/320/1540 r0  s2 14190/51543/119296 67/273/1392 r0  s3 0/17116/102400 0/73/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 198,490 refused 0 (124.2 MB), in use 186,837, sealed 78,876 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2347.6 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_sludge native: settle frames mean 108.6 ms, p50 108.6 ms, max 116.9 ms (skyfill 0)
+  [refused] now 0, total 0, in use 186,837 of 254,400 | box chunks int3(349, 35, 398)..int3(364, 50, 413) | shell 1 cam chunk int3(178, 21, 203) hole +-1 (25.6 m chunks: tier-0 x/z 354..359 / 404..409) [native]
+  [kernel] fixed_top_sludge native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_sludge|4578.5,562.4,5196.8|4578.5,540.4,5201.8|fixed pose top_sludge (-wsfixed)
+  fixed_top_sludge: yaw 0 pitch -77 deg, distance 23 m, 96 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1352/811/7  s3 0/2000/1  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3522, missing 4417, pending 0; requested 27403, generated 27395 (84 ms each on a worker), dropped stale 58, over-budget frames 0 (of 8431)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 61403/61403/150016 356/356/1540 r0  s2 40957/51543/119296 153/273/1392 r0  s3 0/17116/102400 0/73/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 240,721 refused 0 (124.2 MB), in use 240,721, sealed 55,776 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2348.0 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_honey native: settle frames mean 135.8 ms, p50 137.0 ms, max 151.0 ms (skyfill 0)
+  [refused] now 0, total 0, in use 240,721 of 254,400 | box chunks int3(466, 35, 406)..int3(481, 50, 421) | shell 1 cam chunk int3(237, 21, 207) hole +-1 (25.6 m chunks: tier-0 x/z 472..477 / 412..417) [native]
+  [kernel] fixed_top_honey native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_honey|6070.0,538.8,5306.5|6070.0,516.8,5311.5|fixed pose top_honey (-wsfixed)
+  fixed_top_honey: yaw 0 pitch -77 deg, distance 23 m, 95 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1481/689/0  s3 58/1935/8  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3709, missing 4289, pending 0; requested 31323, generated 31315 (81 ms each on a worker), dropped stale 66, over-budget frames 0 (of 9514)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 44037/61403/150016 184/356/1540 r0  s2 30988/51543/119296 130/273/1392 r0  s3 1620/17116/102400 7/73/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 240,721 refused 0 (124.2 MB), in use 132,125, sealed 88,465 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2355.5 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_top_quicksand native: settle frames mean 89.8 ms, p50 90.1 ms, max 99.7 ms (skyfill 0)
+  [refused] now 0, total 0, in use 132,125 of 254,400 | box chunks int3(210, 41, 284)..int3(225, 56, 299) | shell 1 cam chunk int3(109, 25, 146) hole +-1 (25.6 m chunks: tier-0 x/z 216..221 / 290..295) [native]
+  [kernel] fixed_top_quicksand native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_top_quicksand|2800.8,652.1,3745.8|2800.8,630.1,3750.8|fixed pose top_quicksand (-wsfixed)
+  fixed_top_quicksand: yaw 0 pitch -77 deg, distance 23 m, 87 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1280/882/8  s3 36/1965/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3486, missing 4512, pending 0; requested 34901, generated 34893 (79 ms each on a worker), dropped stale 71, over-budget frames 0 (of 10255)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 41904/61403/150016 303/356/1540 r0  s2 26810/51543/119296 170/273/1392 r0  s3 800/17116/102400 3/73/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 489,136 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 240,721 refused 0 (124.2 MB), in use 190,810, sealed 101,448 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2355.5 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_side_oil native: settle frames mean 143.1 ms, p50 143.6 ms, max 162.4 ms (skyfill 0)
+  [refused] now 0, total 0, in use 190,810 of 254,400 | box chunks int3(253, 44, 220)..int3(268, 59, 235) | shell 1 cam chunk int3(130, 26, 114) hole +-1 (25.6 m chunks: tier-0 x/z 258..263 / 226..231) [native]
+  [kernel] fixed_side_oil native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_side_oil|3348.1,679.5,2927.0|3348.1,665.5,2903.0|fixed pose side_oil (-wsfixed)
+  fixed_side_oil: yaw 180 pitch -30 deg, distance 28 m, 93 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 975/1018/8  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 5315, missing 2683, pending 0; requested 40433, generated 40425 (85 ms each on a worker), dropped stale 79, over-budget frames 0 (of 12059)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 52852/61403/150016 326/356/1540 r0  s2 55784/55784/119296 233/273/1392 r0  s3 29302/29302/102400 97/97/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 490,069 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 240,721 refused 0 (124.2 MB), in use 193,541, sealed 82,261 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2356.5 MB, peak 2506.6 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_side_sludge native: settle frames mean 151.2 ms, p50 150.4 ms, max 162.3 ms (skyfill 0)
+  [refused] now 0, total 0, in use 193,541 of 254,400 | box chunks int3(349, 35, 400)..int3(364, 50, 415) | shell 1 cam chunk int3(178, 21, 204) hole +-1 (25.6 m chunks: tier-0 x/z 354..359 / 406..411) [native]
+  [kernel] fixed_side_sludge native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_side_sludge|4578.5,554.4,5225.8|4578.5,540.4,5201.8|fixed pose side_sludge (-wsfixed)
+  fixed_side_sludge: yaw 180 pitch -30 deg, distance 28 m, 235 s
+[kernels] heartbeat reads 0; verified none; FAILED none; unchecked CSMainFarShadeLean,CSShellPrepassLean
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-15_035817_high

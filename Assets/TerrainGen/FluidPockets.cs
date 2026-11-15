@@ -116,6 +116,32 @@
 // [0] bits 28-31 = the low direction (0-15), word [3] bit 31 = outline on. `-pocketoutline 0`
 // leaves both 0 = 196's ellipse byte for byte.
 //
+// TASK 209 -- THE ISLAND COAST'S RULE AS THE SHORE (owner 2026-11-14, Q-AF (a): "why can't
+// we use the same rules we use for the island coast?"). The island's coast (WorldMap.Coast)
+// is the envelope 1 - d plus two fBm bands (wavelength 9000 / 2600 voxels, 5 / 3 octaves,
+// amplitude 0.45 / 0.12 island radii, R = 24,000), land where the sum > 0. The pond takes the
+// same rule, scaled from the island's radius to the pond's: shore radius (normalized to a
+// base ellipse S * (rx, rz)) = 1 + N, N = the two bands with the island's amplitudes, its
+// lattice units per radius (K = R / wavelength), its octave lacunarity 2.03 and shift, sampled
+// along the nominal shore in the column's direction. Three parts cannot be copied as they are:
+//  - the 2-D threshold makes islets and LAKES (bays that close off): a pond must be ONE body,
+//    so N is sampled on the nominal shore circle (a function of direction only) -> every ray
+//    from the centre leaves the pond once (star-shaped, one piece). The noise is faded in from
+//    the centre (w = min(1, rho); any fade keeps it star-shaped) so the bed has no centre seam.
+//  - Unity's float simplex noise is not byte-identical on every path (Burst / Mono / IL2CPP);
+//    the seal needs the SAME footprint everywhere, so the noise is an integer Q16 gradient
+//    noise (8 gradients, quintic fade, scaled to [-1, 1] and clamped) with the same fBm sums.
+//  - the island is drawn at ~300 map cells of radius, a pond at 10-50 voxels: an octave is kept
+//    only while its lattice unit spans >= SHORE_CUT (4) voxels along the shore (its bumps >= 2
+//    voxels, the finest the grid can draw; the first octave always). Small ponds keep 1 octave.
+// Containment is exact, not tuned: S = 1 / (1 + B), B = the exact bound of the KEPT octaves'
+// sum (|noise| <= 1 per octave), so the shore never leaves the planner's ellipse. Depth: the
+// ray distance to the shore k, shelving at BANK_Q8 (1 + min(D - 1, k * BANK_Q8 >> 8)); rings:
+// the column's own shore ellipse grown by t (its noise is fixed per column, so rings nest).
+// Every number is the island's or a grid / slope rule; the site hash only seeds the noise.
+// Plane bit: word [3] bit 30 (depth <= 20 uses bits 24-28). `-pocketshore 0` leaves it 0 =
+// task 203's lobes byte for byte; the shore needs the outline on (`-pocketoutline 0` = 196).
+//
 // INTEGER footprint tests (an axis-aligned ellipse with integer radii), so the
 // seal is exact on every path. The site plane itself is built once per world on
 // the main thread from the base terrain (Sample with no plane) and stored, so no
@@ -149,6 +175,15 @@ namespace TerrainGen
         // task 203: word [0] bits 28-31 the lowest rim direction (k * 22.5 deg); word [3] bit 31 = natural outline
         public const int TAU_Q16 = 3277;                 // task 203: footprint threshold of the lobe field (0.05)
         public const int MAX_LOBES = 4;
+        // task 209: the island coast's rule (WorldMap.COAST_*) in Q16; FluidPocketTests.Shore_Rules checks them
+        public const int COAST_A1_Q16 = 29491;             // 0.45 * 65536 (COAST_AMP1)
+        public const int COAST_A2_Q16 = 7864;              // 0.12 * 65536 (COAST_AMP2)
+        public const int COAST_K1_Q16 = 174762;            // (24000 << 16) / 9000: lattice units per island radius, band 1
+        public const int COAST_K2_Q16 = 604947;            // (24000 << 16) / 2600, band 2
+        public const int FBM_LAC_Q16 = 133038;             // Noise.Fbm's lacunarity 2.03
+        public const int FBM_SHX_Q16 = 1133773, FBM_SHZ_Q16 = -596378;   // Noise.Fbm's octave shift (17.3, -9.1)
+        public const int SHORE_CUT = 4;                    // voxels per lattice unit an octave needs to be drawn
+        public const int S_HARD_Q16 = (int)((65536L * 65536L) / (65536 + COAST_A1_Q16 + COAST_A2_Q16));   // 1 / (1 + 0.57)
 
         /// Plane cells per edge.
         public static int PlaneCells(in TerrainSpec spec) => (spec.mapCells * spec.mapCellVoxels + CELL - 1) >> CELL_SHIFT;
@@ -311,6 +346,7 @@ namespace TerrainGen
         public static bool InSite(in Site s, int dx, int dz)
         {
             if (!s.outline) return InFoot(dx, dz, s.rx, s.rz);
+            if (s.shore) { var sh = ShoreOf(s.cx, s.cz, s.rx, s.rz); return InShore(in sh, dx, dz, 0); }
             var l = LobesOf(in s);
             return InLobes(in l, dx, dz, 0);
         }
@@ -319,8 +355,189 @@ namespace TerrainGen
         public static int SiteDepth(in Site s, int dx, int dz)
         {
             if (!s.outline) return DepthAt(dx, dz, s.rx, s.rz, s.depth);
+            if (s.shore) { var sh = ShoreOf(s.cx, s.cz, s.rx, s.rz); ShoreAt(in sh, dx, dz, out _, out _, out int k); return ShoreDepth(k, s.depth); }
             var l = LobesOf(in s);
             return LobeDepth(in l, dx, dz, s.depth);
+        }
+
+        // ------------------------------------------------------------------
+        // Task 209: the island coast's rule as the shore (integer only)
+        // ------------------------------------------------------------------
+
+        /// A site's shore: its radii, base scale S (Q16), the noise seeds / offsets and how many
+        /// octaves of each band the voxel grid can draw.
+        public struct Shore { public int rx, rz, S, keep1, keep2; public uint seed1, seed2; public long o1x, o1z, o2x, o2z; }
+
+        /// The exact bound (Q16, of 1) of a band's kept octaves; keep = how many (a prefix: the
+        /// lattice unit shrinks with every octave). rs = the smallest shore scale (Q16 voxels).
+        static int KeptBound(long rs, long k0, int octs, bool first, out int keep)
+        {
+            long kk = k0; int amp = 32768, acc = 0, norm = 0; keep = 0;
+            for (int i = 0; i < octs; i++)
+            {
+                norm += amp;
+                if (rs >= SHORE_CUT * kk || (first && i == 0)) { acc += amp; keep++; }
+                kk = (kk * FBM_LAC_Q16) >> 16; amp >>= 1;
+            }
+            return (int)(((long)acc << 16) / norm);
+        }
+
+        public static Shore ShoreOf(int cx, int cz, int rx, int rz)
+        {
+            uint h = Mix((uint)cx * 0x9E3779B1u ^ Mix((uint)cz * 0x85EBCA77u ^ ((uint)rx << 8) ^ (uint)rz ^ 0xC0A5209u));
+            uint h2 = Mix(h ^ 0x68E31DA4u);
+            var s = new Shore { rx = rx, rz = rz, seed1 = h, seed2 = h ^ 0x5BD1E995u,
+                                o1x = (long)(h & 0xFFFFu) << 6, o1z = (long)(h >> 16) << 6, o2x = (long)(h2 & 0xFFFFu) << 6, o2z = (long)(h2 >> 16) << 6 };
+            long rs = (long)S_HARD_Q16 * (rx + rz) / 2;
+            int b1 = KeptBound(rs, COAST_K1_Q16, WorldMap.COAST_OCT1, true, out s.keep1);
+            int b2 = KeptBound(rs, COAST_K2_Q16, WorldMap.COAST_OCT2, false, out s.keep2);
+            int B = (int)(((long)COAST_A1_Q16 * b1 + (long)COAST_A2_Q16 * b2) >> 16);
+            s.S = (int)((65536L * 65536L) / (65536 + B));   // S (1 + B) <= 1: the shore stays in the ellipse
+            return s;
+        }
+
+        static long Fade(long t)
+        {
+            long t2 = (t * t) >> 16, t3 = (t2 * t) >> 16;
+            long inner = (((t * 6 - 15 * 65536L) * t) >> 16) + 10 * 65536L;
+            return (t3 * inner) >> 16;
+        }
+
+        static long GradDot(int ix, int iz, uint seed, long fx, long fz)
+        {
+            int k = (int)(Mix((uint)ix * 0x9E3779B1u ^ Mix((uint)iz * 0x85EBCA77u ^ seed)) & 7u) * 2;   // 8 directions, 45 deg apart
+            return (CosQ8(k) * fx + SinQ8(k) * fz) >> 8;
+        }
+
+        /// 2-D gradient noise at (X, Z) (Q16), in [-65536, 65536].
+        public static long Perlin(long X, long Z, uint seed)
+        {
+            int ix = (int)(X >> 16), iz = (int)(Z >> 16);
+            long fx = X & 0xFFFF, fz = Z & 0xFFFF;
+            long n00 = GradDot(ix, iz, seed, fx, fz), n10 = GradDot(ix + 1, iz, seed, fx - 65536, fz);
+            long n01 = GradDot(ix, iz + 1, seed, fx, fz - 65536), n11 = GradDot(ix + 1, iz + 1, seed, fx - 65536, fz - 65536);
+            long u = Fade(fx), v = Fade(fz);
+            long a = n00 + (((n10 - n00) * u) >> 16), b = n01 + (((n11 - n01) * u) >> 16);
+            long n = ((a + (((b - a) * v) >> 16)) * 92682) >> 16;   // x sqrt 2: the 2-D bound 0.707 -> 1
+            return math.clamp(n, -65536L, 65536L);
+        }
+
+        /// Noise.Fbm's sum (gain 0.5, normalized by all `octs`), only the first `keep` octaves drawn.
+        static long Fbm(long cx, long cz, long k, int octs, int keep, uint seed, long ox, long oz)
+        {
+            long X = ox + ((k * cx) >> 16), Z = oz + ((k * cz) >> 16), acc = 0, norm = 0, amp = 32768;
+            for (int i = 0; i < octs; i++)
+            {
+                norm += amp;
+                if (i < keep) acc += amp * Perlin(X, Z, seed + (uint)i);
+                X = ((X * FBM_LAC_Q16) >> 16) + FBM_SHX_Q16; Z = ((Z * FBM_LAC_Q16) >> 16) + FBM_SHZ_Q16; amp >>= 1;
+            }
+            return acc / norm;
+        }
+
+        static long ISqrt(long n)
+        {
+            if (n <= 0) return 0;
+            long x = (long)math.sqrt((double)n);
+            while (x * x > n) x--;
+            while ((x + 1) * (x + 1) <= n) x++;
+            return x;
+        }
+
+        /// The shore at a column: its own shore ellipse's radii (a4, b4: Q4 voxels, ring 0) and
+        /// k = how many voxels inside the shore it lies along its ray (0 outside).
+        public static void ShoreAt(in Shore s, int dx, int dz, out int a4, out int b4, out int k)
+        {
+            long u = (long)dx * s.rz, v = (long)dz * s.rx, l2 = u * u + v * v, f = 65536, rho = 0;
+            if (l2 > 0)
+            {
+                long l = ISqrt(l2);
+                long ux = u * 65536 / l, uz = v * 65536 / l;   // the direction, normalized by the ellipse
+                long n = ((long)COAST_A1_Q16 * Fbm(ux, uz, COAST_K1_Q16, WorldMap.COAST_OCT1, s.keep1, s.seed1, s.o1x, s.o1z)
+                        + (long)COAST_A2_Q16 * Fbm(ux, uz, COAST_K2_Q16, WorldMap.COAST_OCT2, s.keep2, s.seed2, s.o2x, s.o2z)) >> 16;
+                rho = (l << 32) / ((long)s.rx * s.rz * s.S);   // radius in base-shore units (Q16)
+                f = 65536 + ((n * math.min(65536L, rho)) >> 16);
+            }
+            a4 = (int)(((long)s.rx * s.S * f) >> 28); b4 = (int)(((long)s.rz * s.S * f) >> 28);
+            // voxels inside along the ray, measured with the SHORT axis: never more than the true ray
+            // length in any direction (the bed is no steeper than BANK_Q8 anywhere) and no direction term
+            k = (int)math.max(0L, ((f - rho) * s.S * math.min(s.rx, s.rz)) >> 32);
+        }
+
+        static bool InFoot4(int dx, int dz, long a4, long b4)
+        {
+            if (a4 <= 0 || b4 <= 0) return false;
+            long x = dx * 16L, z = dz * 16L, A2 = a4 * a4, B2 = b4 * b4;
+            return x * x * B2 + z * z * A2 < A2 * B2;
+        }
+
+        /// In the shore grown by t voxels (t = 0: the pond).
+        public static bool InShore(in Shore s, int dx, int dz, int t)
+        {
+            ShoreAt(in s, dx, dz, out int a4, out int b4, out _);
+            return InFoot4(dx, dz, a4 + 16 * t, b4 + 16 * t);
+        }
+
+        /// Fluid depth of a footprint column k voxels inside the shore: shelving at the bank slope.
+        public static int ShoreDepth(int k, int d) => 1 + math.min(d - 1, (k * BANK_Q8) >> 8);
+
+        /// Ring of a column outside the pond (smallest t in [1, band) in its shore grown by t); `band` if none.
+        public static int ShoreRing(int dx, int dz, int a4, int b4, int band)
+        {
+            if (band <= 1 || !InFoot4(dx, dz, a4 + 16 * (band - 1), b4 + 16 * (band - 1))) return band;
+            int lo = 1, hi = band - 1;
+            while (lo < hi) { int m = (lo + hi) >> 1; if (InFoot4(dx, dz, a4 + 16 * m, b4 + 16 * m)) hi = m; else lo = m + 1; }
+            return lo;
+        }
+
+        /// Task 209's column step (Apply with the shore bit set): 203's rim / bank / lining on the coast-rule shore.
+        static void ApplyShore(int dx, int dz, int cx, int cz, int rx, int rz, int L, int d, int up, int dn, int band,
+                               byte fluid, ref ColumnSample c)
+        {
+            var sh = ShoreOf(cx, cz, rx, rz);
+            int lineLo = L - d - 1;
+            ShoreAt(in sh, dx, dz, out int a4, out int b4, out int k);
+            if (InFoot4(dx, dz, a4, b4))
+            {
+                int floor = L - ShoreDepth(k, d);
+                c.height = floor;
+                c.water = L;
+                c.waterKind = fluid == GenMat.Water ? (byte)0 : fluid;
+                c.pkLineLo = lineLo;
+                c.pkLineHi = floor;
+            }
+            else
+            {
+                bool rim = false;
+                if (dx >= -rx - 1 && dx <= rx + 1 && dz >= -rz - 1 && dz <= rz + 1)
+                    for (int oz = -1; oz <= 1 && !rim; oz++)
+                    for (int ox = -1; ox <= 1; ox++)
+                        if ((ox != 0 || oz != 0) && InShore(in sh, dx + ox, dz + oz, 0)) { rim = true; break; }
+                if (rim)
+                {
+                    c.height = math.max(BankHeight(c.height, L, up, dn, 1), L + 1);
+                    if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
+                    c.pkLineLo = lineLo;
+                    c.pkLineHi = L + 1;
+                }
+                else
+                {
+                    int t = ShoreRing(dx, dz, a4, b4, band);
+                    if (t >= band) return;
+                    int h = BankHeight(c.height, L, up, dn, t);
+                    if (h == c.height) return;
+                    c.height = h;
+                    if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
+                    c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = c.open3Lo = c.open3Hi = 0;
+                    c.stamp3D = false; c.carvesTop = false; c.lipLo = 0;
+                    return;
+                }
+            }
+            c.pkLining = Lining(fluid);
+            int cap = L - d - CAP_MARGIN;
+            c.riverFloor = c.riverFloor == 0 ? cap : math.min(c.riverFloor, cap);
+            c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = c.open3Lo = c.open3Hi = 0;
+            c.stamp3D = false; c.carvesTop = false; c.lipLo = 0;
         }
 
         /// Task 203's column step (Apply with the outline bit set).
@@ -387,10 +604,11 @@ namespace TerrainGen
             int up = (int)((uint)e[1] >> 24), dn = (int)((uint)e[2] >> 24);
             int band = BankBand(up, dn);
             byte fluid = (byte)(s & 255u);
-            int rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), d = (int)((s >> 24) & 127u);
+            int rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), d = (int)((s >> 24) & 63u);
             int dx = ix - cx, dz = iz - cz;
             int ext = math.max(1, band);
             if (dx < -rx - ext || dx > rx + ext || dz < -rz - ext || dz > rz + ext) return;
+            if ((s >> 30) == 3u) { ApplyShore(dx, dz, cx, cz, rx, rz, L, d, up, dn, band, fluid, ref c); return; }   // task 209
             if ((s >> 31) != 0u) { ApplyOutline(dx, dz, cx, cz, rx, rz, L, d, up, dn, band, (int)((uint)e[0] >> 28), fluid, ref c); return; }   // task 203
             // The lining: every solid voxel with a face on a fluid voxel, and one more under
             // the bed. Fluid fills (floor, L] of each footprint column, so a column's solid
@@ -503,6 +721,7 @@ namespace TerrainGen
             public int up, dn;   // task 196: the bank's cut / fill at the rim (0 / 0 = 183's shape)
             public int lowDir;   // task 203: direction (k * 22.5 deg) of the lowest rim sample
             public bool outline; // task 203: the natural outline (lobes); false = the ellipse
+            public bool shore;   // task 209: the island coast's rule (needs outline); false = 203's lobes
             public byte fluid;
             public byte archetype, biome;
             public bool valley;
@@ -515,9 +734,9 @@ namespace TerrainGen
             {
                 cx = plane[b] & LOW24, cz = plane[b + 1] & LOW24, level = plane[b + 2] & LOW24,
                 up = (int)((uint)plane[b + 1] >> 24), dn = (int)((uint)plane[b + 2] >> 24),
-                fluid = (byte)(s & 255u), rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), depth = (int)((s >> 24) & 127u),
+                fluid = (byte)(s & 255u), rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), depth = (int)((s >> 24) & 63u),
                 archetype = (byte)(((plane[b] >> 24) & 15) - 1),
-                lowDir = (int)((uint)plane[b] >> 28), outline = (s >> 31) != 0u,
+                lowDir = (int)((uint)plane[b] >> 28), outline = (s >> 31) != 0u, shore = ((s >> 30) & 1u) != 0u,
             };
         }
 
@@ -581,6 +800,7 @@ namespace TerrainGen
             public int candidates, ruled, rejectedCells, rejectedSamples, rejectedFlat, sites;
             public int banked, bankCapped, maxUp, maxDn, depthCut;   // task 196: sites with a bank, capped, the largest UP / DN, bowls made shallower
             public int outlined;   // task 203: sites with the natural outline (0 under -pocketoutline 0)
+            public int shored;     // task 209: sites with the island coast's shore (0 under -pocketshore 0)
         }
 
         /// Task 196: the bank of a site -- the exact excess of the BASE terrain's rim
@@ -604,9 +824,11 @@ namespace TerrainGen
             int W = 2 * rx + 5, H = 2 * rz + 5;
             var foot = new bool[W * H];
             var lb = LobesOf(in s);
+            var sh = ShoreOf(s.cx, s.cz, s.rx, s.rz);   // task 209
             for (int j = 0; j < H; j++)
             for (int i = 0; i < W; i++)
-                foot[j * W + i] = s.outline ? InLobes(in lb, i - rx - 2, j - rz - 2, 0) : InFoot(i - rx - 2, j - rz - 2, rx, rz);
+                foot[j * W + i] = !s.outline ? InFoot(i - rx - 2, j - rz - 2, rx, rz)
+                                : s.shore ? InShore(in sh, i - rx - 2, j - rz - 2, 0) : InLobes(in lb, i - rx - 2, j - rz - 2, 0);
             for (int dz = -rz - 1; dz <= rz + 1; dz++)
             for (int dx = -rx - 1; dx <= rx + 1; dx++)
             {
@@ -655,6 +877,20 @@ namespace TerrainGen
             return on;
         }
 
+        /// TESTS ONLY (task 209): >= 0 overrides `-pocketshore` for BuildPlane (0 = 203's lobes). -1 = the argument.
+        public static int ShoreTestOverride = -1;
+
+        /// `-pocketshore 0` (task 209, for before / after pictures): 203's lobes exactly.
+        /// Absent or 1 = the island coast's rule. Last match wins.
+        public static bool ShoreArg()
+        {
+            string[] a = System.Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-pocketshore" && int.TryParse(a[i + 1], out int v)) on = v != 0;
+            return on;
+        }
+
         /// `-pocketbasin 0` (task 196, for before / after pictures): the plane gets 183's
         /// shape back exactly (no bank, the drawn depth). Absent or 1 = the natural basin. Last match wins.
         public static bool BasinsArg()
@@ -678,6 +914,7 @@ namespace TerrainGen
             // plane fingerprint). Statements, not an expression branch.
             uint w3 = (uint)s.fluid | ((uint)s.rx << 8) | ((uint)s.rz << 16) | ((uint)s.depth << 24);
             if (s.outline) w3 |= 1u << 31;
+            if (s.shore) w3 |= 1u << 30;   // task 209 (depth <= 20: bits 24-28)
             w[3] = (int)w3;
         }
 
@@ -699,6 +936,7 @@ namespace TerrainGen
             var zone = StartZone(map);
             bool basins = BasinsArg();   // task 196
             bool outline = OutlineTestOverride >= 0 ? OutlineTestOverride != 0 : OutlineArg();   // task 203
+            bool shore = outline && (ShoreTestOverride >= 0 ? ShoreTestOverride != 0 : ShoreArg());   // task 209
 
             for (int pz = 0; pz < n; pz++)
             for (int px = 0; px < n; px++)
@@ -764,19 +1002,20 @@ namespace TerrainGen
                 int roomX = math.min(math.min(sx - math.max(cellX, x0 * cv), math.min(cellX + CELL, (x1 + 1) * cv) - 1 - sx), world - 1 - sx) - rx;
                 int roomZ = math.min(math.min(sz - math.max(cellZ, z0 * cv), math.min(cellZ + CELL, (z1 + 1) * cv) - 1 - sz), world - 1 - sz) - rz;
                 int up = 0, dn = 0; bool capped = false;
-                var probe = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, lowDir = outline ? lowDir : 0, outline = outline };
+                var probe = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, lowDir = outline ? lowDir : 0, outline = outline, shore = shore };
                 if (basins) MeasureBank(in spec, in view, in o, in probe, math.min(roomX, roomZ), out up, out dn, out capped);
                 if (up > 0 || dn > 0) st.banked++;
                 if (capped) st.bankCapped++;
                 st.maxUp = math.max(st.maxUp, up); st.maxDn = math.max(st.maxDn, dn);
 
                 var site = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, depth = bowl, up = up, dn = dn, fluid = fluid,
-                                      lowDir = probe.lowDir, outline = outline };
+                                      lowDir = probe.lowDir, outline = outline, shore = shore };
                 var w = new int[4];
                 Pack(in site, plane[b], w);
                 for (int k = 0; k < 4; k++) plane[b + k] = w[k];
                 st.sites++;
                 if (outline) st.outlined++;
+                if (shore) st.shored++;
             }
             return plane;
         }

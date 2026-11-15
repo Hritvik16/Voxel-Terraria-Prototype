@@ -671,13 +671,20 @@ namespace TerrainGen
             return y * amp;
         }
 
+        /// The coast rule's numbers (task 209 names them so FluidPockets' pond shore can take
+        /// the SAME rule): two fBm bands (wavelength in voxels, octaves, amplitude in island
+        /// radii) added to the envelope 1 - d and thresholded at 0. Constants, so Coast /
+        /// Macro compile to the same code as the literals they replace.
+        public const float COAST_WAVE1 = 9000f, COAST_AMP1 = 0.45f, COAST_WAVE2 = 2600f, COAST_AMP2 = 0.12f;
+        public const int COAST_OCT1 = 5, COAST_OCT2 = 3;
+
         /// The island envelope (§2.5): the coast value at p, > 0 on land.
         public static float Coast(in TerrainSpec spec, in Offsets o, float2 p)
         {
             float c = spec.worldSizeVoxels * 0.5f;
             float2 q = p - new float2(c, c);
             float d = math.sqrt(q.x * q.x + q.y * q.y) / spec.islandRadius;
-            return (1f - d) + Noise.Fbm(p / 9000f + o.coastA, 5) * 0.45f + Noise.Fbm(p / 2600f + o.coastB, 3) * 0.12f;
+            return (1f - d) + Noise.Fbm(p / COAST_WAVE1 + o.coastA, COAST_OCT1) * COAST_AMP1 + Noise.Fbm(p / COAST_WAVE2 + o.coastB, COAST_OCT2) * COAST_AMP2;
         }
 
         public static float OceanFloor(in TerrainSpec spec, float coast)
@@ -1110,8 +1117,8 @@ namespace TerrainGen
             // Organic coast WITHOUT domain warping (owner, §2.5): the envelope
             // plus noise, thresholded at zero. Bays, headlands and islets are
             // where the noise beats the envelope, not where coordinates bend.
-            float coast = (1f - d) + Noise.Fbm(p / 9000f + o.coastA, 5) * 0.45f
-                                   + Noise.Fbm(p / 2600f + o.coastB, 3) * 0.12f;
+            float coast = (1f - d) + Noise.Fbm(p / COAST_WAVE1 + o.coastA, COAST_OCT1) * COAST_AMP1
+                                   + Noise.Fbm(p / COAST_WAVE2 + o.coastB, COAST_OCT2) * COAST_AMP2;
 
             if (coast <= 0f)
             {

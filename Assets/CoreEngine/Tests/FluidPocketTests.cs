@@ -249,6 +249,161 @@ public unsafe class FluidPocketTests
         Assert.LessOrEqual(maxStep, 2, $"bed steeper than 2 voxels per column: {steep} of {pairs} pairs, max {maxStep}");
     }
 
+    /// Task 209: the island coast's rule as the shore, on 600 synthetic sites: the Q16 numbers
+    /// are WorldMap's coast rule; every pond strictly inside the planner's ellipse (no + 1), the
+    /// centre in it, one 4-connected body, rings nested and in the box grown by t, bed step
+    /// <= 2 voxels, irregular (not its base ellipse); the shore bit off = 203's lobes exactly;
+    /// Pack / Decode. Writes outlines as text to Logs/TerrainGen/shore209/shapes.txt.
+    [Test]
+    public void Shore_Rules()
+    {
+        var spec = TerrainSpec.SizeClass2(42);
+        Assert.AreEqual((int)(WorldMap.COAST_AMP1 * 65536f), FluidPockets.COAST_A1_Q16, "band 1 amplitude");
+        Assert.AreEqual((int)(WorldMap.COAST_AMP2 * 65536f), FluidPockets.COAST_A2_Q16, "band 2 amplitude");
+        Assert.AreEqual((int)(((long)spec.islandRadius << 16) / (long)WorldMap.COAST_WAVE1), FluidPockets.COAST_K1_Q16, "band 1 lattice units per radius");
+        Assert.AreEqual((int)(((long)spec.islandRadius << 16) / (long)WorldMap.COAST_WAVE2), FluidPockets.COAST_K2_Q16, "band 2 lattice units per radius");
+        var rng = new Unity.Mathematics.Random(209u);
+        var sb = new StringBuilder();
+        int sites = 0, maxStep = 0; long pairs = 0, steep = 0; double areaSum = 0, irrSum = 0; var keeps = new int[8];
+        for (int it = 0; it < 600; it++)
+        {
+            int rx = rng.NextInt(14, 53), rz = math.max(rx * 3 / 4 - 4, (int)(rx * rng.NextFloat(0.6f, 1f)));
+            if (rng.NextBool()) { int t0 = rx; rx = rz; rz = t0; }
+            int d = FluidPockets.BowlDepth(rng.NextInt(1, 21), rx, rz), lowDir = it & 15;
+            var s = new FluidPockets.Site { cx = rng.NextInt(200, 80000), cz = rng.NextInt(200, 80000), rx = rx, rz = rz, depth = d, level = 4000,
+                                            lowDir = lowDir, outline = true, shore = true, fluid = GenMat.Water, up = rng.NextInt(0, 40), dn = rng.NextInt(0, 20) };
+            var sh = FluidPockets.ShoreOf(s.cx, s.cz, rx, rz);
+            keeps[math.min(7, sh.keep1 + sh.keep2)]++;
+            Assert.IsTrue(FluidPockets.InSite(in s, 0, 0), $"centre not in the pond, site {it}");
+            int W = 2 * rx + 3, H = 2 * rz + 3, area = 0, ell = 0, irr = 0;
+            int bA = (int)(((long)rx * sh.S) >> 16), bB = (int)(((long)rz * sh.S) >> 16);
+            var foot = new bool[W * H]; var dep = new int[W * H];
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+            {
+                int dx = i - rx - 1, dz = j - rz - 1, k = j * W + i;
+                foot[k] = FluidPockets.InSite(in s, dx, dz);
+                if (foot[k]) { area++; Assert.IsTrue(FluidPockets.InFoot(dx, dz, rx, rz), $"pond outside the planner's ellipse at ({dx}, {dz}), site {it}");
+                               dep[k] = FluidPockets.SiteDepth(in s, dx, dz); Assert.IsTrue(dep[k] >= 1 && dep[k] <= d, "depth range"); }
+                if (FluidPockets.InFoot(dx, dz, rx, rz)) ell++;
+                if (foot[k] != FluidPockets.InFoot(dx, dz, bA, bB)) irr++;
+            }
+            // one 4-connected pond, bed steps between 4-neighbours
+            var seen = new bool[W * H]; var q = new Queue<int>(); int c0 = (rz + 1) * W + rx + 1, reached = 0;
+            seen[c0] = true; q.Enqueue(c0);
+            while (q.Count > 0)
+            {
+                int k = q.Dequeue(); reached++;
+                int i = k % W, j = k / W;
+                foreach (var (ni, nj) in new[] { (i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1) })
+                {
+                    if (ni < 0 || nj < 0 || ni >= W || nj >= H) continue;
+                    int nk = nj * W + ni;
+                    if (!foot[nk] || seen[nk]) continue;
+                    seen[nk] = true; q.Enqueue(nk);
+                }
+            }
+            Assert.AreEqual(area, reached, $"the pond is not one piece, site {it}");
+            for (int k = 0; k < W * H; k++)
+            {
+                if (!foot[k]) continue;
+                int i = k % W;
+                foreach (int nk in new[] { k + 1, k + W })
+                {
+                    if (nk >= W * H || (nk == k + 1 && i == W - 1) || !foot[nk]) continue;
+                    int st = math.abs(dep[nk] - dep[k]); maxStep = math.max(maxStep, st); pairs++; if (st > 1) steep++;
+                }
+            }
+            // rings nest and stay in the box grown by t
+            int band = FluidPockets.BankBand(s.up, s.dn);
+            for (int dz = -rz - band; dz <= rz + band; dz += 2)
+            for (int dx = -rx - band; dx <= rx + band; dx += 2)
+            {
+                FluidPockets.ShoreAt(in sh, dx, dz, out int a4, out int b4, out _);
+                if (FluidPockets.InShore(in sh, dx, dz, 0)) continue;
+                int t = FluidPockets.ShoreRing(dx, dz, a4, b4, band);
+                if (t < band)
+                {
+                    Assert.IsTrue(FluidPockets.InShore(in sh, dx, dz, t) && (t == 1 || !FluidPockets.InShore(in sh, dx, dz, t - 1)), $"ring ({dx}, {dz}) site {it}");
+                    Assert.IsTrue(math.abs(dx) <= rx + t && math.abs(dz) <= rz + t, $"ring {t} outside the box at ({dx}, {dz}), site {it}");
+                }
+                else if (band > 1) Assert.IsFalse(FluidPockets.InShore(in sh, dx, dz, band - 1));
+            }
+            sites++; areaSum += (double)area / ell; irrSum += (double)irr / math.max(1, area);
+            Assert.Greater(irr, area / 20, $"site {it}: the shore is (almost) its base ellipse");
+            // the shore bit off is 203's lobes exactly
+            var off = s; off.shore = false; var l = FluidPockets.LobesOf(in off);
+            for (int dz = -rz - 1; dz <= rz + 1; dz += 3)
+            for (int dx = -rx - 1; dx <= rx + 1; dx += 3)
+            {
+                Assert.AreEqual(FluidPockets.InLobes(in l, dx, dz, 0), FluidPockets.InSite(in off, dx, dz));
+                if (FluidPockets.InLobes(in l, dx, dz, 0)) Assert.AreEqual(FluidPockets.LobeDepth(in l, dx, dz, d), FluidPockets.SiteDepth(in off, dx, dz));
+            }
+            // Pack / Decode (and the bit off packs as 203 did)
+            var w = new int[4]; var w0 = new int[4];
+            FluidPockets.Pack(in s, 9 << 24, w); FluidPockets.Pack(in off, 9 << 24, w0);
+            var back = FluidPockets.Decode(w, 0);
+            Assert.IsTrue(back.shore && back.outline && back.lowDir == lowDir && back.rx == rx && back.rz == rz && back.depth == d && back.cx == s.cx && back.up == s.up, "pack / decode");
+            Assert.IsTrue(w[0] == w0[0] && w[1] == w0[1] && w[2] == w0[2] && w[3] == (w0[3] | (1 << 30)) && !FluidPockets.Decode(w0, 0).shore, "the shore bit is bit 30 only");
+            if (it < 8)
+            {
+                sb.AppendLine($"site {it}: r {rx} x {rz}, depth {d}, octaves kept {sh.keep1} + {sh.keep2}, S {sh.S / 65536f:F3}, area {100.0 * area / ell:F0} % of the ellipse; digit = depth, '.' the planner's ellipse only");
+                for (int j = H - 1; j >= 0; j -= 2)
+                {
+                    var line = new StringBuilder();
+                    for (int i = 0; i < W; i++)
+                    {
+                        int k = j * W + i;
+                        line.Append(foot[k] ? (char)('0' + math.min(9, dep[k])) : FluidPockets.InFoot(i - rx - 1, j - rz - 1, rx, rz) ? '.' : ' ');
+                    }
+                    sb.AppendLine(line.ToString());
+                }
+            }
+        }
+        sb.Insert(0, $"Task 209 shore rules: {sites} sites, pond area {100 * areaSum / sites:F0} % of the planner's ellipse (mean; 203: 55 %), " +
+                     $"differs from its base ellipse on {100 * irrSum / sites:F0} % of its area, max bed step {maxStep} voxels, steps > 1: {steep} of {pairs} neighbour pairs; " +
+                     $"sites by octaves kept (band 1 + 2): {string.Join(", ", System.Linq.Enumerable.Select(System.Linq.Enumerable.Range(1, 7), n => $"{n}: {keeps[n]}"))}\n");
+        string dir = Path.Combine("Logs", "TerrainGen", "shore209"); Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "shapes.txt"), sb.ToString());
+        Assert.LessOrEqual(maxStep, 2, $"bed steeper than 2 voxels per column: {steep} of {pairs} pairs, max {maxStep}");
+    }
+
+    /// Task 209: the plane's FNV at seed 42, computed as the player's `[FluidPockets] plane` line does.
+    /// The shore off must be task 203's plane byte for byte (72CEA9A36AECA569, the 203 player's value);
+    /// the shore on keeps every site where it was (same centres, levels, fluids, sizes) and its FNV equals
+    /// the task 209 IL2CPP player's (38AF614C8AECA569). Logs/TerrainGen/shore209/plane_fnv.txt.
+    [Test, Category("Slow"), Timeout(1200000)]
+    public void Shore_PlaneFingerprint()
+    {
+        using var src = new TerrainGenChunkSource(42u);
+        src.SetFluidPockets(true);
+        var map = src.Map;
+        ulong Fnv(int[] pl) { ulong h = 1469598103934665603UL; for (int i = 0; i < pl.Length; i++) { h ^= (uint)pl[i]; h *= 1099511628211UL; } return h; }
+        try
+        {
+            FluidPockets.ShoreTestOverride = 0; var off = FluidPockets.BuildPlane(map, out var st0);
+            FluidPockets.ShoreTestOverride = 1; var on = FluidPockets.BuildPlane(map, out var st1);
+            int moved = 0, banksDiffer = 0;
+            for (int i = 0; i < off.Length / FluidPockets.STRIDE; i++)
+            {
+                int b = i * FluidPockets.STRIDE;
+                if ((off[b] & FluidPockets.LOW24) != (on[b] & FluidPockets.LOW24) || (off[b + 1] & FluidPockets.LOW24) != (on[b + 1] & FluidPockets.LOW24) ||
+                    (off[b + 2] & FluidPockets.LOW24) != (on[b + 2] & FluidPockets.LOW24) || (off[b + 3] & 0x3FFFFFFF) != (on[b + 3] & 0x3FFFFFFF)) moved++;
+                if (off[b + 1] != on[b + 1] || off[b + 2] != on[b + 2]) banksDiffer++;
+            }
+            string line = $"seed 42: sites {st0.sites} / {st1.sites}; shore off fnv {Fnv(off):X16} (203: 72CEA9A36AECA569), shore on fnv {Fnv(on):X16} ({st1.shored} shores); " +
+                          $"sites whose placement differs {moved}, sites whose bank (UP / DN) differs {banksDiffer}; capped off {st0.bankCapped} on {st1.bankCapped}, max cut {st0.maxUp} -> {st1.maxUp}, fill {st0.maxDn} -> {st1.maxDn}";
+            UnityEngine.Debug.Log("[209] " + line);
+            string dir = Path.Combine("Logs", "TerrainGen", "shore209"); Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "plane_fnv.txt"), line + "\n");
+            Assert.AreEqual(0x72CEA9A36AECA569UL, Fnv(off), "-pocketshore 0 is not task 203's plane");
+            Assert.AreEqual(0x38AF614C8AECA569UL, Fnv(on), "the shore plane differs from the IL2CPP player's (task 209 launch, Logs/overnight/209/player_after.log)");
+            Assert.AreEqual(0, moved, "the shore moved a site");
+            Assert.AreEqual(st0.sites, st1.shored, "every site takes the shore");
+        }
+        finally { FluidPockets.ShoreTestOverride = -1; }
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -574,7 +729,8 @@ public unsafe class FluidPocketTests
                                 math.min(cz & (FluidPockets.CELL - 1), FluidPockets.CELL - 1 - (cz & (FluidPockets.CELL - 1))) - rz);
             // task 203: the forced site takes the default outline (lobes toward its lowest rim direction)
             var s = new FluidPockets.Site { cx = cx, cz = cz, level = L, rx = rx, rz = rz, depth = FluidPockets.BowlDepth(16, rx, rz), fluid = fluid,
-                                            outline = FluidPockets.OutlineArg(), lowDir = FluidPockets.RimLowDir(in spec, in baseView, in o, cx, cz, rx, rz) };
+                                            outline = FluidPockets.OutlineArg(), shore = FluidPockets.OutlineArg() && FluidPockets.ShoreArg(),   // task 209: the default shore
+                                            lowDir = FluidPockets.RimLowDir(in spec, in baseView, in o, cx, cz, rx, rz) };
             FluidPockets.MeasureBank(in spec, in baseView, in o, in s, room, out s.up, out s.dn, out _);
             cases.Add(SurfaceCase(name, pi, s, true));
         }
@@ -994,8 +1150,8 @@ public unsafe class FluidPocketTests
                         !FluidPockets.InFoot(dx, dz + 1, s.rx, s.rz) || !FluidPockets.InFoot(dx, dz - 1, s.rx, s.rz)) && ((dx + dz) & 1) == 0)
                 px[k] = new Color32(255, 255, 255, 255);
         }
-        string dir = Path.Combine("Screenshots", "203"); Directory.CreateDirectory(dir);
-        WritePng(Path.Combine(dir, $"cpu_top_{cs.name}{(s.outline ? "" : "_ellipse")}.png"), px, W, H, 4);
+        string dir = Path.Combine("Screenshots", "209"); Directory.CreateDirectory(dir);   // task 209 (203's shots: Screenshots/203)
+        WritePng(Path.Combine(dir, $"cpu_top_{cs.name}{(!s.outline ? "_ellipse" : s.shore ? "" : "_lobes")}.png"), px, W, H, 4);
     }
 
     private static void WritePng(string path, Color32[] px, int w, int h, int scale)

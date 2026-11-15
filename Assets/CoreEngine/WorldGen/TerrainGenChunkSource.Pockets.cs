@@ -49,7 +49,8 @@ namespace VoxelEngine.WorldGen
                 UnityEngine.Debug.Log($"[FluidPockets] plane {sw.ElapsedMilliseconds} ms: {st.sites} surface sites " +
                                       $"({st.candidates} cells, {st.ruled} ruled, rejected cells {st.rejectedCells} / samples {st.rejectedSamples} / flat {st.rejectedFlat}); " +
                                       $"basins (task 196): banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn}, shallower bowls {st.depthCut}; " +
-                                      $"natural outlines (task 203) {st.outlined}{(st.outlined == 0 ? " (-pocketoutline 0: 196's ellipses)" : "")}; plane fnv {fnv:X16}");
+                                      $"natural outlines (task 203) {st.outlined}{(st.outlined == 0 ? " (-pocketoutline 0: 196's ellipses)" : "")}; " +
+                                      $"coast-rule shores (task 209) {st.shored}{(st.shored == 0 ? " (-pocketshore 0: 203's lobes)" : "")}; plane fnv {fnv:X16}");
                 _pocket = new NativeArray<int>(Map.PocketPlane, Allocator.Persistent);
             }
             else _pocket = new NativeArray<int>(1, Allocator.Persistent);
