@@ -22,7 +22,7 @@
   launch 1 shot 6/20 frames at the wrong view. KNOWN_ISSUES entry (other capture modes still have it).
 - Survey pre-apply of the last arm strips `_dfN`. Launch 2 died on `native_df1` as the last arm (FormatException; player killed, relaunched SKIP_BUILD).
 - `-dashprobe`: later arms counted (`DashCount`) against arm 1's predicted pixels; ABOVE/below split. Arm suffix `_dfN`. `LadderArms` keeps any `native_*`.
-- Commit: see `git log -1` (205: ...). Files: Raymarch.compute, RaymarchFeature.cs, PlaygroundCapture.{DashProbe,WorldSurvey,RowsLook}.cs,
+- Commit: e32ed45 (+ this HANDOFF hash commit). Files: Raymarch.compute, RaymarchFeature.cs, PlaygroundCapture.{DashProbe,WorldSurvey,RowsLook}.cs,
   Tests/DashFixTests.cs, TASKS.md, KNOWN_ISSUES.md, `Logs/overnight/205/*` (drivers, logs, diff tools).
 ## Evidence
 - Fast suite PASS 1023 FAIL 0 SKIP 21 (`Logs/overnight/205/fast.out`); filter DashFixTests + CubeLookTests 5/5 earlier.
