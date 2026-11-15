@@ -1785,3 +1785,10 @@ tests `Trees2TestOverride`, `SetTrees2`, `LibTreesIn` (Burst gather, same view a
 0-3 agree; `chunks.txt`), `Poses210` (Explicit; `poses.txt`). Shots `Logs/overnight/210_shots.sh` (20 poses, both arms), `210_far.sh`,
 `210_final.sh`; table `Logs/overnight/210_table.py` -> `Screenshots/210/table210.txt`; `python3 -I tools/trees210.py` -> sheets + `viewer.html`.
 Result: HANDOFF 210.
+**Task 211 (plan only, owner 2026-11-14 Q-AE; no code, no launch, no tests): game design batch A folded in.** Claude Doc "Game design"
+(https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8) + repo copy `GAME_DESIGN.md`: A1 (b) late first world flip (core loop Decided,
+session row changed, Stages row), A2 (c) 2-3 cities per Medium world (How many, Size tiers, towns checklist: 187's 3 towns + 1 frontier
++ ~10 villages/outposts, ~1.35 km fair-share spacing), A3 (a) one humanoid generator for NPCs + player creator, A4 (a) wood/fruit/seeds/
+regrowth (trunk block = wood; 6 new ids = 3 woods + 3 fruits of the 11 free GenMat ids 9, 18, 26-29, 38, 39, 59, 94, 95; seeds are
+items), A5 (c) dynamic town safety (new Open section "Town safety by NPC behaviour": 5 rules, a needs table, questions C1-C5), A6 (a)
+Terraria move-in rule + the DESIGN PRINCIPLE under the pitch ("keep all rules simple and depend on emergent behavior"). Result: HANDOFF 211.

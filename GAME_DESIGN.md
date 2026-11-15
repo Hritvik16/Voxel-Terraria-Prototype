@@ -1,11 +1,11 @@
-# Game design -- DRAFT, owner answers pending
+# Game design -- DRAFT, batch A answered (Q-AE, 2026-11-14)
 
-Repo copy of the Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), task 202, 2026-11-14.
+Repo copy of the Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), task 202, 2026-11-14; batch A answers folded in by task 211, 2026-11-15.
 The DOC is the live version (the owner answers there); this file is a snapshot. Plan only, no code.
 CLAUDE.md rule 5: `ARCHITECTURE_v8.6.md` is engine only and is not cited here. The game-design brief stays the authority
 for terrain; its Decided rows bind. This doc adds everything else on top of it.
 
-**DRAFT -- owner answers pending.** It collects what the owner has already decided about the game, marks what is still
+**DRAFT -- batch A answered 14 Nov (Q-AE); town-safety questions C1-C5 and batch B pending.** It collects what the owner has already decided about the game, marks what is still
 open, and ends with questions. Nothing here is new design by the agent: a thing the owner has not said is marked Open.
 
 - **Decided**: the owner said it; the source and date are given. It binds the work.
@@ -16,6 +16,8 @@ open, and ends with questions. Nothing here is new design by the agent: a thing 
 
 **"Terraria in 3D: Minecraft look at 0.1 m blocks, Noita's fluids, Palworld's sense of scale. Terrain as fun to dig through as to look across."** (owner's one-line brief, 2026-09-25)
 
+**Design principle: simple rules, emergent behaviour.** "terraria's rules are simple and we should ideally try to keep all rules simple and depend on emergent behavior" (owner, 2026-11-14, Q-AE A6). Every system gets a few local rules; the interesting play comes from how they meet, not from special cases. A row below that needs a list of special cases is marked Leaning with a note until it is made simple.
+
 The world is one large island that you keep, chosen by seed and size. From the top of a 600 m peak you can see coast to coast; 500 m under your feet the rock ends in a lava sea. Every block is 10 cm, so a hillside is something you can dig into, carve, flood or blow apart.
 
 You start on gentle ground with a clear path to more of it. The hard places are visible from far away: snowy peaks, sheer canyons, a volcano. They are hard because of where they are, not because of your level. The good materials are in those hard places, so you go there when your gear is ready.
@@ -24,7 +26,7 @@ The world is made of materials that act. Water and lava make stone and steam, fi
 
 Between the wild areas sit towns: safe stops on the roads that cross the island. They have trade, rest, quests and residents who react to what you do to their town. You can build your own settlement too, with quick click-and-drag strokes in the spirit of Lay of the Land, and reuse anything you built as a brush.
 
-You fight with gear and learned skill moves: "anime-esque fun combat that can be fast paced or slow depending on the player" (2026-10-15). A weapon's material grade is one half of your power, the moves you learn are the other, and moves combine with unique effects. Beating certain bosses flips the whole world into its next stage, with new ores and new creatures.
+You fight with gear and learned skill moves: "anime-esque fun combat that can be fast paced or slow depending on the player" (2026-10-15). A weapon's material grade is one half of your power, the moves you learn are the other, and moves combine with unique effects. Beating certain bosses flips the whole world into its next stage, with new ores and new creatures. The first flip comes late, like Terraria's hardmode: the world does not change for a long while.
 
 You move a lot: swim, dive, climb, glide, grapple, dash, wall-run, and late in the game fly at about 60 m/s. At night the island can be lit by "a million lights" (2026-10-15).
 
@@ -59,18 +61,72 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | --- | --- | --- | --- |
 | What towns are for | Trade and services; a safe haven (respawn, rest, protection); quests and story; a marker of world progress. | Decided | Brief |
 | Who builds them | The world generates villages and towns; you can found settlements that NPCs move into. | Decided | Brief |
-| Editing towns | Generated towns are fully editable; residents react (anger, leaving, asking for repairs). | Decided | Brief |
-| How many | Scales with world size. | Decided | Brief |
+| Editing towns | Generated towns are fully editable. | Decided | Brief |
+| How residents react to edits | Anger, leaving, asking for repairs. Note (design principle): this should fall out of the town rules, not a scripted list. A wrecked room has no bed or light, so its resident leaves (question C2). | Leaning | Brief; principle, 14 Nov |
+| How many | Scales with world size. Cities: 2-3 per Medium world; Small and Large scale by land area (Leaning: Small 1-2, Large 3-4). | Decided | Brief; owner, 2026-11-14, Q-AE A2 (c) |
 | Ground | Flatten only under each building. Slopes get foundations, steps, stilts or terraces. Today's towns (task 190) still flatten a whole disc; this replaces that. | Decided | V1 (a), 13 Nov |
 | Layout | Streets first: paths grow from the route along easy ground and buildings line them. A city is more rules: a square, districts, walls, a castle on high ground. | Decided | V2 (a), 13 Nov |
 | Buildings | Made by rules: footprint, floors, roof, biome materials, details; WFC for facades and interiors. They fit any ground, even a cliff. The owner asked for "fantastic looking towns", castles, and "a lot of unique procedurally generated buildings". | Decided | V3 (a), 13 Nov; Questions tab |
 | Placement order | Resources first, then towns, then enemy lairs. | Decided | P6, 6 Nov |
-| Size tiers | Today: outpost, village, town, frontier town (task 187). Where do cities sit, and how many per world? | Open | -- |
+| Size tiers | Outpost, village, town, frontier town (task 187), and city: 2-3 per Medium world ("2 or 3 cities per medium world"). Which sites become cities: Leaning, the 2-3 best town sites on the biggest easy areas (placement checklist). | Decided (count); Leaning (which sites) | owner, 2026-11-14, Q-AE A2 (c) |
 | Frontier towns | Some towns sit near hard ground (foot of the volcano, the snow line), not only on easy plains. | Leaning | Brief (text, not a row) |
 | Growth | Towns grow and new NPCs arrive as the world advances. | Decided | Brief, Progression |
 | Town life far away | Day and night routines, NPCs move, lights at night. | Decided | Round b3 |
-| Your own settlement | What makes NPCs move in (beds, a hall, safety)? | Open | -- |
-| Safety | Is a town a no-spawn zone, walled, guarded? | Open | -- |
+| Your own settlement | Terraria's rule: an NPC moves in when you build a room with a door, a bed and a light. From there it grows by the same rules as any town, up to a city (Town safety below). Whether you need a claimed area is question C5. | Decided | owner, 2026-11-14, Q-AE A6 (a) |
+| Safety | "It is as safe as the townspeople keep it": safety comes from a few rules (lights, rooms, people), not a fixed no-spawn zone. The rules themselves are Open: see Town safety by NPC behaviour below. | Decided (direction); Open (rules) | owner, 2026-11-14, Q-AE A5 (c) |
+
+### Town safety by NPC behaviour (Open)
+
+A town is "as safe as the townspeople keep it" (owner, 2026-11-14, Q-AE A5 (c)), and the same rules let the player's own settlement "naturally grow into a city". Nothing in this section is decided: it is a sketch of how five simple rules could do it, under the design principle. The owner's answers to C1-C5 below turn it into rows.
+
+**The rules (a sketch)**
+
+1. **Danger map.** Every map cell has a danger number. Wild creatures spawn only where it is above a threshold, more often the higher it is. Its base comes from the biome x landform pair and world stage; night raises it (if B3 (a)).
+2. **Light and walls lower it.** Every light and every closed room lowers danger in a radius. There is no town flag and no no-spawn zone: a lit, walled camp in the wild is safe too.
+3. **People lower it.** Each resident lowers danger around their home and the paths they walk. A guard is a resident who walks between the town's lights at night and fights what spawns.
+4. **People stay while they are housed and safe.** A resident needs a room (door, bed, light: A6) and a home that is not too dangerous; otherwise they leave. A town that loses its people keeps only its lights and walls, so it becomes less safe.
+5. **Growth is the same rules run forward.** More safe rooms bring more residents, which bring more safety and room for more: camp, village, town, city. The player's settlement and a generated one grow the same way; a generated city is one the world started further along.
+
+What falls out of these rules with nothing extra: wrecking a town (breaking lights, walls, beds) raises its danger and makes people leave, which is the reaction to edits; attacks on a town happen when danger around it rises (night, a stage flip) faster than its people push it down, so no scripted raid event is needed.
+
+**What it needs that does not exist yet**
+
+| Piece | What it is | Today |
+| --- | --- | --- |
+| Spawn-danger map | One byte per 8 m map cell: about 0.55 MB for a Medium island (750 x 750 cells), updated only near the player. | The route danger map (V4) and planned spawn zones per biome x landform (lairs step) give its base. No live light or people terms. |
+| Light and room finder | Which lights and closed rooms lie near a point. | Torches exist (task 175's torch flood). Rooms are not detected. |
+| NPC routines | A home, a day and night schedule, walking paths; guards with patrols along the streets. | None. Town life far away is decided (Round b3), but there are no NPCs yet. |
+| Humanoid generator | Bodies for residents and guards (A3 (a)). | None. |
+| Creatures and a spawner | Something to spawn where danger is high. | None. |
+| Furnished buildings | Doors, beds and lights inside the generated buildings, so rule 4 holds for generated towns. | Footprints exist (task 190's building list); furniture does not (placement checklist). |
+
+**Questions C1-C5** (the first option is the recommendation; a letter is enough)
+
+**C1. What lowers danger?**
+- (a) Lights, closed rooms and people, each in a radius, all on the one danger map. *Cost:* one coarse map, about 0.55 MB, updated near the player. *Unlocks:* everything below; a base is safe the moment it is lit and walled.
+- (b) People only (guards). *Cost:* a little less, but an empty lit house is as dangerous as the wild.
+- (c) Lights and rooms only, like Terraria; no people term. *Cost:* smallest, but "as safe as the townspeople keep it" no longer holds.
+
+**C2. What makes a resident leave?**
+- (a) Two things: no valid room (door, bed, light), or home danger above a threshold for a few in-game days. *Cost:* one check per resident per day. *Unlocks:* towns empty when the player wrecks them or lets them go dark, so edits get a reaction for free.
+- (b) Only a missing room.
+- (c) Residents never leave; only their mood changes.
+
+**C3. Guards?**
+- (a) Guards are ordinary residents with one more rule: at night, walk between the town's lights and fight what spawns; one guard per few residents. *Cost:* patrol paths, which the streets (V2) already give. *Unlocks:* towns visibly defended at night; a dark town is undefended.
+- (b) Fixed guard posts at the gates.
+- (c) No guards; lights and walls only.
+
+**C4. How does a settlement step up to town and city?**
+- (a) By resident count alone, the same for the player's and generated ones (for example 5 = village, 15 = town, 40 = city); each step brings new kinds of NPC (merchant, trainer, guard captain). *Cost:* nothing beyond C1-C3. *Unlocks:* the player's settlement grows into a city by playing.
+- (b) Resident count plus an item the player places (a hall or charter) to step up.
+- (c) The player's stays a village; only generated settlements are cities.
+
+**C5. Does a settlement need a claimed area?** A6 (a)'s text said "inside your claimed area"; Terraria has none.
+- (a) No claim: a settlement is simply rooms and residents close together (rooms within about 64 m of each other count as one). *Cost:* none, and no claim screen. *Unlocks:* the simplest rule; any camp can become a town.
+- (b) A claim marker the player places.
+- (c) Generated towns keep their site disc; the player's settlement needs a claim.
+
 
 ### Resources and materials
 
@@ -83,7 +139,7 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | Underground | A few thick layers by depth, each biome its own rock; one shared underworld (ash, obsidian, lava sea) from 400 m down. | Decided | Brief |
 | Trees | 0.1 m cubes, closer to real trees (banyan, massive redwood); 2-3 species per biome; recognisable but each tree unique. Trees first; bushes, grass and flowers later. | Decided | T1, T3 (a), T4 (a), 13 Nov |
 | Tree method | The owner wants to see examples before choosing (task 200's gallery; task 210 queued). | Open | T2, 13 Nov |
-| Wood and plants as materials | Do trees give wood, fruit, fibre? Do plants regrow? | Open | -- |
+| Wood and plants as materials | Each species gives its own wood (a building material in its own colour); some give fruit; trees and plants drop seeds you can plant; a felled tree regrows over time. | Decided | owner, 2026-11-14, Q-AE A4 (a) |
 | Fluids | Water, lava, oil, acid, honey, sludge, quicksand. Each is a hazard, a tool, a resource and a spectacle. | Decided | Brief |
 | Show-pieces | Every fluid gets at least one (lava falls, tar lake, dripping hive, acid cavern lake, quicksand basin). | Decided | Brief |
 | Ponds and pockets | Every fluid, with irregular natural outlines, fed by streams (plan 204). | Decided | W1 (a) + (e), 13 Nov |
@@ -125,7 +181,7 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | Whose moves first | Both you and the enemies, on one modular move system; your moves first (wind-up, impact, dashes, air combos, hit-stop). | Decided | P1, 6 Nov |
 | Build model | Learned skill moves, separate from the weapon; the weapon's material grade is the other half; moves have unique effects that interact. | Decided | P3, 6 Nov |
 | Elements | Elements react, and fluids can be thrown (a flamethrower). | Decided | P4 (a), 6 Nov |
-| Spell crafting | Leaning toward Noita's wand slots and modifiers, but the owner found that "too complicated". | Open | Round b4 |
+| Spell crafting | Leaning toward Noita's wand slots and modifiers, but the owner found that "too complicated". Note: slots and modifiers are many rules, against the design principle; the answer should be a few rules that combine. | Open | Round b4 |
 | How moves are learned | Found, taught in towns, dropped by bosses, practised? | Open | -- |
 | Weapon kinds | Which families (blade, hammer, bow, thrower, staff)? | Open | -- |
 | Our twist | The one thing no other game has. Left open on purpose. | Open | P5, 6 Nov |
@@ -139,7 +195,7 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | Far creatures | Herds and birds past 128 m are visual only, so long views are not empty. | Decided | Round b6 |
 | Bosses | Some live at landmarks, some are summoned or triggered by events. | Decided | Round b3; Brief |
 | Lairs | Enemy lairs and boss arenas, sorted by biome x landform; third in placement order. | Decided | P6, 6 Nov |
-| Bodies | Player and NPC characters wait for a humanoid design tool. Static objects and foliage go ahead now. | Decided | P6 note, 6 Nov |
+| Bodies | Player and NPC characters wait for the humanoid generator: one rule-based tool (body plan, proportions, clothes, biome culture) that makes every NPC unique and is also the player creator, with sliders (owner, 2026-11-14, Q-AE A3 (a)). Static objects and foliage go ahead now. | Decided | P6 note, 6 Nov |
 | Physics | Unity PhysX between entities, or the voxel motor? One measured test with 10 / 50 / 100 walkers decides. | Open | Brief Q13 |
 | Roster | Which creatures live in which biome? | Open | -- |
 | Companions | Tamed or hired creatures? Palworld is named only for its sense of scale. | Open | -- |
@@ -150,7 +206,7 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | --- | --- | --- | --- |
 | Who levels up | The world, not the player: boss defeats, conquered landmarks, town milestones and time move it forward. | Decided | Brief |
 | What a step changes | New creatures and dangers, new materials, towns grow, new NPCs arrive. | Decided | Brief |
-| Stages | 3-4 big jumps; one boss flips the whole world (Terraria Hardmode style). | Decided | Round b4 |
+| Stages | 3-4 big jumps; one boss flips the whole world (Terraria Hardmode style). The first flip comes late: "world change shouldn't happen for a while kind of like in terraria" (owner, 2026-11-14, Q-AE A1 (b)). | Decided | Round b4 |
 | Later additions | Only into space reserved at world creation (a floating city, a sealed vault); the reveal adapts around your blocks. | Decided | Brief |
 | Your power | Weapon material grade plus learned moves, plus movement abilities, consumables and skill. | Decided | P3, 6 Nov; Brief |
 | Abilities | All unlocked from the start until stages and bosses gate them. How each is earned later is not set. | Leaning / Open | Plan P15 |
@@ -158,13 +214,13 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 
 ### The core loop
 
-The world is persistent: one island you keep, single player first, co-op kept possible (Round b1). The three rows below are the agent's reading of the owner's answers, not the owner's words, so they are Leaning until confirmed (question A1).
+The world is persistent: one island you keep, single player first, co-op kept possible (Round b1). The owner confirmed the three rows below on 2026-11-14 (Q-AE A1 (b)) with one change to the session row: no early world flip, "kind of like in terraria".
 
 | Timescale | What you do | Status |
 | --- | --- | --- |
-| A minute | Dig and gather exact blocks, drag a stroke to build, fight a creature with a move, set off a reaction (water on lava, fire in a forest). | Leaning |
-| An hour | Leave a town along a road, go up or down into a harder place, bring back a better material, raise your weapon grade or learn a move, build up a base. | Leaning |
-| A session (many hours) | Clear a landmark and beat its boss, flip the world to the next stage, watch towns grow and new ores appear in untouched rock. | Leaning |
+| A minute | Dig and gather exact blocks, drag a stroke to build, fight a creature with a move, set off a reaction (water on lava, fire in a forest). | Decided |
+| An hour | Leave a town along a road, go up or down into a harder place, bring back a better material, raise your weapon grade or learn a move, build up a base. | Decided |
+| A session (many hours) | Clear landmarks and beat their bosses, build up your settlement, watch towns grow. The world itself does not change for a long while; the first stage flip (new ores in untouched rock, new creatures) comes late, like Terraria's hardmode. | Decided (changed by A1 (b)) |
 
 ## What placement must deliver, and what comes before characters
 
@@ -176,7 +232,7 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 - [ ] Stage ores: one ore table per stage, placed only in never-touched rock at a flip (Round b6).
 - [ ] Ponds and pockets of every fluid with natural outlines (task 203) and streams feeding them (plan 204); the pond look talk (shallow edges, reeds) after.
 - [ ] One show-piece per fluid at its landmark: lava falls, tar lake, dripping hive, acid cavern lake, quicksand basin.
-- [ ] What trees and plants give you (needs answer A4).
+- [ ] Wood, fruit and seeds (A4 (a)). You pick up the exact block you dug (Plan P2-P4), so a species' trunk block IS its wood: oak, birch, spruce, acacia, jungle and cactus already have one each (no new ids). New ids: redwood wood (it shares spruce's today), baobab and palm wood, and 3 fruits (for example apple, coconut, baobab fruit) = 6 of the 11 free ids in 128-223 (free GenMat 9, 18, 26-29, 38, 39, 59, 94, 95; 65-69 are the ores). That leaves 5, so bushes, flowers and town materials need a palette review first. Seeds are items, not blocks: no id. Regrowth: a felled tree is one record (place, species, time); once enough time has passed, the same library tree (task 210) grows back there, and a planted seed adds a record. Nothing per tree is stored until it is felled.
 
 ### Placement: flora and static objects
 
@@ -190,9 +246,10 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 - [ ] Flatten only under each building; foundations, steps, stilts, terraces on slopes. Replaces task 190's whole-disc flatten.
 - [ ] Streets that grow from the route along easy ground, with buildings along them.
 - [ ] Rule-built buildings with WFC facades and interiors, fitted to any ground; castles on high ground for cities.
+- [ ] Cities, 2-3 per Medium world (A2 (c)). Today's planner (task 187, with task 190's spacing) puts 3 towns, 1 frontier town and about 10 villages and outposts on the Medium island, each town in its own fair share of the land (about 1.35 km apart on the 4 test seeds). The 2-3 best town sites become cities (square, districts, walls, castle; V2); Small 1-2 and Large 3-4 by land (Leaning). With 2-3 cities out of 3 town sites, the town target (land / 90 k map cells) may need to rise so towns still sit between cities: a question for the towns plan doc. The spacing keeps at most one city inside the 128 m live reach, so its memory is paid one city at a time (a town is an estimated 20-80 MB near it; a city more, measured when built).
 - [ ] The route network drawn as real roads between towns; wild land off them.
 - [ ] Every building's footprint recorded, so residents can react to edits (the record exists from task 190).
-- [ ] Places for NPCs to use inside buildings: beds, counters, a hall (static only).
+- [ ] Places for NPCs to use inside buildings: a door, a bed and a light in every home (A6's move-in rule and town safety's rule 4), counters, a hall (static only).
 - [ ] Reserved space for later additions (a floating city, a sealed vault) in the site plan.
 
 ### Placement: lairs
@@ -205,7 +262,8 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 - [ ] Look finished: lighting, world gen, visuals polish (order of 5 Nov).
 - [ ] Performance: 30 fps on the M1 Air at a lower preset, memory under 3 GB.
 - [ ] The placement phase above.
-- [ ] The humanoid design tool: what it is and who uses it (needs answer A3).
+- [ ] The humanoid generator (A3 (a)): one rule-based tool (body plan, proportions, clothes, biome culture) for every NPC, and the player creator with sliders.
+- [ ] Town safety by NPC behaviour (A5 (c)): NPC routines and the spawn-danger map, after questions C1-C5.
 - [ ] Entity physics test with 10 / 50 / 100 walkers (Brief Q13).
 - [ ] A combat question round: spell crafting, how moves are learned, weapon families.
 - [ ] The classic death rule (Q3, open since 15 Oct).
@@ -215,37 +273,51 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 
 Batch A comes first because it shapes the placement phase; batch B can wait until combat and survival are designed. In each question the first option is the recommendation. A letter is enough as an answer (answer in the doc).
 
-### Batch A: placement
+**New, 15 Nov:** batch C (C1-C5, town safety by NPC behaviour) opened from the owner's A5 answer. It sits in its own section under Settlements, next to the rules it asks about.
+
+### Batch A: placement (answered 14 Nov)
 
 **A1. Is the core loop above right?**
 - (a) Yes, as written: minute = dig, build, fight, react; hour = a trip from a town into harder ground and back with a better material; session = a landmark boss and a world flip. *Unlocks:* a yardstick for spacing, e.g. towns about an hour's trip apart.
 - (b) Close; change one row (say which).
 - (c) No; describe a typical hour in a sentence or two.
 
+*Answer (owner, 2026-11-14, Q-AE):* **(b)** "world change shouldn't happen for a while kind of like in terraria". Folded in: the session row and Progression's Stages row; the first flip comes late.
+
 **A2. Cities: how many, and where?**
 - (a) One city per Medium world (0-1 Small, 2 Large) on the biggest easy area, with a castle on its high ground. Other sites stay towns, villages and outposts. *Cost:* the biggest single build (a town is an estimated 20-80 MB while you are near it; a city more), so one is the safe number.
 - (b) No generated cities; towns grow into cities as the world advances.
 - (c) Several cities, one per region.
+
+*Answer (owner, 2026-11-14, Q-AE):* **(c)** "2 or 3 cities per medium world". Folded in: Settlements (How many, Size tiers) and the towns checklist.
 
 **A3. The humanoid design tool: what is it?**
 - (a) One rule-based generator, like the buildings: body plan, proportions, clothes, biome culture. It makes every NPC unique, and the player creator is the same tool with sliders. *Cost:* the largest option, but one system for both.
 - (b) A developer editor where we design NPC bodies by hand; a simpler player creator later.
 - (c) Decide when the character phase starts.
 
+*Answer (owner, 2026-11-14, Q-AE):* **(a)** one rule-based generator for NPCs and the player creator. Folded in: Creatures (Bodies) and Before character work.
+
 **A4. What do trees and plants give you?**
 - (a) Each species gives its own wood (a building material in its own colour), and some give fruit. A felled tree leaves a stump and regrows by time passed. *Cost:* about 2-3 new materials per biome out of a limited palette (ids 128-223). *Unlocks:* wood for building and crafting.
 - (b) Wood only, one kind; no regrowth.
 - (c) Decoration only; nothing to gather.
+
+*Answer (owner, 2026-11-14, Q-AE):* **(a)**, "(seeds too)": trees and plants drop seeds you can plant. Folded in: Resources (Wood and plants) and the resources checklist (6 new palette ids).
 
 **A5. How safe is a town?**
 - (a) No wild creatures spawn inside a town's area; attacks on towns come only as events later. *Unlocks:* towns become spawn-free zones in the spawn data the lairs step writes.
 - (b) Walls and guards, but creatures can still wander in.
 - (c) No special rule.
 
+*Answer (owner, 2026-11-14, Q-AE):* **(c)**, made dynamic: "I wonder if we can make it dynamic. It is as safe as the townspeople keep it. Obviously this would need planning on how npcs go about doing things ... That way the player can mess with things (also allows the player to automatically build their own settlement that they can naturally grow into a city)". Folded in: Settlements (Safety) and the new section Town safety by NPC behaviour, with questions C1-C5.
+
 **A6. How does your own settlement get residents?**
 - (a) An NPC moves in when you build a room with a door, a bed and a light inside your claimed area (Terraria's rule). *Unlocks:* the list of interior objects placement must provide (doors, beds, lights).
 - (b) You place a town-hall item that founds the settlement; residents come over time.
 - (c) Decide later.
+
+*Answer (owner, 2026-11-14, Q-AE):* **(a)** "terraria's rules are simple and we should ideally try to keep all rules simple and depend on emergent behavior". Folded in: Settlements (Your own settlement) and the design principle under the pitch.
 
 ### Batch B: survival, travel and skills
 
