@@ -1792,3 +1792,28 @@ session row changed, Stages row), A2 (c) 2-3 cities per Medium world (How many, 
 regrowth (trunk block = wood; 6 new ids = 3 woods + 3 fruits of the 11 free GenMat ids 9, 18, 26-29, 38, 39, 59, 94, 95; seeds are
 items), A5 (c) dynamic town safety (new Open section "Town safety by NPC behaviour": 5 rules, a needs table, questions C1-C5), A6 (a)
 Terraria move-in rule + the DESIGN PRINCIPLE under the pitch ("keep all rules simple and depend on emergent behavior"). Result: HANDOFF 211.
+
+**Task 209b (look, owner 2026-11-14 Q-AG (a): "still stream ... Pond overflow streams is exactly what I was thinking, just to make the world and ponds feel more natural"; task 204's option (A); DEFAULT ON, `-pocketstreams 0` = task 209 byte for byte).**
+`TerrainGen/PocketStreams.cs` (header "TASK 209b"): every surface pond but quicksand gets narrow carved channels built the way
+`Rivers.cs` builds rivers, AT REST (0 fluid tiles, 0 tick until touched). Network on the 8 m map: INLET = upstream from the pond's cell,
+the higher neighbour that DRAINS INTO the current cell (D8 on `WorldMap.Height`) with the largest catchment `Flow`; stops at a keep-out
+cell (sea, lake / river, route, feature, not Walk band, start zone / towns, another pond's box), a rise > 2 m per cell (spring at the cliff
+foot) or 6-16 cells by pond size; nothing drains in = a one-cell spring. SURPLUS: OUTLET iff catchment area >= 16 x pond area (the
+simplest water balance), down D8 to a river (water joins at the river's own level) or it ends (sealed by the lip rule); else a SEEP (a
+lining-material trail from the low rim, one cell). Channel = Rivers' shaped section at stream scale: half width 3-6 voxels by
+log2(Flow) (0.6-1.2 m wide), 0.25-0.35 m of fluid; course = Rivers' B-spline over the cell centres bent by Rivers' meander rule at the
+stream's scale (2.5 half widths, one bend per 24 half widths, seeded noise on the phase), nodes every 12 voxels; level = 2 voxels under
+the pond-shaped ground at the node, running minimum downstream, never under L upstream / over L downstream, AT L within the pond and
+4 voxels + half width past its shore (flush junction). Banks: Rivers' carve / raise at stream scale (24-voxel reach, cut <= 1.2 m); LIP
+rule as Rivers' (water lips = RiverLip drawn as water; other fluids' lips = the pond lining, 0 new ids). Seals kept: never carves under a
+pond rim (unless that column becomes stream fluid at L), a river's hold or a lake rim; never carves / fills a column that already holds
+water. Non-water channels LINED (`FluidPockets.Lining`) over [level - 6, level + 2]; no stamp opening within 0.8 m; caves stay 8 under the
+bed. Texel 1 only (LOD 0, shells, FarQuery); the far band does not draw a 1 m stream. Storage: built once per world in
+`FluidPockets.BuildPlane` and APPENDED to the site plane (`MapView.stream` = `PocketStreams.Section`), so every generator path carries it
+(6 MapView sites + WorldMap.View); seed 42: 63.9 KB per plane copy, 177 ms build in the Editor / 20 ms in the player. The course is computed in doubles relative to the pond; still, the IL2CPP player's stream plane differs from the Editor's in a few node x values (fnv C5DE7646D4DF6CA9 vs CACEE583F814B040; z / width / depth hashes equal, logged per field): one-ulp rounding flips, each world self-consistent and at rest by construction (an integer course would make them byte-identical). Tests (`FluidPocketTests.Streams.cs`):
+`Streams_Rules` (fast), `Streams_Seed42_AtRest_PathsAgree` (Slow: plane deterministic; OFF = 209's FNV 38AF614C8AECA569; every stream's
+channel + 2 rings at rest + lined; per fluid the longest stream's shore and middle in the CPU fluid oracle 150 ticks + a negative control;
+ON vs OFF only inside the reach; FarQuery = chunk; shell 0 = Generate; streams-off chunks = a fresh `-pocketstreams 0` source;
+`Logs/TerrainGen/streams209b/streams.txt`, CPU top views `Screenshots/209b/cpu_top_*.png`), `Streams_Diag_CrossSections` (Explicit).
+The pond tests now run with `StreamTestOverride = 0` (OneTimeSetUp). Shots `Logs/overnight/209b_shots.sh`, `Screenshots/209b/viewer.html`.
+Result: HANDOFF 209b.

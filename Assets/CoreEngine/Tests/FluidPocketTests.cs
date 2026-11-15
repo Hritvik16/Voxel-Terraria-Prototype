@@ -50,8 +50,13 @@ using VoxelEngine.Memory;
 using VoxelEngine.Streaming;
 using VoxelEngine.WorldGen;
 
-public unsafe class FluidPocketTests
+public unsafe partial class FluidPocketTests
 {
+    // Task 209b: the pond tests run on the ponds alone (-pocketstreams 0); the streams have their own
+    // tests (FluidPocketTests.Streams.cs), which switch them on inside each test.
+    [OneTimeSetUp] public void StreamsOff() => FluidPockets.StreamTestOverride = 0;
+    [OneTimeTearDown] public void StreamsDefault() => FluidPockets.StreamTestOverride = -1;
+
     private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "pockets183");
     private static readonly string ShotDir = Path.Combine("Screenshots", "183");
     private static readonly uint[] Seeds = { 42u, 7u, 2026u, 31337u };

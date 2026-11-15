@@ -261,6 +261,7 @@ namespace VoxelEngine.WorldGen
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,
                     pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,
+                    stream = pocketPlane.Length > 1 ? TerrainGen.PocketStreams.Section((int*)pocketPlane.GetUnsafeReadOnlyPtr(), pocketPlane.Length, spec.mapCells, spec.mapCellVoxels) : null,   // task 209b
                     landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,
                     town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,

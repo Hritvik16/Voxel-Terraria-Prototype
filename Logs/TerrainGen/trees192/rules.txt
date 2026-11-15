@@ -1,4 +1,4 @@
-== seed 42: 3282 trees in 102400 tree cells (1/16 of the world), scan 76 ms; max reach 63 vox, max height 205 vox
+== seed 42: 3282 trees in 102400 tree cells (1/16 of the world), scan 74 ms; max reach 63 vox, max height 205 vox
   forest   land cells    5792  trees   1574  per land cell 0.272  per km2   6635  forms broad/conifer/palm/cactus 1498/76/0/0
   desert   land cells    6302  trees     78  per land cell 0.012  per km2    302  forms broad/conifer/palm/cactus 0/0/0/78
   snow     land cells    8158  trees    875  per land cell 0.107  per km2   2619  forms broad/conifer/palm/cactus 0/875/0/0
@@ -26,7 +26,7 @@
   sheet snow    : 30 trees, rejected 0, mean height 13.8 m, mean voxels 45534
   sheet desert  : 30 trees, rejected 0, mean height 4.7 m, mean voxels 3642
   sheet steep   : 30 trees, rejected 0, mean height 10.5 m, mean voxels 40563
-== seed 2026: 3200 trees in 102400 tree cells (1/16 of the world), scan 79 ms; max reach 63 vox, max height 205 vox
+== seed 2026: 3200 trees in 102400 tree cells (1/16 of the world), scan 77 ms; max reach 63 vox, max height 205 vox
   forest   land cells    7274  trees   1962  per land cell 0.270  per km2   6585  forms broad/conifer/palm/cactus 1870/92/0/0
   desert   land cells    3923  trees     77  per land cell 0.020  per km2    479  forms broad/conifer/palm/cactus 0/0/0/77
   snow     land cells    7065  trees    445  per land cell 0.063  per km2   1538  forms broad/conifer/palm/cactus 0/445/0/0

@@ -1,4 +1,4 @@
-seed 42, 204.8 m round (33664, 49280): 110 library trees: oak 17 birch 93
+seed 42, 204.8 m round (33664, 49280): 109 library trees: oak 17 birch 92
 border tree: oak root int3(32592, 5152, 48272) lo int3(32512, 5106, 48174) hi int3(32677, 5318, 48359) turn 3
   chunk int3(254, 39, 376): 0 tree voxels
   chunk int3(255, 39, 376): 0 tree voxels

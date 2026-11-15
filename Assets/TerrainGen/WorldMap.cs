@@ -62,6 +62,10 @@ namespace TerrainGen
         /// Task 190: the town plane (Towns.Build: site discs to flatten + the
         /// buildings). OPTIONAL: null = no towns, whatever TerrainSpec.Towns says.
         public int* town;
+        /// Task 209b: the pond streams (PocketStreams; a section appended to the pocket
+        /// plane, PocketStreams.Section). OPTIONAL: null = no streams (-pocketstreams 0).
+        /// Read only while `pocket` is set too.
+        public int* stream;
         public int cells;
         public float cellVoxels;
     }
@@ -217,6 +221,7 @@ namespace TerrainGen
             route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
             shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
             pocket = _hPk.IsAllocated ? (int*)_hPk.AddrOfPinnedObject() : null,
+            stream = _hPk.IsAllocated ? PocketStreams.Section((int*)_hPk.AddrOfPinnedObject(), PocketPlane.Length, Spec.mapCells, Spec.mapCellVoxels) : null,   // task 209b
             landSig = _hLs.IsAllocated ? (byte*)_hLs.AddrOfPinnedObject() : null,
             town = _hTn.IsAllocated ? (int*)_hTn.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,

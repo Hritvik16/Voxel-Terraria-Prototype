@@ -50,7 +50,8 @@ namespace VoxelEngine.WorldGen
                                       $"({st.candidates} cells, {st.ruled} ruled, rejected cells {st.rejectedCells} / samples {st.rejectedSamples} / flat {st.rejectedFlat}); " +
                                       $"basins (task 196): banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn}, shallower bowls {st.depthCut}; " +
                                       $"natural outlines (task 203) {st.outlined}{(st.outlined == 0 ? " (-pocketoutline 0: 196's ellipses)" : "")}; " +
-                                      $"coast-rule shores (task 209) {st.shored}{(st.shored == 0 ? " (-pocketshore 0: 203's lobes)" : "")}; plane fnv {fnv:X16}");
+                                      $"coast-rule shores (task 209) {st.shored}{(st.shored == 0 ? " (-pocketshore 0: 203's lobes)" : "")}; " +
+                                      $"streams (task 209b) {(st.streamsOn ? st.streams.Line() : "off (-pocketstreams 0)")}; plane {pl.Length * 4} B, fnv {fnv:X16}");
                 _pocket = new NativeArray<int>(Map.PocketPlane, Allocator.Persistent);
             }
             else _pocket = new NativeArray<int>(1, Allocator.Persistent);
@@ -63,6 +64,16 @@ namespace VoxelEngine.WorldGen
         {
             int b = index * TerrainGen.FluidPockets.STRIDE;
             _pocket[b] = w0; _pocket[b + 1] = w1; _pocket[b + 2] = w2; _pocket[b + 3] = w3;
+            _columnTop.Clear(); _specStamp++;
+        }
+
+        /// TESTS ONLY (task 209b): replace this source's plane copy with `words` (e.g. the plane
+        /// without its stream section, = -pocketstreams 0). The WorldMap's plane is untouched.
+        /// Call between Generate calls, with the pockets on.
+        public void OverridePocketPlane(int[] words)
+        {
+            if (_pocket.IsCreated) _pocket.Dispose();
+            _pocket = new NativeArray<int>(words, Allocator.Persistent);
             _columnTop.Clear(); _specStamp++;
         }
 

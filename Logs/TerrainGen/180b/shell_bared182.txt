@@ -9,9 +9,9 @@ Task 182: bared shell voxels (seed 42, -matrules 1, ShellFill off)
   cliff_desert    shell 5 int3(12, 0, 5): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
   cliff_desert    shell 5 int3(12, 1, 5): 5863 bared voxels, 5863 skin, 0 soil/subsoil/stone; 180b's depth band would bare 5420 under the skin
   cliff_snow      shell 3 int3(51, 4, 41): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
-  cliff_snow      shell 3 int3(51, 5, 41): 12455 bared voxels, 12455 skin, 0 soil/subsoil/stone; 180b's depth band would bare 7974 under the skin
+  cliff_snow      shell 3 int3(51, 5, 41): 12440 bared voxels, 12440 skin, 0 soil/subsoil/stone; 180b's depth band would bare 7960 under the skin
   cliff_snow      shell 5 int3(12, 0, 10): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
-  cliff_snow      shell 5 int3(12, 1, 10): 14777 bared voxels, 14777 skin, 0 soil/subsoil/stone; 180b's depth band would bare 13371 under the skin
+  cliff_snow      shell 5 int3(12, 1, 10): 14745 bared voxels, 14745 skin, 0 soil/subsoil/stone; 180b's depth band would bare 13343 under the skin
   bank            shell 3 int3(36, 4, 20): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
   bank            shell 3 int3(36, 5, 20): 15849 bared voxels, 15735 skin, 0 soil/subsoil/stone; 180b's depth band would bare 11536 under the skin
   bank            shell 5 int3(9, 0, 5): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
@@ -37,5 +37,5 @@ Task 182: bared shell voxels (seed 42, -matrules 1, ShellFill off)
   flat            shell 3 int3(37, 5, 22): 15868 bared voxels, 15868 skin, 0 soil/subsoil/stone; 180b's depth band would bare 9603 under the skin
   flat            shell 5 int3(9, 0, 5): 0 bared voxels, 0 skin, 0 soil/subsoil/stone; 180b's depth band would bare 0 under the skin
   flat            shell 5 int3(9, 1, 5): 15891 bared voxels, 15891 skin, 0 soil/subsoil/stone; 180b's depth band would bare 14343 under the skin
-TOTAL: 208056 bared voxels, 207938 skin (99.94 %), 0 soil/subsoil/stone; before (180b) 163402 would show a deeper band
-  pocket lining (task 201, not counted above): 31 bared voxels wear their pocket's lining, 0 in the lining range show something else
+TOTAL: 208009 bared voxels, 207891 skin (99.94 %), 0 soil/subsoil/stone; before (180b) 163360 would show a deeper band
+  pocket lining (task 201, not counted above): 71 bared voxels wear their pocket's lining, 0 in the lining range show something else

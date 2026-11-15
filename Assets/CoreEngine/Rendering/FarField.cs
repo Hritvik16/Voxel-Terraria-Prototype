@@ -1215,6 +1215,7 @@ namespace VoxelEngine.Rendering
                     route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(shoreField) : null,   // task 180b
                     pocket = pocketPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane) : null,   // task 183
+                    stream = pocketPlane.Length > 1 ? TerrainGen.PocketStreams.Section((int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane), pocketPlane.Length, spec.mapCells, spec.mapCellVoxels) : null,   // task 209b (texel 1 only)
                     landSig = landSigPlane.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(landSigPlane) : null,   // task 189
                     town = townPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(townPlane) : null,   // task 190
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,

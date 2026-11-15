@@ -224,6 +224,8 @@ namespace TerrainGen
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
             if (map.pocket != null) FluidPockets.Apply(in spec, in map, x, z, ref c);   // task 183: pockets at rest (-fluidpockets 1)
+            if (map.pocket != null && map.stream != null && spec.Pockets)
+                PocketStreams.Column(in spec, in map, x, z, texelVoxels, rimY, riverHoldY, ref c);   // task 209b: the ponds' streams at rest
             if (map.town != null) Towns.Apply(in spec, in map, x, z, ref c);   // task 190: the site pads (-towns 1)
             if (surfaceBiome && spec.MatRules)   // task 180b: the material rules replace the cover slots
                 GroundRules.Column(in spec, in map, in o, p, macro, rough, scree, coverTexel, ref c);

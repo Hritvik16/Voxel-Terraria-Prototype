@@ -801,6 +801,8 @@ namespace TerrainGen
             public int banked, bankCapped, maxUp, maxDn, depthCut;   // task 196: sites with a bank, capped, the largest UP / DN, bowls made shallower
             public int outlined;   // task 203: sites with the natural outline (0 under -pocketoutline 0)
             public int shored;     // task 209: sites with the island coast's shore (0 under -pocketshore 0)
+            public bool streamsOn;   // task 209b: a stream section was appended (-pocketstreams 1, the default)
+            public PocketStreams.Stats streams;
         }
 
         /// Task 196: the bank of a site -- the exact excess of the BASE terrain's rim
@@ -888,6 +890,20 @@ namespace TerrainGen
             bool on = true;
             for (int i = 0; i + 1 < a.Length; i++)
                 if (a[i] == "-pocketshore" && int.TryParse(a[i + 1], out int v)) on = v != 0;
+            return on;
+        }
+
+        /// TESTS ONLY (task 209b): >= 0 overrides `-pocketstreams` for BuildPlane (0 = no streams). -1 = the argument.
+        public static int StreamTestOverride = -1;
+
+        /// `-pocketstreams 0` (task 209b): no stream section, task 209's plane and world byte for byte.
+        /// Absent or 1 = the ponds' streams (PocketStreams). Last match wins.
+        public static bool StreamsArg()
+        {
+            string[] a = System.Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-pocketstreams" && int.TryParse(a[i + 1], out int v)) on = v != 0;
             return on;
         }
 
@@ -1016,6 +1032,16 @@ namespace TerrainGen
                 st.sites++;
                 if (outline) st.outlined++;
                 if (shore) st.shored++;
+            }
+            // task 209b: the ponds' streams, appended after the site words (which stay as they are)
+            if (StreamTestOverride >= 0 ? StreamTestOverride != 0 : StreamsArg())
+            {
+                int[] sec = PocketStreams.Build(map, plane, zone, out st.streams);
+                var all = new int[plane.Length + sec.Length];
+                System.Array.Copy(plane, all, plane.Length);
+                System.Array.Copy(sec, 0, all, plane.Length, sec.Length);
+                plane = all;
+                st.streamsOn = true;
             }
             return plane;
         }
