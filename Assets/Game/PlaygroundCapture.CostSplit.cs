@@ -149,6 +149,12 @@
 //   TASK 168b (30 fps ceiling check): stacked arms skysun_off (sky probe + sun), sunshells_off (sun + shells),
 //            ceiling (sky probe + sun + shells; FSR 3 kept). Every run line and table row also gives p95 and
 //            the share of frames > 33 ms (the owner's E4 tail criterion).
+//   TASK 212 (8.17 T0, measurement only; opt-in, nothing changes without these): arms flood_off (TorchFloodPool OFF:
+//            the plain far-shading kernel instead of play's flood twin CSMainFarShadeFlood) and skyfill0
+//            (RaymarchFeature.SkyFill = 0, the vertical sky probe); FULL keeps the launch's -torchflood / -skyfill.
+//            -costpaths cliff times walk_near and cliff1 (task 199's heavy view: task 131's cliff1 A, a fixed still pose
+//            from LookReview 2026-11-02_065242 cliffshadow.json, sun 30 deg afternoon) instead of walk_near + walk_open.
+//            Every path now sets its own ClipPath.hours (all older paths carry the launch's hours: unchanged).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -180,6 +186,7 @@ public partial class PlaygroundCapture
         float sunDeg = ArgFloat("-costsun", -1f);
         float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.NoonHours;
         bool torchPaths = ArgValue("-costpaths") == "torch";            // task 151: night, 32 torches
+        bool cliffPaths = ArgValue("-costpaths") == "cliff";            // task 212: walk_near + cliff1
         if (torchPaths) hours = ArgFloat("-nighttod", 0.5f);
         string armsArg = ArgValue("-costarms");
         string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg.Split(',');
@@ -235,7 +242,7 @@ public partial class PlaygroundCapture
         if (ArgValue("-costpaths") == "lake") pathList.AddRange(CostLakePaths(centre, sun, hours));
         else if (torchPaths) yield return CostTorchScene(centre, hours, far, sm, cam, pathList);
         else
-        foreach (var (pname0, a0) in new[] { ("walk_near", aNear), ("walk_open", aOpen) })
+        foreach (var (pname0, a0) in cliffPaths ? new[] { ("walk_near", aNear) } : new[] { ("walk_near", aNear), ("walk_open", aOpen) })
         {
             var path = new ClipPath { name = pname0, hours = hours, moving = true, lead = 0,
                                       pos = new Vector3[(int)(RatePathSeconds * 30f) + 1],
@@ -252,11 +259,13 @@ public partial class PlaygroundCapture
                         $"heading yaw {path.rot[0].eulerAngles.y:F0} -> {path.rot[path.rot.Length - 1].eulerAngles.y:F0} (sun yaw {math.degrees(math.atan2(sun.x, sun.z)):F0})";
             pathList.Add(path);
         }
+        if (cliffPaths) pathList.Add(CostCliffPath());
         foreach (var path in pathList)
         {
             string pname = path.name;
+            SunCycle.SetHours(path.hours);   // task 212: cliff1 has its own sun; every older path carries the launch's hours
             L("");
-            L($"== {pname}: {path.note}");
+            L($"== {pname}: {path.note}  (sun {SunCycle.ElevationDegreesAt(path.hours):F0} deg at {path.hours:F2} h)");
             RatePose(path, RatePathSeconds * 0.5f, out Vector3 mid, out _);
             Phase4Bootstrapper.DebugStreamCentre = mid;
             cam.transform.position = mid; cam.transform.rotation = path.rot[0];
@@ -416,6 +425,10 @@ public partial class PlaygroundCapture
         RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier";
         RaymarchFeature.DebugViewOverride = arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
+        // Task 212: flood_off / skyfill0 (FULL keeps the launch's values).
+        bool floodWant = arm != "flood_off" && _costBaseFlood;
+        if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
+        RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
@@ -431,6 +444,7 @@ public partial class PlaygroundCapture
     private static float _costBaseRung1;
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
+    private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -565,6 +579,21 @@ public partial class PlaygroundCapture
         return list;
     }
 
+    /// Task 212: task 199's heavy cliff view = task 131's cliff1 A (seed 42; LookReview 2026-11-02_065242 cliffshadow.json):
+    /// Q (5217.2, 4768.8) m, eye 1.6 m over today's generated ground, facing the sun (the cliff, 260 m off, 173 m high
+    /// then), pitch 5 deg up, sun 30 deg at 15.95 h. A still pose (fixed, not searched again: the same view every run).
+    private ClipPath CostCliffPath()
+    {
+        var eye = new Vector3(5217.2f, 0f, 4768.8f);
+        eye.y = WalkEyeY(eye.x, eye.z, 531.6f);
+        var rot = Quaternion.LookRotation(new Vector3(-0.9687342f, 0f, 0.248101011f), Vector3.up) * Quaternion.Euler(-5f, 0f, 0f);
+        int n = (int)(RatePathSeconds * 30f) + 1;
+        var path = new ClipPath { name = "cliff1", hours = 15.9470482f, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+        for (int f = 0; f < n; f++) { path.pos[f] = eye; path.rot[f] = rot; }
+        path.note = $"still pose, eye {eye:F1} (1.6 m over the ground; task 131's cliff1 A was 531.6), yaw {rot.eulerAngles.y:F0}, pitch 5 up";
+        return path;
+    }
+
     /// One timed run: settle at pose 0 with the arm applied, history reset, a
     /// still (first pass only), then the path by real time; the frames after
     /// CostSettle s are kept. Fluid off again afterwards (the waits).
@@ -572,7 +601,8 @@ public partial class PlaygroundCapture
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
-        if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true; }   // task 168e
+        if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
+                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill; }   // task 212
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
