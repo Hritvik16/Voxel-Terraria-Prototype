@@ -1,56 +1,80 @@
-# 203-look-fluid-pocket-natural-outlines: DONE. Every surface pond (all 7 fluids) has an irregular outline now, default ON; plus an IL2CPP-only bug was found and fixed.
+# 204-plan-fluid-pocket-streams: DONE (plan only, no code). Recommendation: (A) streams built the river way, at rest, every fluid; (C) "held water" later for divertable flow; not (B).
 
-Commit `ff5eda9` (FluidPockets.cs, TerrainGenChunkSource.Pockets.cs, FluidPocketTests.cs, TASKS.md, KNOWN_ISSUES.md, Screenshots/203 text + viewer).
-The session was resumed after a usage-limit stop; the first round of shots (before the bug fix) was thrown away.
+No code or tests changed. Read: `Rivers.cs`/`Hydrology.cs` headers, `FluidPockets` (TASKS 183/196/203), `RIVERS_WATERFALLS_PLAN.md` (R3 unbuilt),
+`FluidTickScheduler`, KNOWN_ISSUES "POOL FULL" (tile 32^3 = 0.5 MiB, play pool 480 tiles), `Logs/TerrainGen/fluid_at_rest_42.txt`, `[FluidPockets]` line in `Logs/overnight/203/player_after.log`.
 
-## What changed
-- **Rule** (`FluidPockets` header "TASK 203"): the footprint is the blob G = sum of 3-4 lobes > 0.05. Lobes are scaled copies of the site's ellipse.
-  Lobe 1 points to the LOWEST of the 16 rim samples the planner already takes. That part comes from the terrain: the pond reaches toward low
-  ground and pulls back from the high side. Lobes 2-3 sit on its flanks, with sizes and angles hashed from the site's own centre. There are no
-  terrain constants, and every fluid and biome uses the same rule. Every lobe stays inside the old ellipse and its box, so 183/196's
-  containment holds: the plane-cell lookup, the rim and the bank rings. The bed shelves at 196's 30-degree slope, the rim sits flush at L+1,
-  and the banks work as in 196. Ponds are at rest by construction.
-- **Flags:** `-pocketoutline 0` gives 196's plane byte for byte (FNV 5A0794B7B9ECA569, seed 42, in EditMode AND the player).
-  `-fluidpockets 0` is unchanged (Apply is never reached).
-- **Why this is the efficient design (rule 11):** it adds no storage (5 bits in the existing plane words). Each column recomputes the shape
-  from an integer hash on the worker (Burst). The plane build is still once per world on the main thread: 68-72 ms in the player.
-- **Bug (KNOWN_ISSUES, new entry):** in `Pack`, a `?:` inside the word-3 expression compiled under IL2CPP to a `uint8_t` temp. In the PLAYER
-  only, rx, rz and depth became 0, so every pond turned into a 0-radius pit inside its bank, in both arms. EditMode (Mono/Burst) was correct,
-  so all tests passed. Found by a plane fingerprint in the player log, confirmed in the generated C++, and fixed by using plain statements.
-  The `[FluidPockets] plane ...` log line now ends `plane fnv <hex>`: it must equal the EditMode value for the same seed.
+## 1. Rivers today, and can a stream be one scaled down? YES
+- Map (8 m cells, 1024^2): Hydrology floods, then accumulates catchment (`WorldMap.Flow`, kept). A cell becomes a river at 800 cells (0.05 km^2).
+  `Rivers.Profile` sets a level per cell that never rises downstream and ends AT the lake/sea. `FlowDir` (16 bits/cell) carries direction,
+  fall, slope class and size; it is uploaded as the renderer's flow map.
+- Column: a carved channel along the 179 meander curve; the surface steps 1 voxel every few m. Each step is held by a 1-voxel LIP (GenMat
+  RiverLip = engine 136, solid to the CPU, drawn as water by `RiverLipAsWater`). `-riverlook` adds ripples along the flow and foam on steep parts.
+  Seed 42: 3,354 river cells, 85.6 M water voxels, UNSETTLED 0. AT REST = 0 fluid tiles, 0 tick cost until touched. Touched river water drains
+  for a finite time: no source exists (R3 "held water + source rule" is planned, not built).
+- The narrowest river today is 2.4 m wide (HALF_W_MIN 12 voxels). A stream can be the same code with a half width of 3-6 voxels (0.6-1.2 m)
+  and 179's section rule: 0.15-0.35 m deep. `Rivers` already takes the fluid as a parameter (Q5).
+- **Truly flowing in the sim costs too much.** One awake 100 m stream needs ~40-80 tiles (20-40 MB; 8-17 % of the 480-tile pool). It holds
+  them all the time, because flowing water never settles. It is ~36 k voxels, and a large share moves every tick, so several thousand ops per
+  tick. 6.5 Hz holds only up to ~1,024 ops/tick at 20 FPS (97), so the tick slows for EVERY fluid in reach. Every tick also dirties chunks:
+  CPU SetVoxel + mirror uploads (§4.3 upload p99 is already red under fluid). At the 128 m edge (8.15) the stream freezes mid-flow.
 
-## Evidence
-- Tests: new `Outline_Rules` (fast). Over 600 random sites: the lobes stay in the box, each pond is one 4-connected piece, rings nest, the bed
-  step is <= 2 voxels (2 on 150 of 977,849 neighbour pairs), the pond reaches toward the low side on 599/600, outline off = the ellipse, and
-  Pack/Decode round-trips (`Logs/TerrainGen/outline203/shapes.txt`). The existing at-rest/adversarial tests also pass (forced 20-degree
-  slope, canyon, cliff). **SUITE=all PASS 1097 FAIL 0 SKIP 30** (`Logs/overnight/203/suite_all.out`).
-- Player fingerprint (seed 42): before = 5A0794B7B9ECA569, after = 72CEA9A36AECA569, both equal to EditMode (`Logs/overnight/203/player_{before,after}.log`).
-- Memory (rule 11, from the same launches, after vs before): peak 2,482 -> 2,498 MB (+16 MB, within +50). GPU body pool peak 240,501 -> 240,721,
-  refused 0 -> 0. CPU pool peak 489,484 -> 490,196 (valve 484,500, unchanged behaviour). `Screenshots/203/lookreview_{before,after}.txt`.
-- Shapes vs the old ellipse: area 55 % on average (differs on 45 % of it).
+## 2. Sources and surplus, per fluid (every rule data-derived, same for every biome)
+- **Path:** from the pond, go UPSTREAM on the 8 m map: next cell = the higher 8-neighbour that drains into this one with the largest
+  `Flow` (ties by cell index). Stop at a catchment floor, a 2 m/cell rise (spring at the cliff foot), or a length cap of 6-16 cells
+  (48-128 m, scaled by pond size). A pond with no upstream catchment gets a 1-cell spring at its high rim. Avoid route corridors, the
+  Walk band, the start zone and signature features (cut the stream there). The inlet comes from the high side; 203's lobe 1 already points
+  at the LOW rim, so the outlet goes there.
+- **Head per fluid:** water = spring/seep from rock; lava = small vent with magma crust (volcanic only, as today's lava rule); acid = hot
+  spring with a sinter head (its lining already is sinter); oil = tar seep from a crack, short; sludge = mud seep, short; honey = trickle
+  from rock/tree, short; quicksand = NO stream (not a flowing fluid; a water seep at most). v1 = the channel's head only; head stamps later.
+- **Surplus (pond stays at rest by construction in every case):** (i) an OUTLET stream from the low rim down the drainage line to the
+  next river/lake/sea, ending in a small terminal seep pool if none is within the cap; (ii) a SEEP: no visible outlet, only a damp lining
+  patch on the low rim (cheapest); (iii) NONE: a terminal basin. Suggest: (i) when the pond's catchment is over the floor, else (ii).
+  The mouth stands AT the pond's L (the river MOUTH rule); levels never rise downstream.
 
-## Gameplay consequence (said plainly)
-Ponds are smaller: about 55 % of the old ellipse's area, with less fluid in each. Trees can now grow on ground the ellipse used to take. In
-seed 42's jungle, the honey pond is hidden under a crown in the top view (`top_honey_after.png`).
+## 3. Options (what the player sees / gameplay / cost / risk)
+- **(A) River way, at rest (REC.)** Sees: a 0.6-1.2 m winding channel into the pond, 10 cm steps, ripples + foam with riverLook
+  (`Screenshots/179/river_2_after.png`; the stream is a thin version of the rivers at mid-frame). Gameplay: inside the 128 m reach it acts
+  like rivers today. Digging into it releases a finite amount that drains into the hole and stops. It does NOT refill the pond and cannot
+  be diverted for good. Cost: 0 tiles, 0 tick. Memory: write the stream cells into the existing map arrays as RIVER class + a 1-bit stream
+  mask (128 KB) for the width rule, so every existing river keep-out (trees, ores, stamps, Cover) applies unchanged and the flow map,
+  far band and minimap draw it for free. Gen: tracing ~131 ponds x <= 16 cells, est. < 20 ms per world (the pocket plane is 68 ms).
+  Columns near streams ~0.6 % of land, chunk gen < +1 % average. Risk: the pond plane must ignore its own stream (32 m keep-out); route
+  test (streams cross walk routes; cap at corridors). Lips: non-water lips need either lining-coloured lips (0 new ids, visible lines
+  every few m) or 6 per-fluid lip ids drawn as their fluid (a table in place of `RiverLipAsWater`, `FarField.GenToEngine` rows). Lava
+  ripples would need a lava flow look (shader). SUITE=all + `FluidAtRestTests`.
+- **(B) Truly flowing in the CA.** Sees: real moving voxels, but on a 10 cm stair the water moves as hopping thin film, and lava moves at
+  R/6, about 1 voxel/s. Gameplay: divertable, the pond really fills, but only within 128 m; past it, frozen mid-flow. Cost: section 1
+  (20-40 MB of tiles per awake stream, thousands of ops/tick, constant uploads). It needs new spring + sink CA rules in BOTH
+  `FluidCA.compute` and `FluidReferenceCPU`. Risk: HIGH; performance-changing (needs its own measured task), slows all fluid.
+- **(C) A + "held water" (RIVERS plan R3).** Sees: the same as A. Gameplay: touched held cells turn to water and a held cell beside air
+  feeds it within the fluid budget. A trench DIVERTS the stream for good, and rivers gain the same. Cost: 0 tiles until touched, then
+  tiles only along the player's new flow, with ops capped by the source rule. Memory: material ids only. Risk: medium. It is an engine CA
+  change in both implementations, and the motor, underwater view, see-through and edit tools must treat held as fluid. Effort M-L, measured on its own.
+
+## 4. Frozen APIs / amendments touched
+- A: none. A generator change (`Assets/TerrainGen`, SUITE=all). 8.15/8.16 untouched. If per-fluid lips: new GenMat ids ->
+  `FarField.GenToEngine` (KNOWN_ISSUES row). No memory-layout change.
+- B: 8.15 (NEAR 128 m: the stream crosses the reach edge), 8.16 (fall on a stepped bed), 8.14 row 5 fluid tick contract (6.5 Hz), §4.3
+  upload budget, new CA rules (CPU/GPU parity), pool sizing (task 55).
+- C: new material ids. The held->fluid conversion goes through the op list -> `ChunkStore.SetVoxel`, so D.1 and §4.4 are unchanged and
+  the CPU stays the sole writer. `IWorldQuery.GetVoxel`'s signature is unchanged, but "is fluid" callers must learn the held ids. New
+  CA rule in `FluidCA.compute` + `FluidReferenceCPU`.
 
 ## Not done / next
-- The outlines are smooth blobs (clover, kidney or pear shapes), not ragged shorelines. If the owner wants rougher shores, a follow-up could
-  add a small noise term to G (same containment). That is an owner decision, so no task was queued for it.
-- Shots took 2 launches of 9 poses (~18 min each, longer than the 10-min budget; the task asked for one view per fluid). Shell 2+ was still
-  filling at 35 s (see the `[shells]` lines), which is far terrain only.
+Nothing built. Seed 42 has 131 surface ponds, ~2 per km^2: ~0.1 inside the 128 m sim disc on average. Deep (sealed) pockets get no
+streams under any option. No follow-up queued (it needs the owner's answer).
 
 ## For the doc
-**Result:** every surface pond (water, lava, oil, acid, sludge, honey, quicksand) now has a natural, irregular outline. It is built from 3-4
-overlapping lobes, one leaning toward the lowest ground around the site, and keeps 196's terraced banks. On by default; `-pocketoutline 0` = old ellipse.
-- Pond area vs the old ellipse: 100 % -> 55 % (mean of 600 sites; `Logs/TerrainGen/outline203/shapes.txt`).
-- Leans downhill: 599 / 600 ponds reach farther toward the low side.
-- Memory peak 2,482 -> 2,498 MB; GPU pool refusals 0 -> 0 (`Screenshots/203/lookreview_{before,after}.txt`).
-- Tests: SUITE=all PASS 1097 FAIL 0 (`Logs/overnight/203/suite_all.out`).
-- Bug found on the way: the player (IL2CPP) built 0-radius ponds from the same code that EditMode built correctly. Fixed, logged in KNOWN_ISSUES.
-Images (`Screenshots/203/viewer.html`: Space flips before/after, arrows change pose, Z = full size):
-- `Screenshots/203/sheet_203.jpg`: rows = water top, lava top, lava side, oil top, acid top, quicksand top; LEFT = before (ellipse), RIGHT =
-  after. In each centre, the round or oval pond becomes a lumpy blob (clover-like water, pear-shaped lava, lobed oil and quicksand).
-- `Screenshots/203/top_water_{before,after}.png`: from 22 m above. Look at the dark pond in the middle: a perfect circle -> a clover shape,
-  with the same terraced snow bank around it.
-- `Screenshots/203/cpu_top_forced_slope_lava.png`: CPU top view of the adversarial 20-degree-slope site. The pond (dark orange) sits inside
-  the old ellipse (white dots), with a graded bank around it.
+- Result: plan for streams feeding every pond. Recommended (A): built like the rivers, at rest. 0 fluid tiles, 0 tick, ~128 KB, < 20 ms per world.
+- Numbers: river at rest = 0 tiles / UNSETTLED 0 (`Logs/TerrainGen/fluid_at_rest_42.txt`). One flowing 100 m stream ~ 40-80 tiles
+  (20-40 MB of the 480-tile pool) and thousands of ops/tick against the ~1,024 that keep 6.5 Hz (TASKS 97). 131 ponds on seed 42.
+- **Question (Q-AF, streams):** how should streams feed the ponds?
+  (a) REC: like the rivers, a thin carved stream at rest, every fluid but quicksand. Looks fed; digging drains it a little; no refill.
+  (b) Truly flowing in the fluid sim: real flow and divertable, but 20-40 MB and a slower fluid tick per stream, frozen past 128 m. Not recommended.
+  (c) (a) now, then "held water" (R3) later: streams AND rivers become endless sources a trench can divert. An engine task.
+  Sub-questions: surplus = outlet stream to the next river/lake, else a seep (rec.) / seep only / none? Lava/oil/... step lips =
+  lining-coloured (free) or drawn as the fluid (6 new material ids)?
+- Images: `Screenshots/179/river_2_after.png`: the rivers at mid-frame (blue channels, white foam steps) are what a stream would scale
+  down from. `Screenshots/203/side_water_after.png`: the pond at centre has no inlet today; a stream would come in from the upslope side.
+  `Screenshots/203/top_lava_after.png`: the lava pond at centre; a lava stream would come from a vent and needs its own lip/flow look.
