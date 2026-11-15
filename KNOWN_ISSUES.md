@@ -42,6 +42,14 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **IL2CPP (THE PLAYER) MIS-TYPES A VALUE CARRIED ACROSS A `?:` INSIDE AN EXPRESSION (task 203, 2026-11-14; worked around, NOT a bug in our logic).**
+  `w = (uint)byteField | (uint)a << 8 | ... | (flag ? 1u << 31 : 0u)` compiled in IL2CPP to a C++ temp typed `uint8_t` (the type of the
+  FIRST operand) held across the branch: everything above bit 7 was lost in the PLAYER only. Mono (EditMode) and Burst were right, so every
+  EditMode test passed while the player drew 0-radius fluid pockets. Rule for managed (non-Burst) code that runs in the player: no `?:` in the
+  middle of a bit-packing or arithmetic expression whose first operand is narrower than the result -- compute the conditional part in its own
+  statement. How it was found: the `[FluidPockets] plane ... plane fnv` log line (task 203) must equal the EditMode value for the same seed.
+  The generated C++ is `Library/Bee/artifacts/MacStandalonePlayerBuildProgram/il2cppOutput/cpp/<Assembly>*.cpp` (grep the method name;
+  the tell is `G_B<n>_0 = ((uint8_t)(...))` before a `goto`). No other FluidPockets / LandSig / Towns / Trees method shows it (checked 2026-11-14).
 - **GPU BODY POOL FULL AT EVERY POSE SINCE 195a (task 201a, 2026-11-14; FIXED: sealed bricks take no GPU body, `-gpuseal 0` = old).**
   - Cause (accounting, `-gpupoolprobe 1`, `Screenshots/201a/table201a.txt`): demand 194-321 k bodies vs the 254,400 cap; 26-37 % of the mapped bodies were bricks no ray can reach (all-opaque in an opaque 1-voxel shell: buried rock, ore lumps, strata seams); trees +~55 k at the forest pose, towns ~0; full without trees/towns too (`-trees 0 -towns 0`: town_eye, redwood refuse). One-value dense bodies: 0 (tg2 already collapses them). Byte-identical duplicates 8-39 % (water surfaces at sea poses): NOT used, the next lever if needed.
   - Fix: `TerrainClipmap.Sealed.cs` stages INNER sealed bricks (1..14, shell inside the chunk) as a uniform handle, no body, recomputed at every upload (exactness argument in its header; `SealedBrickTests` oracle). 5 poses after: refused NOW 0 everywhere, no new refusals at any pose (before: +2.4 k to +7.5 k per pose, 21.9 k by the end), free 31-113 k bodies; identity: no-upscaler stills seal ON vs OFF 0 px at forest / town_eye / redwood (`-gpusealcmp 1`, residency held).

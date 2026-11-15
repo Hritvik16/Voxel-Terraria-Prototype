@@ -1661,3 +1661,23 @@ with every row tagged Decided / Leaning / Open + source and date (brief, design 
 V1-V4 / T1-T4 / W1); the placement-phase checklist (resources -> towns -> lairs, flora alongside) and the before-characters checklist; questions
 A1-A6 (placement: core loop, cities, humanoid design tool, what trees give, town safety, own-settlement residents) and B1-B6 (classic death, hunger,
 night, how moves are learned, fast travel, companions), recommendation first.
+
+**Task 203 -- surface fluid pockets get NATURAL OUTLINES (owner 2026-11-13, Q-AA "these need to be more like ponds", W1 (a): every fluid; DEFAULT ON).**
+`FluidPockets` (header "TASK 203"): a surface pond's footprint is no longer one ellipse but the union-like blob of 3-4 overlapping LOBES
+(scaled copies of the site's ellipse): G = sum_i max(0, 1 - rho_i), footprint = { G > TAU (0.05) }, integer Q16 (`Shape`, `Field`,
+`InLobes`). Lobe 0 on the centre; lobe 1 points to the LOWEST of the 16 rim samples the planner already takes (data-derived: the pond reaches
+toward the low ground and draws back from the high side, so less is cut); lobes 2-3 on its flanks at angles / sizes hashed from the site's
+own centre. Every lobe lies inside the site's ellipse and box, so the pond, its rim and every bank ring stay inside what the planner checked
+(183 / 196's containment holds). The bed shelves at 196's 30 deg bank slope from the shore (`LobeDepth`); rim flush at L + 1 and bank rings
+as 196 (`LobeRing`; G grows with t, so rings nest); UP / DN measured on the new rim (`MeasureBank(in Site)`). Same rule for every fluid and
+biome; at rest by construction. Plane bits: word [0] bits 28-31 the low direction, word [3] bit 31 = outline on; `-pocketoutline 0` leaves
+both 0 = 196's plane byte for byte (FNV 5A0794B7B9ECA569, seed 42); `-fluidpockets 0` never reaches Apply. No extra memory: 5 bits in the
+existing plane words, the shape is recomputed per column from the hash. Gameplay: ponds cover ~55 % of the old ellipse's area (smaller
+ponds, less fluid); a tree can now stand on ground the old ellipse took (seed 42's jungle honey pond is hidden under a crown).
+**IL2CPP bug found and worked around:** `Pack` with a `?:` inside the word-3 expression compiled in the PLAYER to a `uint8_t` temp
+(rx / rz / depth = 0 in the player only, EditMode green); now statements (KNOWN_ISSUES). The player log's `[FluidPockets] plane ...` line
+ends with `plane fnv <hex>`: it must equal an EditMode build of the same seed. Tests (`FluidPocketTests`): new `Outline_Rules` (fast; 600
+random sites: lobes in the box, one 4-connected pond, rings nested, bed step <= 2 voxels, reaches toward the low side on 599 / 600, outline
+off = the ellipse, Pack / Decode; writes `Logs/TerrainGen/outline203/shapes.txt`); `Sites_AtRest_PathsAgree_Adversarial` also renders CPU
+top views `Screenshots/203/cpu_top_*.png`. Shots `Logs/overnight/203_shots.sh` (seed 42, `-tod 12`, `-pocketoutline 0` vs default),
+`Screenshots/203/viewer.html`. Result: HANDOFF 203.

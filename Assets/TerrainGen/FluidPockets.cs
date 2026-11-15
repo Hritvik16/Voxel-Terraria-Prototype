@@ -89,6 +89,33 @@
 // candidates, same rules, same L); only the shape and the stored depth differ.
 // Plane words (task 196): [1] bits 24-31 UP, [2] bits 24-31 DN (0 / 0 = 183's shape).
 //
+// TASK 203 -- NATURAL OUTLINES (owner 2026-11-13, Q-AA "more like ponds", W1 (a): every
+// fluid). The footprint is no longer one ellipse but a smooth blob: the sum of 3-4
+// overlapping LOBES (scaled copies of the site's ellipse) above a threshold,
+//   G(dx, dz; t) = sum_i max(0, 1 - rho_i(t)),  footprint_t = { G > TAU },
+// rho_i(t) = the lobe's normalized distance^2 with its radii grown by t (Q16 integer).
+// (TAU 0.05; ponds ~55 % of the ellipse's area.) Lobe 0 sits on the centre; satellite 1
+// points to the LOWEST of the 16 rim samples the
+// planner already takes (the ground's own downhill: the pond reaches toward the low
+// ground, its shore draws back from the high side, so less is cut); satellites 2-3 at
+// hashed angles from it. Each lobe lies inside the site's ellipse (normalized offset +
+// radius <= 1) and inside its box (|o| + a <= rx), so the pond and every bank ring t stay
+// where the planner looked and where BuildPlane's room allows -- the containment proof of
+// 183 / 196 carries over. Sizes / angles come from an integer hash of the site's own
+// centre (the seed placed it) -- no terrain constant, same rule for every fluid / biome.
+//   footprint  depth := 1 + min(D - 1, k * BANK_Q8 >> 8), k = how far the lobes shrink
+//              (radii - k) before the column leaves: the bed shelves at the bank slope
+//              (30 deg) from the shore down to D (FluidPocketTests.Outline_Rules: 1 voxel per
+//              column between neighbours, 2 on 0.015 % of pairs where two lobes meet).
+//   lining     every footprint / rim column is lined over [L - D - 1, floor or L + 1]:
+//              every fluid voxel lies in (L - D, L], so this covers every solid face that
+//              can touch fluid without a neighbour's depth (a mud lens under the shallows).
+//   rim / bank as 196 (8-neighbours of the footprint flush at L + 1; ring t = smallest t
+//              with the column in footprint_t; UP / DN measured on the new rim).
+// G only grows with t, so the rings nest (Ring's binary search holds). Plane bits: word
+// [0] bits 28-31 = the low direction (0-15), word [3] bit 31 = outline on. `-pocketoutline 0`
+// leaves both 0 = 196's ellipse byte for byte.
+//
 // INTEGER footprint tests (an axis-aligned ellipse with integer radii), so the
 // seal is exact on every path. The site plane itself is built once per world on
 // the main thread from the base terrain (Sample with no plane) and stored, so no
@@ -119,6 +146,9 @@ namespace TerrainGen
         // packed site word [3]: bits 0-7 fluid GenMat, 8-15 rx, 16-23 rz, 24-30 depth D
         // word [0]: bits 0-23 centre x, bits 24-27 deep context (archetype + 1, CTX_SEA under the sea; 0 = none)
         // word [1]: bits 0-23 centre z, bits 24-31 bank UP (task 196); word [2]: bits 0-23 level L, 24-31 bank DN
+        // task 203: word [0] bits 28-31 the lowest rim direction (k * 22.5 deg); word [3] bit 31 = natural outline
+        public const int TAU_Q16 = 3277;                 // task 203: footprint threshold of the lobe field (0.05)
+        public const int MAX_LOBES = 4;
 
         /// Plane cells per edge.
         public static int PlaneCells(in TerrainSpec spec) => (spec.mapCells * spec.mapCellVoxels + CELL - 1) >> CELL_SHIFT;
@@ -195,6 +225,153 @@ namespace TerrainGen
             return lo;
         }
 
+        // ------------------------------------------------------------------
+        // Task 203: the natural outline (lobes)
+        // ------------------------------------------------------------------
+
+        /// Up to MAX_LOBES axis-aligned lobes: centre offsets (ox, oz) and radii (a, b), voxels.
+        public struct Lobes { public int n; public int4 ox, oz, a, b; }
+
+        static uint Mix(uint h) { h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16; return h; }
+
+        /// cos(k * 22.5 deg) * 256, k mod 16 (the planner's 16 rim-sample directions).
+        public static int CosQ8(int k)
+        {
+            k &= 15;
+            int q = k <= 4 ? k : k <= 8 ? 8 - k : k <= 12 ? k - 8 : 16 - k;
+            int v = q == 0 ? 256 : q == 1 ? 237 : q == 2 ? 181 : q == 3 ? 98 : 0;
+            return k > 4 && k < 12 ? -v : v;
+        }
+        public static int SinQ8(int k) => CosQ8(k - 4);
+
+        /// The lobes of a site (integer only, the same on every path). lowDir = the
+        /// direction of the lowest rim sample; the hash takes the site's own centre.
+        public static Lobes Shape(int cx, int cz, int rx, int rz, int lowDir)
+        {
+            uint h = Mix((uint)cx * 0x9E3779B1u ^ Mix((uint)cz * 0x85EBCA77u ^ ((uint)rx << 8) ^ (uint)rz ^ 0xC0DE203u));
+            uint h2 = Mix(h ^ 0x68E31DA4u);
+            var l = new Lobes { n = 3 + (int)((h >> 5) & 1) };
+            int m = 160 + (int)(h & 31) * 5 / 4;                           // main lobe 0.62 .. 0.77 of the ellipse
+            l.a[0] = math.max(2, (rx * m) >> 8); l.b[0] = math.max(2, (rz * m) >> 8);
+            for (int j = 1; j < l.n; j++)
+            {
+                // satellite 1 toward the low ground, 2 and 3 on its flanks (67-135 deg either side):
+                // the side opposite the low direction keeps only the main lobe -- the shore draws back there
+                int dir = j == 1 ? lowDir : j == 2 ? lowDir + 3 + (int)((h >> 6) & 3) : lowDir - 3 - (int)((h >> 8) & 3);
+                uint hj = h2 >> ((j - 1) * 10);
+                int u = j == 1 ? 102 + (int)(hj & 31) : 77 + (int)(hj & 63);  // offset: 0.40 .. 0.52 (low lobe), 0.30 .. 0.55
+                int sc = 256 - u - 8 - (j == 1 ? (int)((hj >> 6) & 15) : 3 * (int)((hj >> 6) & 15));   // offset + radius <= 1 - 8/256
+                int ox = rx * u * CosQ8(dir) / 65536, oz = rz * u * SinQ8(dir) / 65536;
+                l.ox[j] = ox; l.oz[j] = oz;
+                l.a[j] = math.max(2, math.min((rx * sc) >> 8, rx - math.abs(ox)));
+                l.b[j] = math.max(2, math.min((rz * sc) >> 8, rz - math.abs(oz)));
+            }
+            return l;
+        }
+
+        public static Lobes LobesOf(in Site s) => Shape(s.cx, s.cz, s.rx, s.rz, s.lowDir);
+
+        /// G (Q16) at (dx, dz) with every lobe's radii grown by t (t < 0 shrinks; a lobe
+        /// with a radius <= 0 is gone). Non-decreasing in t.
+        public static int Field(in Lobes l, int dx, int dz, int t)
+        {
+            int g = 0;
+            for (int i = 0; i < l.n; i++)
+            {
+                long A = l.a[i] + t, B = l.b[i] + t;
+                if (A <= 0 || B <= 0) continue;
+                long x = dx - l.ox[i], z = dz - l.oz[i];
+                long A2 = A * A, B2 = B * B, den = A2 * B2, num = x * x * B2 + z * z * A2;
+                if (num >= den) continue;
+                g += (int)(65536L - (num << 16) / den);
+            }
+            return g;
+        }
+
+        public static bool InLobes(in Lobes l, int dx, int dz, int t) => Field(in l, dx, dz, t) > TAU_Q16;
+
+        /// Fluid depth of a footprint column: shelving at BANK_Q8 per shrink step from 1 at the shore to d.
+        public static int LobeDepth(in Lobes l, int dx, int dz, int d)
+        {
+            int lo = 0, hi = ((d - 1) * 256 + BANK_Q8 - 1) / BANK_Q8;
+            while (lo < hi) { int m = (lo + hi + 1) >> 1; if (InLobes(in l, dx, dz, -m)) lo = m; else hi = m - 1; }
+            return 1 + math.min(d - 1, (lo * BANK_Q8) >> 8);
+        }
+
+        /// Ring of a column outside the footprint (smallest t in [1, band) inside footprint_t); `band` if none.
+        public static int LobeRing(in Lobes l, int dx, int dz, int band)
+        {
+            if (band <= 1 || !InLobes(in l, dx, dz, band - 1)) return band;
+            int lo = 1, hi = band - 1;
+            while (lo < hi) { int m = (lo + hi) >> 1; if (InLobes(in l, dx, dz, m)) hi = m; else lo = m + 1; }
+            return lo;
+        }
+
+        /// The footprint test of a decoded site (task 203's lobes, or the ellipse when the outline is off).
+        public static bool InSite(in Site s, int dx, int dz)
+        {
+            if (!s.outline) return InFoot(dx, dz, s.rx, s.rz);
+            var l = LobesOf(in s);
+            return InLobes(in l, dx, dz, 0);
+        }
+
+        /// The fluid depth a footprint column of a decoded site holds.
+        public static int SiteDepth(in Site s, int dx, int dz)
+        {
+            if (!s.outline) return DepthAt(dx, dz, s.rx, s.rz, s.depth);
+            var l = LobesOf(in s);
+            return LobeDepth(in l, dx, dz, s.depth);
+        }
+
+        /// Task 203's column step (Apply with the outline bit set).
+        static void ApplyOutline(int dx, int dz, int cx, int cz, int rx, int rz, int L, int d, int up, int dn, int band,
+                                 int lowDir, byte fluid, ref ColumnSample c)
+        {
+            var l = Shape(cx, cz, rx, rz, lowDir);
+            int lineLo = L - d - 1;
+            if (InLobes(in l, dx, dz, 0))
+            {
+                int floor = L - LobeDepth(in l, dx, dz, d);
+                c.height = floor;
+                c.water = L;
+                c.waterKind = fluid == GenMat.Water ? (byte)0 : fluid;
+                c.pkLineLo = lineLo;
+                c.pkLineHi = floor;
+            }
+            else
+            {
+                bool rim = false;
+                if (dx >= -rx - 1 && dx <= rx + 1 && dz >= -rz - 1 && dz <= rz + 1)
+                    for (int oz = -1; oz <= 1 && !rim; oz++)
+                    for (int ox = -1; ox <= 1; ox++)
+                        if ((ox != 0 || oz != 0) && InLobes(in l, dx + ox, dz + oz, 0)) { rim = true; break; }
+                if (rim)
+                {
+                    c.height = math.max(BankHeight(c.height, L, up, dn, 1), L + 1);
+                    if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
+                    c.pkLineLo = lineLo;
+                    c.pkLineHi = L + 1;
+                }
+                else
+                {
+                    int t = LobeRing(in l, dx, dz, band);
+                    if (t >= band) return;
+                    int h = BankHeight(c.height, L, up, dn, t);
+                    if (h == c.height) return;
+                    c.height = h;
+                    if (c.water <= c.height) c.water = ColumnSample.NO_WATER_Y;
+                    c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = c.open3Lo = c.open3Hi = 0;
+                    c.stamp3D = false; c.carvesTop = false; c.lipLo = 0;
+                    return;
+                }
+            }
+            c.pkLining = Lining(fluid);
+            int cap = L - d - CAP_MARGIN;
+            c.riverFloor = c.riverFloor == 0 ? cap : math.min(c.riverFloor, cap);
+            c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = c.open3Lo = c.open3Hi = 0;
+            c.stamp3D = false; c.carvesTop = false; c.lipLo = 0;
+        }
+
         public static void Apply(in TerrainSpec spec, in MapView map, float x, float z, ref ColumnSample c)
         {
             if (map.pocket == null || !spec.Pockets) return;
@@ -214,6 +391,7 @@ namespace TerrainGen
             int dx = ix - cx, dz = iz - cz;
             int ext = math.max(1, band);
             if (dx < -rx - ext || dx > rx + ext || dz < -rz - ext || dz > rz + ext) return;
+            if ((s >> 31) != 0u) { ApplyOutline(dx, dz, cx, cz, rx, rz, L, d, up, dn, band, (int)((uint)e[0] >> 28), fluid, ref c); return; }   // task 203
             // The lining: every solid voxel with a face on a fluid voxel, and one more under
             // the bed. Fluid fills (floor, L] of each footprint column, so a column's solid
             // voxels down to its lowest footprint neighbour's floor + 1 can touch fluid.
@@ -323,6 +501,8 @@ namespace TerrainGen
         {
             public int cx, cz, level, rx, rz, depth;
             public int up, dn;   // task 196: the bank's cut / fill at the rim (0 / 0 = 183's shape)
+            public int lowDir;   // task 203: direction (k * 22.5 deg) of the lowest rim sample
+            public bool outline; // task 203: the natural outline (lobes); false = the ellipse
             public byte fluid;
             public byte archetype, biome;
             public bool valley;
@@ -337,6 +517,7 @@ namespace TerrainGen
                 up = (int)((uint)plane[b + 1] >> 24), dn = (int)((uint)plane[b + 2] >> 24),
                 fluid = (byte)(s & 255u), rx = (int)((s >> 8) & 255u), rz = (int)((s >> 16) & 255u), depth = (int)((s >> 24) & 127u),
                 archetype = (byte)(((plane[b] >> 24) & 15) - 1),
+                lowDir = (int)((uint)plane[b] >> 28), outline = (s >> 31) != 0u,
             };
         }
 
@@ -399,6 +580,7 @@ namespace TerrainGen
         {
             public int candidates, ruled, rejectedCells, rejectedSamples, rejectedFlat, sites;
             public int banked, bankCapped, maxUp, maxDn, depthCut;   // task 196: sites with a bank, capped, the largest UP / DN, bowls made shallower
+            public int outlined;   // task 203: sites with the natural outline (0 under -pocketoutline 0)
         }
 
         /// Task 196: the bank of a site -- the exact excess of the BASE terrain's rim
@@ -408,15 +590,32 @@ namespace TerrainGen
         public static void MeasureBank(in TerrainSpec spec, in MapView baseView, in Offsets o, int cx, int cz, int level,
                                        int rx, int rz, int room, out int up, out int dn, out bool capped)
         {
-            int top = level + 1, hi = int.MinValue, lo = int.MaxValue;
+            var s = new Site { cx = cx, cz = cz, level = level, rx = rx, rz = rz };
+            MeasureBank(in spec, in baseView, in o, in s, room, out up, out dn, out capped);
+        }
+
+        /// Task 203: the same on a site's own footprint (InSite: the lobes when s.outline).
+        public static void MeasureBank(in TerrainSpec spec, in MapView baseView, in Offsets o, in Site s,
+                                       int room, out int up, out int dn, out bool capped)
+        {
+            int cx = s.cx, cz = s.cz, rx = s.rx, rz = s.rz;
+            int top = s.level + 1, hi = int.MinValue, lo = int.MaxValue;
+            // the footprint over the box once (dx in [-rx - 2, rx + 2]), then the 8-neighbour rim by lookup
+            int W = 2 * rx + 5, H = 2 * rz + 5;
+            var foot = new bool[W * H];
+            var lb = LobesOf(in s);
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+                foot[j * W + i] = s.outline ? InLobes(in lb, i - rx - 2, j - rz - 2, 0) : InFoot(i - rx - 2, j - rz - 2, rx, rz);
             for (int dz = -rz - 1; dz <= rz + 1; dz++)
             for (int dx = -rx - 1; dx <= rx + 1; dx++)
             {
-                if (InFoot(dx, dz, rx, rz)) continue;
+                int k0 = (dz + rz + 2) * W + dx + rx + 2;
+                if (foot[k0]) continue;
                 bool rim = false;
                 for (int oz = -1; oz <= 1 && !rim; oz++)
                 for (int ox = -1; ox <= 1; ox++)
-                    if ((ox != 0 || oz != 0) && InFoot(dx + ox, dz + oz, rx, rz)) { rim = true; break; }
+                    if ((ox != 0 || oz != 0) && foot[k0 + oz * W + ox]) { rim = true; break; }
                 if (!rim) continue;
                 int h = ShapeField.Sample(in spec, in baseView, in o, cx + dx + 0.5f, cz + dz + 0.5f, 1, false).height;
                 hi = math.max(hi, h); lo = math.min(lo, h);
@@ -425,6 +624,35 @@ namespace TerrainGen
             int emax = math.clamp(((room - 1) * BANK_Q8) >> 8, 0, 255);
             capped = up > emax || dn > emax;
             up = math.min(up, emax); dn = math.min(dn, emax);
+        }
+
+        /// Task 203: the direction (0-15, k * 22.5 deg) of the lowest of the 16 rim samples the
+        /// planner takes on the ellipse (rx + 2, rz + 2) (ties: the first). BuildPlane gets the
+        /// same value from its own sample loop; tests use this for forced sites.
+        public static int RimLowDir(in TerrainSpec spec, in MapView baseView, in Offsets o, int sx, int sz, int rx, int rz)
+        {
+            int best = 0, bestH = int.MaxValue;
+            for (int k = 0; k < 16; k++)
+            {
+                float a = k / 16f * 2f * math.PI;
+                int h = ShapeField.Sample(in spec, in baseView, in o, sx + 0.5f + math.cos(a) * (rx + 2), sz + 0.5f + math.sin(a) * (rz + 2), 1, false).height;
+                if (h < bestH) { bestH = h; best = k; }
+            }
+            return best;
+        }
+
+        /// TESTS ONLY (task 203): >= 0 overrides `-pocketoutline` for BuildPlane (0 = the ellipse). -1 = the argument.
+        public static int OutlineTestOverride = -1;
+
+        /// `-pocketoutline 0` (task 203, for before / after pictures): 196's ellipse exactly.
+        /// Absent or 1 = the natural outline. Last match wins.
+        public static bool OutlineArg()
+        {
+            string[] a = System.Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-pocketoutline" && int.TryParse(a[i + 1], out int v)) on = v != 0;
+            return on;
         }
 
         /// `-pocketbasin 0` (task 196, for before / after pictures): the plane gets 183's
@@ -441,10 +669,16 @@ namespace TerrainGen
         /// The four plane words of a site (ctx: word [0]'s deep-context bits, already shifted).
         public static void Pack(in Site s, int ctxBits, int[] w)
         {
-            w[0] = (ctxBits & ~LOW24) | (s.cx & LOW24);
+            w[0] = (ctxBits & 0x0F000000) | ((s.lowDir & 15) << 28) | (s.cx & LOW24);   // task 203: bits 28-31 the low direction
             w[1] = (s.cz & LOW24) | (s.up << 24);
             w[2] = (s.level & LOW24) | (s.dn << 24);
-            w[3] = (int)((uint)s.fluid | ((uint)s.rx << 8) | ((uint)s.rz << 16) | ((uint)s.depth << 24));
+            // task 203: NO conditional inside this expression. IL2CPP (the player) types the value it
+            // carries across such a branch by its FIRST operand, the byte `fluid`, and truncated
+            // rx / rz / depth to 0 in the player only (Mono and Burst were right; found by the player
+            // plane fingerprint). Statements, not an expression branch.
+            uint w3 = (uint)s.fluid | ((uint)s.rx << 8) | ((uint)s.rz << 16) | ((uint)s.depth << 24);
+            if (s.outline) w3 |= 1u << 31;
+            w[3] = (int)w3;
         }
 
         /// The plane: STRIDE ints per plane cell, row-major. Without a record
@@ -464,6 +698,7 @@ namespace TerrainGen
 
             var zone = StartZone(map);
             bool basins = BasinsArg();   // task 196
+            bool outline = OutlineTestOverride >= 0 ? OutlineTestOverride != 0 : OutlineArg();   // task 203
 
             for (int pz = 0; pz < n; pz++)
             for (int px = 0; px < n; px++)
@@ -505,7 +740,7 @@ namespace TerrainGen
                 if (!ok) { st.rejectedCells++; continue; }
 
                 // base terrain samples: centre, 16 on the rim ellipse, 8 halfway
-                int lo = c0.height, hi = c0.height;
+                int lo = c0.height, hi = c0.height, lowDir = 0, lowH = int.MaxValue;
                 for (int k = 0; k < 24 && ok; k++)
                 {
                     float a = (k < 16 ? k / 16f : (k - 16) / 8f + 1f / 16f) * 2f * math.PI;
@@ -516,6 +751,7 @@ namespace TerrainGen
                         c.open1Hi > c.open1Lo || c.open2Hi > c.open2Lo || c.open3Hi > c.open3Lo || c.riverFloor != 0)
                         ok = false;
                     lo = math.min(lo, c.height); hi = math.max(hi, c.height);
+                    if (k < 16 && c.height < lowH) { lowH = c.height; lowDir = k; }   // task 203: the lowest rim direction
                 }
                 if (!ok) { st.rejectedSamples++; continue; }
                 int level = lo - 1;
@@ -528,16 +764,19 @@ namespace TerrainGen
                 int roomX = math.min(math.min(sx - math.max(cellX, x0 * cv), math.min(cellX + CELL, (x1 + 1) * cv) - 1 - sx), world - 1 - sx) - rx;
                 int roomZ = math.min(math.min(sz - math.max(cellZ, z0 * cv), math.min(cellZ + CELL, (z1 + 1) * cv) - 1 - sz), world - 1 - sz) - rz;
                 int up = 0, dn = 0; bool capped = false;
-                if (basins) MeasureBank(in spec, in view, in o, sx, sz, level, rx, rz, math.min(roomX, roomZ), out up, out dn, out capped);
+                var probe = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, lowDir = outline ? lowDir : 0, outline = outline };
+                if (basins) MeasureBank(in spec, in view, in o, in probe, math.min(roomX, roomZ), out up, out dn, out capped);
                 if (up > 0 || dn > 0) st.banked++;
                 if (capped) st.bankCapped++;
                 st.maxUp = math.max(st.maxUp, up); st.maxDn = math.max(st.maxDn, dn);
 
-                var site = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, depth = bowl, up = up, dn = dn, fluid = fluid };
+                var site = new Site { cx = sx, cz = sz, level = level, rx = rx, rz = rz, depth = bowl, up = up, dn = dn, fluid = fluid,
+                                      lowDir = probe.lowDir, outline = outline };
                 var w = new int[4];
                 Pack(in site, plane[b], w);
                 for (int k = 0; k < 4; k++) plane[b + k] = w[k];
                 st.sites++;
+                if (outline) st.outlined++;
             }
             return plane;
         }

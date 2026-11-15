@@ -42,9 +42,14 @@ namespace VoxelEngine.WorldGen
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 Map.EnsurePocketPlane();
                 var st = Map.PocketStats;
+                // task 203: FNV-1a of the plane words -- the player (IL2CPP) must print the same value
+                // as an EditMode build of the same seed (an IL2CPP-only truncation was found this way)
+                int[] pl = Map.PocketPlane; ulong fnv = 1469598103934665603UL;
+                for (int i = 0; i < pl.Length; i++) { fnv ^= (uint)pl[i]; fnv *= 1099511628211UL; }
                 UnityEngine.Debug.Log($"[FluidPockets] plane {sw.ElapsedMilliseconds} ms: {st.sites} surface sites " +
                                       $"({st.candidates} cells, {st.ruled} ruled, rejected cells {st.rejectedCells} / samples {st.rejectedSamples} / flat {st.rejectedFlat}); " +
-                                      $"basins (task 196): banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn}, shallower bowls {st.depthCut}");
+                                      $"basins (task 196): banked {st.banked}, capped {st.bankCapped}, max cut {st.maxUp} / fill {st.maxDn}, shallower bowls {st.depthCut}; " +
+                                      $"natural outlines (task 203) {st.outlined}{(st.outlined == 0 ? " (-pocketoutline 0: 196's ellipses)" : "")}; plane fnv {fnv:X16}");
                 _pocket = new NativeArray<int>(Map.PocketPlane, Allocator.Persistent);
             }
             else _pocket = new NativeArray<int>(1, Allocator.Persistent);

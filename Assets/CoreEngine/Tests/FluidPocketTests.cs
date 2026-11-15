@@ -135,6 +135,120 @@ public unsafe class FluidPocketTests
         }
     }
 
+    /// Task 203: the natural outline's rules on 600 synthetic sites (every radius range,
+    /// every low direction): inside the planner's box and ellipse (+ 1), the centre in it,
+    /// one 4-connected pond, rings nested and inside box (rx + t), the bed shelving at most
+    /// 1 voxel per column, irregular (not the ellipse), reaching toward the low direction;
+    /// the outline bit off = the ellipse exactly; Pack / Decode round trip. Writes a few
+    /// outlines as text to Logs/TerrainGen/outline203/shapes.txt.
+    [Test]
+    public void Outline_Rules()
+    {
+        var rng = new Unity.Mathematics.Random(203u);
+        var sb = new StringBuilder();
+        int towardLow = 0, sites = 0, maxStep = 0; long pairs = 0, steep = 0; double areaSum = 0, xorSum = 0;
+        for (int it = 0; it < 600; it++)
+        {
+            int rx = rng.NextInt(14, 53), rz = math.max(rx * 3 / 4 - 4, (int)(rx * rng.NextFloat(0.6f, 1f)));
+            if (rng.NextBool()) { int t0 = rx; rx = rz; rz = t0; }
+            int d = rng.NextInt(1, 21), lowDir = it & 15;
+            var s = new FluidPockets.Site { cx = rng.NextInt(200, 80000), cz = rng.NextInt(200, 80000), rx = rx, rz = rz, depth = d, level = 4000,
+                                            lowDir = lowDir, outline = true, fluid = GenMat.Water, up = rng.NextInt(0, 40), dn = rng.NextInt(0, 20) };
+            var l = FluidPockets.LobesOf(in s);
+            for (int i = 0; i < l.n; i++)
+                Assert.IsTrue(math.abs(l.ox[i]) + l.a[i] <= rx && math.abs(l.oz[i]) + l.b[i] <= rz && l.a[i] >= 2 && l.b[i] >= 2, $"lobe {i} outside the box, site {it}");
+            Assert.IsTrue(FluidPockets.InSite(in s, 0, 0), $"centre not in the pond, site {it}");
+            int W = 2 * rx + 3, H = 2 * rz + 3, area = 0, ell = 0, xor = 0;
+            var foot = new bool[W * H]; var dep = new int[W * H];
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+            {
+                int dx = i - rx - 1, dz = j - rz - 1, k = j * W + i;
+                foot[k] = FluidPockets.InSite(in s, dx, dz);
+                bool e = FluidPockets.InFoot(dx, dz, rx, rz);
+                if (foot[k]) { area++; Assert.IsTrue(FluidPockets.InFoot(dx, dz, rx + 1, rz + 1), $"pond outside the ellipse + 1 at ({dx}, {dz}), site {it}");
+                               dep[k] = FluidPockets.SiteDepth(in s, dx, dz); Assert.IsTrue(dep[k] >= 1 && dep[k] <= d, "depth range"); }
+                if (e) ell++;
+                if (foot[k] != e) xor++;
+            }
+            // one 4-connected pond
+            var seen = new bool[W * H]; var q = new Queue<int>(); int c0 = (rz + 1) * W + rx + 1, reached = 0;
+            seen[c0] = true; q.Enqueue(c0);
+            while (q.Count > 0)
+            {
+                int k = q.Dequeue(); reached++;
+                int i = k % W, j = k / W;
+                foreach (var (ni, nj) in new[] { (i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1) })
+                {
+                    if (ni < 0 || nj < 0 || ni >= W || nj >= H) continue;
+                    int nk = nj * W + ni;
+                    if (!foot[nk] || seen[nk]) continue;
+                    seen[nk] = true; q.Enqueue(nk);
+                    int st = math.abs(dep[nk] - dep[k]); maxStep = math.max(maxStep, st); pairs++; if (st > 1) steep++;
+                }
+            }
+            Assert.AreEqual(area, reached, $"the pond is not one piece, site {it}");
+            // rings nest and stay in the box grown by t
+            int band = FluidPockets.BankBand(s.up, s.dn);
+            for (int dz = -rz - band; dz <= rz + band; dz += 2)
+            for (int dx = -rx - band; dx <= rx + band; dx += 2)
+            {
+                if (FluidPockets.InLobes(in l, dx, dz, 0)) continue;
+                int t = FluidPockets.LobeRing(in l, dx, dz, band);
+                if (t < band)
+                {
+                    Assert.IsTrue(FluidPockets.InLobes(in l, dx, dz, t) && (t == 1 || !FluidPockets.InLobes(in l, dx, dz, t - 1)), $"ring ({dx}, {dz}) site {it}");
+                    Assert.IsTrue(math.abs(dx) <= rx + t && math.abs(dz) <= rz + t, $"ring {t} outside the box at ({dx}, {dz}), site {it}");
+                }
+                else if (band > 1) Assert.IsFalse(FluidPockets.InLobes(in l, dx, dz, band - 1));
+            }
+            // reaches farther toward the low direction than away from it (normalized)
+            float Reach(int k)
+            {
+                float best = 0f;
+                for (float r = 0f; r <= 1.05f; r += 0.01f)
+                    if (FluidPockets.InSite(in s, (int)math.round(r * rx * FluidPockets.CosQ8(k) / 256f), (int)math.round(r * rz * FluidPockets.SinQ8(k) / 256f))) best = r;
+                return best;
+            }
+            if (Reach(lowDir) > Reach(lowDir + 8)) towardLow++;
+            sites++; areaSum += (double)area / ell; xorSum += (double)xor / ell;
+            Assert.Greater(xor, ell / 20, $"site {it}: the outline is (almost) the ellipse");
+            // the outline bit off is the ellipse exactly
+            var off = s; off.outline = false;
+            for (int dz = -rz - 1; dz <= rz + 1; dz += 3)
+            for (int dx = -rx - 1; dx <= rx + 1; dx += 3)
+            {
+                Assert.AreEqual(FluidPockets.InFoot(dx, dz, rx, rz), FluidPockets.InSite(in off, dx, dz));
+                if (FluidPockets.InFoot(dx, dz, rx, rz)) Assert.AreEqual(FluidPockets.DepthAt(dx, dz, rx, rz, d), FluidPockets.SiteDepth(in off, dx, dz));
+            }
+            // Pack / Decode
+            var w = new int[4]; var plane = new int[4];
+            FluidPockets.Pack(in s, 9 << 24, w);
+            var back = FluidPockets.Decode(w, 0);
+            Assert.IsTrue(back.lowDir == lowDir && back.outline && back.rx == rx && back.rz == rz && back.depth == d && back.cx == s.cx && back.up == s.up && ((w[0] >> 24) & 15) == 9, "pack / decode");
+            if (it < 6)
+            {
+                sb.AppendLine($"site {it}: r {rx} x {rz}, low dir {lowDir} ({lowDir * 22.5f:F1} deg from +x toward +z), lobes {l.n}, area {100.0 * area / ell:F0} % of the ellipse; '~' fluid (digit = depth / 2), '.' the old ellipse only, '#' both");
+                for (int j = H - 1; j >= 0; j -= 2)
+                {
+                    var line = new StringBuilder();
+                    for (int i = 0; i < W; i++)
+                    {
+                        int k = j * W + i; bool e = FluidPockets.InFoot(i - rx - 1, j - rz - 1, rx, rz);
+                        line.Append(foot[k] ? (char)('0' + math.min(9, dep[k] / 2)) : e ? '.' : ' ');
+                    }
+                    sb.AppendLine(line.ToString());
+                }
+            }
+        }
+        sb.Insert(0, $"Task 203 outline rules: {sites} sites, pond area {100 * areaSum / sites:F0} % of the ellipse (mean), differs from the ellipse on {100 * xorSum / sites:F0} % of its area, " +
+                     $"reaches farther toward the low direction on {towardLow} / {sites}, max bed step {maxStep} voxels, steps > 1: {steep} of {pairs} neighbour pairs\n");
+        string dir = Path.Combine("Logs", "TerrainGen", "outline203"); Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "shapes.txt"), sb.ToString());
+        Assert.Greater(towardLow, sites * 9 / 10, "the pond does not reach toward the low ground");
+        Assert.LessOrEqual(maxStep, 2, $"bed steeper than 2 voxels per column: {steep} of {pairs} pairs, max {maxStep}");
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -277,11 +391,11 @@ public unsafe class FluidPocketTests
                 for (int dz = -s.rz - 1; dz <= s.rz + 1; dz++)
                 for (int dx = -s.rx - 1; dx <= s.rx + 1; dx++)
                 {
-                    bool foot = FluidPockets.InFoot(dx, dz, s.rx, s.rz);
+                    bool foot = FluidPockets.InSite(in s, dx, dz);
                     bool rim = false;
                     if (!foot)
                         for (int oz = -1; oz <= 1; oz++) for (int ox = -1; ox <= 1; ox++)
-                            if ((ox | oz) != 0 && FluidPockets.InFoot(dx + ox, dz + oz, s.rx, s.rz)) rim = true;
+                            if ((ox | oz) != 0 && FluidPockets.InSite(in s, dx + ox, dz + oz)) rim = true;
                     if (!foot && !rim) continue;
                     if (foot && ((dx & 3) != 0 || (dz & 3) != 0) && !(dx == 0 && dz == 0)) continue;
                     int x = s.cx + dx, z = s.cz + dz;
@@ -458,8 +572,10 @@ public unsafe class FluidPocketTests
             }
             int room = math.min(math.min(cx & (FluidPockets.CELL - 1), FluidPockets.CELL - 1 - (cx & (FluidPockets.CELL - 1))) - rx,
                                 math.min(cz & (FluidPockets.CELL - 1), FluidPockets.CELL - 1 - (cz & (FluidPockets.CELL - 1))) - rz);
-            FluidPockets.MeasureBank(in spec, in baseView, in o, cx, cz, L, rx, rz, room, out int up, out int dn, out _);
-            var s = new FluidPockets.Site { cx = cx, cz = cz, level = L, rx = rx, rz = rz, depth = FluidPockets.BowlDepth(16, rx, rz), up = up, dn = dn, fluid = fluid };
+            // task 203: the forced site takes the default outline (lobes toward its lowest rim direction)
+            var s = new FluidPockets.Site { cx = cx, cz = cz, level = L, rx = rx, rz = rz, depth = FluidPockets.BowlDepth(16, rx, rz), fluid = fluid,
+                                            outline = FluidPockets.OutlineArg(), lowDir = FluidPockets.RimLowDir(in spec, in baseView, in o, cx, cz, rx, rz) };
+            FluidPockets.MeasureBank(in spec, in baseView, in o, in s, room, out s.up, out s.dn, out _);
             cases.Add(SurfaceCase(name, pi, s, true));
         }
 
@@ -622,8 +738,8 @@ public unsafe class FluidPocketTests
         string control;
         if (!cs.deep)
         {
-            int hx = cs.site.cx + cs.site.rx, hz = cs.site.cz, L0 = cs.site.level;
-            while (FluidPockets.InFoot(hx - cs.site.cx, 0, cs.site.rx, cs.site.rz)) hx++;
+            int hx = cs.site.cx, hz = cs.site.cz, L0 = cs.site.level;   // task 203: walk out from the centre to the first rim column
+            while (FluidPockets.InSite(in cs.site, hx - cs.site.cx, 0)) hx++;
             string holed = Settle((x, y, z) => x == hx && z == hz && y >= L0 - 3 && y <= L0 + 1 ? Materials.Air : on.At(x, y, z),
                                   cs.org, cs.bx, cs.by, cs.bz, 150, out _);
             control = "rim hole -> " + (holed.Length > 0 ? holed : "NOTHING (the check is blind)");
@@ -730,12 +846,12 @@ public unsafe class FluidPocketTests
                 for (int dz = -s.rz; dz <= s.rz; dz += 3)
                 for (int dx = -s.rx; dx <= s.rx; dx += 3)
                 {
-                    if (!FluidPockets.InFoot(dx, dz, s.rx, s.rz)) continue;
+                    if (!FluidPockets.InSite(in s, dx, dz)) continue;
                     var c = ShapeField.Sample(in spec, in view, in o, s.cx + dx + 0.5f, s.cz + dz + 0.5f, t);
                     ShapeField.FarColumn(in spec, ref c);
                     farCmp++;
                     byte top = on.At(s.cx + dx, s.level, s.cz + dz), above = on.At(s.cx + dx, s.level + 1, s.cz + dz);
-                    if (c.water != s.level || c.height >= s.level || FluidPockets.FluidOf(c.waterKind) != s.fluid || top != fluidE || above != Materials.Air)
+                    if (c.water != s.level || c.height >= s.level || FluidPockets.FluidOf(c.waterKind) != s.fluid || top != fluidE || (above != Materials.Air && !TreeVoxel(above)))   // task 203: a bank tree's crown may overhang the pond
                     { Fail($"far texel {t} at ({s.cx + dx}, {s.cz + dz}): water {c.water} h {c.height} kind {c.waterKind}; LOD 0 {top} / {above}"); goto farDone; }
                 }
                 farDone:;
@@ -747,8 +863,17 @@ public unsafe class FluidPocketTests
         if (sb2.Length > 0) log.AppendLine("    " + sb2);
         if (!cs.deep) { int bf = NaturalBasin(src, cs, log); fails += bf; }
         CutAway(cs, on, off);
+        if (!cs.deep) TopView(src, cs);   // task 203
         if (!cs.deep && !cs.forced) poses.Add(Pose(src, cs));
         return fails;
+    }
+
+    /// Task 203: an engine material that is a tree's trunk or leaves (trees overwrite air only, so a crown may hang over a pond).
+    private static bool TreeVoxel(byte e)
+    {
+        for (int g = 0; g < 256; g++)
+            if ((GenMat.IsTreeTrunk((byte)g) || GenMat.IsTreeLeaf((byte)g)) && VoxelEngine.Rendering.FarField.GenToEngine((byte)g) == e) return true;
+        return false;
     }
 
     private static int Ext(FluidPockets.Site s) => math.max(1, FluidPockets.BankBand(s.up, s.dn));
@@ -771,9 +896,9 @@ public unsafe class FluidPocketTests
             float x = s.cx + dx + 0.5f, z = s.cz + dz + 0.5f;
             hOn[k] = ShapeField.Sample(in spec, in view, in o, x, z, 1, false).height;
             hOff[k] = ShapeField.Sample(in spec, in baseView, in o, x, z, 1, false).height;
-            if (FluidPockets.InFoot(dx, dz, s.rx, s.rz)) { kind[k] = 2; continue; }
+            if (FluidPockets.InSite(in s, dx, dz)) { kind[k] = 2; continue; }
             for (int oz = -1; oz <= 1; oz++) for (int ox = -1; ox <= 1; ox++)
-                if ((ox | oz) != 0 && FluidPockets.InFoot(dx + ox, dz + oz, s.rx, s.rz)) kind[k] = 1;
+                if ((ox | oz) != 0 && FluidPockets.InSite(in s, dx + ox, dz + oz)) kind[k] = 1;
             if (kind[k] == 1)
             {
                 if (hOff[k] - (s.level + 1) > s.up || (s.level + 1) - hOff[k] > s.dn) capped = true;
@@ -832,6 +957,45 @@ public unsafe class FluidPocketTests
     {
         var c = MaterialPalette.Of(m);
         return new Color32((byte)math.clamp(c.R * shade * 330f, 0, 255), (byte)math.clamp(c.G * shade * 330f, 0, 255), (byte)math.clamp(c.B * shade * 330f, 0, 255), 255);
+    }
+
+    /// Task 203: the site from above on the CPU (no renderer): each column's top material
+    /// (TopMaterial), hill-shaded from the north-west, fluid darker with depth; the old
+    /// ellipse's edge drawn in white dots. North (+z) is up. Screenshots/203/cpu_top_<case>.png.
+    private static void TopView(TerrainGenChunkSource src, Case cs)
+    {
+        var s = cs.site; var spec = src.Spec; var o = src.O; var view = src.Map.View;
+        int e = Ext(s) + 4, W = 2 * (s.rx + e) + 1, H = 2 * (s.rz + e) + 1;
+        var hh = new int[W * H]; var mat = new byte[W * H]; var dep = new int[W * H];
+        for (int j = 0; j < H; j++)
+        for (int i = 0; i < W; i++)
+        {
+            int x = s.cx + i - s.rx - e, z = s.cz + j - s.rz - e, k = j * W + i;
+            var c = ShapeField.Sample(in spec, in view, in o, x + 0.5f, z + 0.5f, 1, false);
+            hh[k] = c.height; dep[k] = c.water > c.height ? c.water - c.height : 0;
+            mat[k] = VoxelEngine.Rendering.FarField.GenToEngine(DetailField.TopMaterial(in spec, in c, 1f, in o, x, z));
+        }
+        var px = new Color32[W * H];
+        for (int j = 0; j < H; j++)
+        for (int i = 0; i < W; i++)
+        {
+            int k = j * W + i;
+            float shade;
+            if (dep[k] > 0) shade = math.clamp(1.05f - dep[k] * 0.03f, 0.55f, 1.05f);
+            else
+            {
+                int hw = i > 0 ? hh[k - 1] : hh[k], hn = j < H - 1 ? hh[k + W] : hh[k];
+                shade = math.clamp(0.85f + 0.12f * ((hw - hh[k]) + (hn - hh[k])) * -1f, 0.45f, 1.15f);
+            }
+            px[k] = Col(mat[k], shade);
+            int dx = i - s.rx - e, dz = j - s.rz - e;
+            bool inE = FluidPockets.InFoot(dx, dz, s.rx, s.rz);
+            if (inE && (!FluidPockets.InFoot(dx + 1, dz, s.rx, s.rz) || !FluidPockets.InFoot(dx - 1, dz, s.rx, s.rz) ||
+                        !FluidPockets.InFoot(dx, dz + 1, s.rx, s.rz) || !FluidPockets.InFoot(dx, dz - 1, s.rx, s.rz)) && ((dx + dz) & 1) == 0)
+                px[k] = new Color32(255, 255, 255, 255);
+        }
+        string dir = Path.Combine("Screenshots", "203"); Directory.CreateDirectory(dir);
+        WritePng(Path.Combine(dir, $"cpu_top_{cs.name}{(s.outline ? "" : "_ellipse")}.png"), px, W, H, 4);
     }
 
     private static void WritePng(string path, Color32[] px, int w, int h, int scale)
