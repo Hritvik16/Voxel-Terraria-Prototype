@@ -1,6 +1,6 @@
 # AMENDMENT 8.17 -- RENDER STEPS AND FRAME BUDGET
 
-**STATUS: DRAFT, NOT ADOPTED.** Task 199 (plan only, 2026-11-14). No code, no default change, no Unity launch went into it.
+**STATUS: ADOPTED 2026-11-14 (owner, Q-AC: (a) for Q1-Q7).** Written by task 199 (plan only, 2026-11-14); adopted by task 212.
 Owner doc: https://claude.ai/artifact/6JF22Hg7USmgb75F19UQgB (same content plus charts and the owner questions Q1-Q7).
 Owner answers it builds on (chat 2026-11-13, `tools/overnight/OWNER_TOPICS.md` topic 3, plus R1 / R2):
 P1 (a) the M1 Air is the MINIMUM machine; P2 (a) split the drawing into separate steps before reflections / more light;
@@ -149,3 +149,12 @@ Q1 what Air may drop (rec. (a) nothing drawn today); Q2 adopt and start T0 -> T1
 +-1 level stops for the owner); Q4 which stronger machines (rec. (a) Apple Silicon first; 3 GB cap only on 8 GB machines);
 Q5 reflected-point lighting on Air (rec. (a) no extra shadow ray); Q6 what shines first (rec. (a) water, ice, metal ores);
 Q7 next cinematic step (rec. (a) clouds + haze + bloom).
+
+**Owner answers (2026-11-14, Queue decisions doc Q-AC: "a for all (recommended)"):**
+- Q1 (a): this Mac's preset (Air) drops nothing play draws today.
+- Q2 (a): adopt and start the split: T0, then the steps one by one, reflections after.
+- Q3 (a): every step pixel-exact (0 px); a deterministic +-1-level change stops for the owner.
+- Q4 (a): the full look targets Apple Silicon Pro / Max first; the 3 GB cap applies only to 8 GB machines.
+- Q5 (a): cheap mirrored-land lighting on Air (sun angle + HeightMip roof test, no extra shadow ray at the reflected point).
+- Q6 (a): water, ice and metal-ore glint shine first.
+- Q7 (a): clouds + haze + bloom come after reflections.

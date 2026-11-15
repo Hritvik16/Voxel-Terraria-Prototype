@@ -10,7 +10,8 @@
    adopted 2026-10-11) → 8.15 (simulation reach: NEAR 128 m on every machine,
    only the DRAWN side shrinks; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted 2026-10-15) →
    8.16 (fluid gravity fall: free fall ungated by viscosity, same for every fluid;
-   `AMENDMENT_8_16_FLUID_FALL.md`, DESIGN CHANGE owner-approved 2026-10-15).
+   `AMENDMENT_8_16_FLUID_FALL.md`, DESIGN CHANGE owner-approved 2026-10-15)
+   -> 8.17 (render steps and frame budget; AMENDMENT_8_17_RENDER_STEPS.md, adopted 2026-11-14).
    **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
    are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
    cited by the completion docs, but the documents themselves are absent and
