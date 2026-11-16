@@ -1,47 +1,60 @@
-# 218b-bug-gpu-view-eviction-proof: DONE -- refusals down (small), task 216's GPU view eviction is now DEFAULT ON
+STOP_FOR_OWNER -- no preset reaches 30 fps on this Mac. Question: (a) cut lighting features (sky fill 2 ~40 ms, torch flood twin ~28 ms,
+sun shadows ~28 ms at walk_near), (b) lower the target, or (c) a stronger machine? 220 (keep the budget) needs this answer first (it reads "the chosen floor preset").
 
-NOTE for the supervisor: `tools/overnight/PAUSE` exists. The owner (or `tools/heavy.sh pause`) created it at 10:43 when they paused heavy work
-mid-task. The owner resumed `heavy.sh` at 11:37, but this PAUSE file is still there. I did not delete it: remove it to let the queue go on.
-
-## What changed (commit 4a61ed7 + this HANDOFF commit)
-- `Phase4Bootstrapper.cs`: `-gpuviewevict` default 1. `TerrainClipmap.ViewEvict.cs`: `ViewEvict = true`, header comment updated. `0` = 207's path.
-- TASKS.md "Task 218b" paragraph (Task 216 heading now says default ON), KNOWN_ISSUES 208 entry (216 sub-bullet with the numbers), CLAUDE.md index line.
-- Script `Logs/overnight/218b_pair.sh` = 216's pair without `-trees2 0` (218 fixed jungle_high). Logs are in `Logs/overnight/218b/` (git-ignored).
-
-## Evidence: one build, b1 = ON, b2 = `-gpuviewevict 0`, today's defaults (trees ON), high preset, `-mirrorprobe 1`
-| pose | refusals over run ON / OFF | refused at shot ON / OFF (in view+5x5) | eviction acted |
-|---|---|---|---|
-| jungle_high | 58 / 61 | 59 (22) / 61 (23) | 1 victim, 370 bodies |
-| walk1 | 70 / 81 | 27 (6) / 29 (8) | 14 victims, 12 requesters mapped |
-| walk2 | 70 / 81 | 0 / 0 | 17 victims (8,183 bodies), 13 mapped |
-- Target "back to <= 857": both arms are far under it (208's 857 / 1,190 were a different run). The direction is DOWN and attributable (12-13 in-view
-  chunks were mapped by the eviction). The effect is SMALL. Why: the chunks still refused at the shot sit on the box's far edge (x 443/458, z 384-386;
-  Chebyshev 7-8 from camera chunk (451,392)). Almost no out-of-view chunk is farther than that, so by design no victim is found.
-- Suites: fast PASS 1061 FAIL 0 SKIP 24 (`Logs/overnight/218b/fast.out`). WHOLE suite PASS 1142 FAIL 0 SKIP 34, wall 36m30s (`all.out`). The first
-  SUITE=all try was cut off when the Unity test process got SIGTERM at 10:46, 3 min after the owner pause (`all_killed.out`, no failures). I reran it after the resume.
-- Pictures (`Screenshots/218b/b1|b2/`): looked at jungle_high (both) and walk2. Dense jungle canopy, ponds, town and snow line are complete, with no holes
-  or floaters in either arm. Pixel diff ON vs OFF: walk2 0 px, walk1 2,373 px (a crop of the distant left trees looks identical by eye),
-  jungle_high 36 k px in the far top band (rows 0-453; snow peaks, nothing missing).
-- Player logs: b1 printed 391 "allocation older than its permitted lifetime of 4 frames" warnings from `TerrainGenChunkSource.Generate`'s
-  NativeArray Dispose (b2 189; 218's fix run 745). This was there before (timing-dependent) and is not this task's. Flagged; nothing queued.
-
-## Memory (rule 11), ON vs OFF, ledger `[mem]` lines (no extra launch)
-- Process peak 2,598 vs 2,510 MB (+88). This is not the eviction: the peak was already reached at the FIRST shot, when the eviction had acted once
-  (1 victim). The code holds < 0.1 MB (one list <= 4,096 longs) and no GPU memory. 218's OFF-equivalent run peaked at 2,560 MB, so start-up load
-  varies by about 50-90 MB between launches. GPU body pool full in both (peak 254,391 vs 254,394 of 254,400). CPU brick pool peak 496,264 vs 495,941.
-  Valve evictions over the run 32,088 vs 35,204 (fewer ON).
-
-## Left / next
-- The far-edge refusals stay refused (hand-over draws them). Cutting them needs more GPU bodies or fewer bodies per chunk (byte-identical
-  duplicates, 201a's "next lever"; chunk-border sealed bricks). That is an owner/perf-stage decision, not queued.
+# 219-perf-feasibility-ladder: DONE -- every arm fails; the presets barely change frame time (108-111 ms at walk_near)
+## Plan written before measuring: none passes -> owner question; Low only -> floor; a middle one -> the answer; 540/720 pass -> rows are the lever.
+## What changed: commit 743f139 -- capture only, opt-in (`PlaygroundCapture.CostSplit.cs`): `-costfixed` still poses, `-costarms none`, a `[mem]`
+line per path. No engine code. Runner `Logs/overnight/219/ladder.sh`, table/pictures `table.py`, `sheets.py` (Logs are git-ignored). TASKS.md "Task 219".
+## How: release player, warm-up `Logs/tg2world_20261116_123335.txt` (discarded), then 7 launches back to back (12:39-15:02, AC). Play flags
+(trees, shells, torch flood, sky fill 2, FSR 3) + `-quality X -renderrows R`. Rows 432 = play's dyn floor (`-dynfloor 432`): dyn sits there whenever
+a frame is > 30 ms, so 432 IS what play shows on every failing arm. Poses: walk_near (212's, moving), forest_eye and jungle_eye (task 210's, eye
+height, noon, looking -Z = sun behind); trees ON (218's fix). One 20 s FULL run per pose; shell wait 60 s (shells never complete; forest/jungle had a
+streaming deficit of ~520-950 chunks at the pose). Launches took ~20 min, not 10: at 6-9 fps every settle wait counts frames.
+## Table (warm steady state; peak = process peak so far in the launch; full table `Logs/overnight/219/table.md`)
+| arm | walk_near p50 / p99 / %>33 | forest_eye p50 / p99 / %>33 | jungle_eye p50 / p99 / %>33 | peak MB | GPU refused | works? |
+|---|---|---|---|---|---|---|
+| Ultra 432 | 109.8 / 242.7 / 85 | 155.7 / 260.5 / 100 | 115.5 / 201.9 / 94 | 3,122 | 0 | no: p50, tail, memory |
+| High 432 | 111.4 / 233.1 / 88 | 148.4 / 247.0 / 100 | 109.5 / 196.3 / 94 | 2,607 | 555 | no: p50, tail |
+| Medium 432 | 108.3 / 232.7 / 81 | 141.1 / 242.0 / 100 | 109.7 / 195.3 / 95 | 2,395 | 612 | no: p50, tail |
+| Low 432 | 108.0 / 231.3 / 81 | 147.4 / 247.4 / 100 | 114.9 / 199.5 / 86 | 2,297 | 677 | no: p50, tail |
+| Ultra 540 * | 169.1 / 306.5 / 100 | 214.3 / 330.2 / 100 | 187.3 / 217.5 / 98 | 3,148 | 0 | no: p50, tail, memory |
+| Ultra 720 * | 273.3 / 440.0 / 100 | 383.9 / 464.5 / 100 | 304.7 / 418.8 / 100 | 3,223 | 0 | no: p50, tail, memory |
+| Ultra 432 repeat * | 148.7 / 305.9 / 96 | 197.5 / 343.0 / 99 | 141.4 / 385.8 / 96 | 3,122 | 0 | (control) |
+\* NOT CLEAN: keyboard/mouse input 14:13-14:53 (`Logs/overnight/219/idlewatch.txt`) = the owner used the Mac during these. The repeat came out 22-35 %
+slower than the first Ultra run, so these three are inflated by an unknown share. The first four (12:39-13:58) had one input event (13:42, low's
+walk_near; its 108.0 matches the others). Ultra 540's walk_near (14:02) was before the input and is 1.54x Ultra 432 for 1.56x the pixels.
+No rerun: every outcome of a rerun gives the same answer (all arms are 3x+ over budget).
+## Picture quality (`Screenshots/219/<arm>/<pose>_full_clean.png`, full size; diff vs Ultra 432 in `Logs/overnight/219/diff.txt`)
+Mean |diff| (0-255) / pixels differing > 32: High 2.3/0.3 %, 2.9/0.7 %, 1.3/0.4 %; Medium 2.6/0.4, 3.2/1.1, 1.4/0.4; Low 2.4/0.4, 3.3/1.2, 1.3/0.5
+(walk / forest / jungle). NOISE FLOOR: Ultra vs its own repeat 2.2/0.35, 2.2/0.12, 1.2/0.21 -- so at walk_near and jungle the preset differences are at
+the frame-to-frame (FSR jitter) level; only forest_eye clearly exceeds it. Looked at all of them: what a step down from Ultra loses is the 0.1 m detail
+in the ~40-80 m band (Ultra's 0.1 m area reaches 116 m vs High 82 / Medium 65 / Low 59 m): far birch crowns behind the first trees turn speckled with
+grey gaps, and the shadow under the rock lip at walk_near becomes blotchy dark speckle. High, Medium and Low look almost alike; sun shadows, torch
+light, tree density, sky and far hills are the same in all four. 540 / 720 rows: slightly sharper fine edges (minimap text, leaf edges), nothing else.
+## The three answers
+(a) BEST setting that works on this Mac: none. The best-looking playable compromise is High (the auto pick): its look is Ultra's minus far 0.1 m detail,
+it stays under 3 GB (2,607 MB) where Ultra does not (3,122 MB), but it runs ~110 ms (9 fps) at walk_near.
+(b) What works: nothing -- every arm misses p50 and the tail; Ultra also misses memory. Lowering the preset does NOT help: Low is 108 vs High 111 ms,
+because the presets size the shells (range, pools), while the frame is spent on lighting that every preset draws the same.
+(c) What the highest settings need (measured ms / 33.3): Ultra at 432 rows: about 3.3x (walk_near), 4.7x (forest), 3.5x (jungle) this GPU's
+throughput for p50; for the tail (<= 5 % over 33 ms, i.e. p95 <= 33) about 6.5x / 7.6x / 5.8x (p95 217 / 253 / 192 ms). High: 3.3x / 4.5x / 3.3x (p50).
+Ultra at 720 rows (its intended resolution): ~8x for p50 (inflated run; from the clean 540 scaling, ~2.6-2.8x the 432 cost -> ~9x). Largest single costs
+(212's split, High, walk_near, 432 rows): sky fill 2 40.4 ms, torch flood twin 27.8, sun shadows 28.1, shells 8.4; with sky probe + sun + shells off
+("ceiling") 24.6 ms is left. Ultra also needs ~150 MB more memory headroom than the 3 GB cap.
+## Why 212's 106.8 ms and the rig's 23.7 ms differ
+The rig (`MODE=walk ./run-tg2world.sh`) runs `-renderpreset performance` = 480x270 FSR 1 (~2.6x fewer pixels than play's 768x432), golden-hour sun, and
+none of play's flags: torch flood OFF (play: -27.8 ms), sky fill 0 (play's fill 2: -40.4), shells OFF (-8.4), no far shade / see-through / river look,
+no minimap. 212 ran exactly play's flags (`tools/play-flags.sh`). The two differ by those features + pixels, not by a bug; today's walk_near here
+(108-111 ms) reproduces 212's 106.8.
+## Memory (rule 11): capture code only, nothing stored at run time. Memory peaks above are the presets' own (Ultra's 508,800-body GPU pool).
+Tests: fast PASS 1061 FAIL 0 SKIP 24 (`Logs/overnight/219/fast.out`).
 
 ## For the doc
-- GPU view eviction (task 216) is now ON by default. GPU refusals over the run, ON vs OFF: 81 -> 70 at walk1 and walk2, 61 -> 58 at jungle_high (`Logs/overnight/218b/look_b1|b2.out`).
-- Chunks refused while in view at the shot: 23 -> 22 (jungle_high), 8 -> 6 (walk1), 0 -> 0 (walk2). The cut is small because most of those chunks sit at the
-  far edge of the GPU box, where nothing out of view is farther away to give up its memory.
-- Memory: process peak 2,598 vs 2,510 MB (launch variance, reached before the eviction had done anything). CPU pool and GPU pool are unchanged.
-  Valve evictions went down, 35,204 -> 32,088.
-- Tests: whole suite PASS 1142 FAIL 0; fast PASS 1061 FAIL 0.
-- `Screenshots/218b/b1/ws_fixed_jungle_high_native_sf0.png`: jungle_high with eviction ON, the full jungle canopy to the snow line, ponds on the right, no holes.
-- `Screenshots/218b/b2/ws_fixed_jungle_high_native_sf0.png`: the same pose OFF. It looks the same; only the far top band (snow peaks) differs, by a few pixels.
-- `Screenshots/218b/b1/ws_fixed_walk2_native_sf0.png`: walk2 ON, the town top-left and two ponds right, identical to OFF (0 px differ).
+- No quality preset reaches 30 fps on this Mac: walk_near p50 Ultra 109.8, High 111.4, Medium 108.3, Low 108.0 ms (target 33.3); 81-100 % of frames over 33 ms (`Logs/overnight/219/table.md`).
+- Lowering the preset saves memory, not time: process peak Ultra 3,122 (over the 3 GB cap), High 2,607, Medium 2,395, Low 2,297 MB.
+- More render rows cost in proportion: Ultra 540 rows 169 ms (1.54x for 1.56x the pixels); 720 rows ~273 ms (owner was using the Mac: inflated).
+- To run Ultra at 30 fps needs about 3.3-4.7x this GPU (p50) and 6-8x for the smooth tail; the big costs are sky fill 2 (~40 ms), torch flood (~28), sun shadows (~28) (task 212).
+- Picture: High/Medium/Low differ from Ultra by about the frame-to-frame noise (mean 1.3-3.3 of 255); only far tree crowns at 40-80 m get speckled.
+- `Screenshots/219/sheets/doc_sheet.png`: rows = walk_near / forest / jungle, columns = Ultra, High, Medium, Low. Look how alike the columns are.
+- `Screenshots/219/sheets/crop_forest_far.png`: the forest background, 4 presets (Ultra top-left). Ultra's far birch crowns are full; High/Medium/Low show grey gaps.
+- `Screenshots/219/sheets/crop_walk_lowright.png`: the rock lip at walk_near. Ultra's shadow under the lip is smooth; the lower presets show dark blotchy speckle.
