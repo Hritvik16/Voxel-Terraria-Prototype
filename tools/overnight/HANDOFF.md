@@ -1,52 +1,47 @@
-# 218-bug-jungle-high-footprint: DONE -- FIXED (cause: the point query's tree gather piled Allocator.Temp up inside one parallel job)
+# 218b-bug-gpu-view-eviction-proof: DONE -- refusals down (small), task 216's GPU view eviction is now DEFAULT ON
 
-NOTE for the supervisor: `tools/overnight/PAUSE` exists. The memory watchdog wrote it at 07:34 when my deliberate trees-ON repro reached 10.2 GB
-(the expected kill, not a new problem). Auto mode would not let me delete it: remove it to let the queue go on.
+NOTE for the supervisor: `tools/overnight/PAUSE` exists. The owner (or `tools/heavy.sh pause`) created it at 10:43 when they paused heavy work
+mid-task. The owner resumed `heavy.sh` at 11:37, but this PAUSE file is still there. I did not delete it: remove it to let the queue go on.
 
-## What changed (commit: see `git log -1`, 218)
-- `TerrainGenChunkSource.Trees2.cs` `GatherLib`: candidate + cell scratch = `UnsafeUtility.Malloc`/`Free` (was `Allocator.Temp`, ~23 KB a call).
-- `TerrainGenChunkSource.Trees.cs` `PointTree`: gathers once per 128-aligned CHUNK column (`v & ~127` = Generate's own footprint), not once per voxel
-  column; `TerrainGenChunkSource.Point.cs` `PointColumn`: tile key + Malloc'd `treeList`/`treePrims` + `Dispose()` (a job may not create a
-  Persistent NativeArray: my first try threw "Jobs can only create Temp memory"); `FarQuery.cs` `PointJob`: `col.Dispose()` at the end of each batch.
-- Diagnostic `-memwatch <MB>` (`Assets/Game/MemWatch.cs`, hooked in `Phase4Bootstrapper.LateUpdate`, default OFF). Tests `PointTreeMemoryTests`,
-  `TempAllocThreadProbeTests` (Explicit). KNOWN_ISSUES entry + CLAUDE.md index line, TASKS.md "Task 218". Scripts `Logs/overnight/218_iso.sh`, `218_memsample.sh`.
+## What changed (commit 4a61ed7 + this HANDOFF commit)
+- `Phase4Bootstrapper.cs`: `-gpuviewevict` default 1. `TerrainClipmap.ViewEvict.cs`: `ViewEvict = true`, header comment updated. `0` = 207's path.
+- TASKS.md "Task 218b" paragraph (Task 216 heading now says default ON), KNOWN_ISSUES 208 entry (216 sub-bullet with the numbers), CLAUDE.md index line.
+- Script `Logs/overnight/218b_pair.sh` = 216's pair without `-trees2 0` (218 fixed jungle_high). Logs are in `Logs/overnight/218b/` (git-ignored).
 
-## Evidence (isolation first, `Logs/overnight/218/`)
-- `-trees2 0`, 216's flags, jungle_high/walk1/walk2: peak 3,120 MB, flat (`t0.mem`, `look_t0.out`). So the world trees cause it; the 209/209b
-  launch was not needed.
-- Trees ON (default): 2.4 -> 10.2 GB in ~2 min (`on.mem`; watchdog 07:33:56). `footprint` categories (`on2.fp20/35/60.txt`): Untagged (native heap)
-  978 -> 2,283 -> 5,114 MB, IOAccelerator (GPU) flat at 1,172 MB. With `-memwatch 4000` (`player_on3.log`) the 10 s lines stop at t 284 s
-  (2,375 MB) while the footprint climbs to 7.2 GB: the MAIN THREAD was in one frame, right after the first shot's 60 settle frames. That is the
-  survey's `-mirrorprobe` `GenProbeLines`: ONE `FarQuery.GetVoxels` over every resident uniform-air chunk x 1,024 points (713-1,299 chunks).
-- Mechanism proved in EditMode (`Logs/TerrainGen/temp218/probe.txt`): Temp in `job.Run()` (main or worker thread) is given back (+1 / +2 MB for
-  300 x 1 MB); in ONE IJobParallelFor it is not (4,000 batches x 64 KB: +235 MB Schedule, +117 MB Run). Each air point re-gathered (~350 candidates).
-- Regression test `PointQuery_Trees2_FootprintFlat` (16,384 air points in distinct columns): RED before the fix (+332 MB, 4,060 ms), now +0 MB, 377 ms.
-- Parity: filter run 16/16 PASS (`test_after.out`) incl. Slow `Trees2Tests.Chunks_Deterministic_Border_PointAndShellsAgree` (FarQuery == chunk with
-  dense world trees), `FarQueryTests`, `TreeTests`, `TreeGalleryTests`. WHOLE suite: PASS 1142 FAIL 0 SKIP 34, wall 40m34s (`all.out`; usual
-  ~12-13 min: the slowest cases are generator / fluid tests (LakeShore 138 s, FluidPocket PathsAgree 136 / 134 s), the owner had just used the Mac;
-  the last run's per-test times were overwritten, so the slower wall is NOT attributed). No fast suite BEFORE the change (216's fast run at the
-  same code: `Logs/overnight/216/fast_before.out`).
-- Player proof (`iso_fix.out`, `look_fix.out`, `fix.mem`): rebuilt, defaults (trees ON), forest + jungle_high + walk1 + walk2, `-mirrorprobe 1`: all 4 poses shot,
-  ledger peak 2,559.6 MB (sampler max 2,512 MB). `[gen]` probe: 912/713/732/776 air chunks, 0 with generator solids.
-- Screenshots looked at: jungle_high fix vs `-trees2 0`: dense jungle canopy to the snow line, ponds mid-right, no holes / floaters; the trees-ON shot adds a
-  spreading world tree by the pond and pale birches upper right. forest: birches (white bark), redwood grove against the mountain, ground complete.
+## Evidence: one build, b1 = ON, b2 = `-gpuviewevict 0`, today's defaults (trees ON), high preset, `-mirrorprobe 1`
+| pose | refusals over run ON / OFF | refused at shot ON / OFF (in view+5x5) | eviction acted |
+|---|---|---|---|
+| jungle_high | 58 / 61 | 59 (22) / 61 (23) | 1 victim, 370 bodies |
+| walk1 | 70 / 81 | 27 (6) / 29 (8) | 14 victims, 12 requesters mapped |
+| walk2 | 70 / 81 | 0 / 0 | 17 victims (8,183 bodies), 13 mapped |
+- Target "back to <= 857": both arms are far under it (208's 857 / 1,190 were a different run). The direction is DOWN and attributable (12-13 in-view
+  chunks were mapped by the eviction). The effect is SMALL. Why: the chunks still refused at the shot sit on the box's far edge (x 443/458, z 384-386;
+  Chebyshev 7-8 from camera chunk (451,392)). Almost no out-of-view chunk is farther than that, so by design no victim is found.
+- Suites: fast PASS 1061 FAIL 0 SKIP 24 (`Logs/overnight/218b/fast.out`). WHOLE suite PASS 1142 FAIL 0 SKIP 34, wall 36m30s (`all.out`). The first
+  SUITE=all try was cut off when the Unity test process got SIGTERM at 10:46, 3 min after the owner pause (`all_killed.out`, no failures). I reran it after the resume.
+- Pictures (`Screenshots/218b/b1|b2/`): looked at jungle_high (both) and walk2. Dense jungle canopy, ponds, town and snow line are complete, with no holes
+  or floaters in either arm. Pixel diff ON vs OFF: walk2 0 px, walk1 2,373 px (a crop of the distant left trees looks identical by eye),
+  jungle_high 36 k px in the far top band (rows 0-453; snow peaks, nothing missing).
+- Player logs: b1 printed 391 "allocation older than its permitted lifetime of 4 frames" warnings from `TerrainGenChunkSource.Generate`'s
+  NativeArray Dispose (b2 189; 218's fix run 745). This was there before (timing-dependent) and is not this task's. Flagged; nothing queued.
 
-## Memory (rule 11) -- trees ON after the fix vs `-trees2 0` (the old build; same 3 jungle poses)
-- Process peak 2,560 MB vs 3,120 MB (the OFF arm also paid the point probe's Temp pile-up for today's trees, now gone too).
-- CPU brick pool peak 493,780 vs 495,717 (cap 570,000), valve 484,500 both. GPU body pool full in both; refusals per pose jungle/walk1/walk2:
-  ON +295 / +197 / +105 vs OFF 71 / +15 / +8. That rise is the world trees' content (task 214), NOT this fix (no switch here; this fix only
-  changes the point path). Flagged for the owner: dense world trees push more refusals at jungle poses (KNOWN_ISSUES "GPU body pool full").
-- Rough, not a measurement: survey settle frames ~300 ms with trees ON vs ~215 ms OFF at the same poses.
+## Memory (rule 11), ON vs OFF, ledger `[mem]` lines (no extra launch)
+- Process peak 2,598 vs 2,510 MB (+88). This is not the eviction: the peak was already reached at the FIRST shot, when the eviction had acted once
+  (1 victim). The code holds < 0.1 MB (one list <= 4,096 longs) and no GPU memory. 218's OFF-equivalent run peaked at 2,560 MB, so start-up load
+  varies by about 50-90 MB between launches. GPU body pool full in both (peak 254,391 vs 254,394 of 254,400). CPU brick pool peak 496,264 vs 495,941.
+  Valve evictions over the run 32,088 vs 35,204 (fewer ON).
 
 ## Left / next
-- Task 216's proof pair (`Logs/overnight/216_pair.sh`) can now run with trees ON (drop its `-trees2 0`): queued already as 218b.
-- Any other `Allocator.Temp` inside an IJobParallelFor `Execute` has the same pile-up (none found on the point path; TorchFloodBuild uses Temp, not checked).
+- The far-edge refusals stay refused (hand-over draws them). Cutting them needs more GPU bodies or fewer bodies per chunk (byte-identical
+  duplicates, 201a's "next lever"; chunk-border sealed bricks). That is an owner/perf-stage decision, not queued.
 
 ## For the doc
-- jungle_high, today's defaults (trees ON): footprint 9,088-10,240 MB (killed, 216/218) -> peak 2,560 MB, all 4 poses shot (`Logs/overnight/218/look_fix.out`).
-- Point query, 16,384 air points: +332 MB, 4,060 ms -> +0 MB, 377 ms (`Logs/TerrainGen/temp218/point.txt`).
-- Cause: one FarQuery call of ~1 M points (survey `-mirrorprobe`); each point re-gathered the world trees into ~23 KB of Temp memory that the
-  parallel job only gives back at its end. Now one gather per 128-voxel chunk column, heap scratch freed at once.
-- Memory vs `-trees2 0`: peak 2,560 vs 3,120 MB; GPU refusals at the jungle poses higher with trees ON (295 vs 71 at jungle_high: trees content, task 214).
-- `Screenshots/218/fix/ws_fixed_jungle_high_native_sf0.png` -- jungle_high with trees ON after the fix: the full jungle canopy, no holes; this pose used to kill the player.
-- `Screenshots/218/t0/ws_fixed_jungle_high_native_sf0.png` -- the same pose with `-trees2 0`: compare the right third (world tree by the pond, birches upper right).
+- GPU view eviction (task 216) is now ON by default. GPU refusals over the run, ON vs OFF: 81 -> 70 at walk1 and walk2, 61 -> 58 at jungle_high (`Logs/overnight/218b/look_b1|b2.out`).
+- Chunks refused while in view at the shot: 23 -> 22 (jungle_high), 8 -> 6 (walk1), 0 -> 0 (walk2). The cut is small because most of those chunks sit at the
+  far edge of the GPU box, where nothing out of view is farther away to give up its memory.
+- Memory: process peak 2,598 vs 2,510 MB (launch variance, reached before the eviction had done anything). CPU pool and GPU pool are unchanged.
+  Valve evictions went down, 35,204 -> 32,088.
+- Tests: whole suite PASS 1142 FAIL 0; fast PASS 1061 FAIL 0.
+- `Screenshots/218b/b1/ws_fixed_jungle_high_native_sf0.png`: jungle_high with eviction ON, the full jungle canopy to the snow line, ponds on the right, no holes.
+- `Screenshots/218b/b2/ws_fixed_jungle_high_native_sf0.png`: the same pose OFF. It looks the same; only the far top band (snow peaks) differs, by a few pixels.
+- `Screenshots/218b/b1/ws_fixed_walk2_native_sf0.png`: walk2 ON, the town top-left and two ponds right, identical to OFF (0 px differ).
