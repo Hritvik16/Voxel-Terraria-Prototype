@@ -1,43 +1,52 @@
-# 217-plan-gdd-town-safety-answers: DONE (plan only; doc + GAME_DESIGN.md updated, two new owner questions C6-C7)
+# 218-bug-jungle-high-footprint: DONE -- FIXED (cause: the point query's tree gather piled Allocator.Temp up inside one parallel job)
 
-## What changed
-- Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), edited directly (rev 51 -> 71), and the repo copy
-  `GAME_DESIGN.md`, same content. `TASKS.md` "Task 217" paragraph. Commit: see `git log -1` (217).
-- "Town safety by NPC behaviour" heading now Decided (Q-AK, 15 Nov). The sketch is now six short rules: one danger map (C1), lights/rooms/people
-  lower it (C1), guards (C3), leaving (C2), the 64 m settlement (C5), size steps by resident count (C4).
-- "What it needs" became "Missing pieces, in build order": step 0 furnished buildings (placement phase); before character work 1 danger map,
-  2 room detection (incl. 64 m grouping and resident count), 3 NPC day routine (daily stay/leave check, guard night walk), 4 spawn rule;
-  humanoid generator and creatures go with character work. Note says steps 1-4 are rules + data, testable with stand-ins (marked as the
-  agent's plan). No new numbers: only 0.55 MB, 8 m, 64 m, 5/15/40 from the answers; "about"/"for example" kept.
-- C1-C5 answer lines filled ("(a)", Q-AK) with where each was folded in.
-- Settlements table: "How residents react to edits" Leaning -> Decided (leaving), Open (C7); "Size tiers" gains the resident-count steps;
-  "Your own settlement" says no claimed area, 64 m (C5); "Safety" Open (rules) -> Decided. A6 (a)'s "inside your claimed area" replaced by
-  "(Terraria's rule; no claimed area: C5 (a))". Header and "New, 15 Nov" lines updated.
-- Placement checklist: towns + "Settlements by the 64 m rule"; lairs + "Danger-map memory ~0.55 MB, reported vs switch OFF"; Before character
-  work: the town-safety item now names steps 1-4.
+NOTE for the supervisor: `tools/overnight/PAUSE` exists. The memory watchdog wrote it at 07:34 when my deliberate trees-ON repro reached 10.2 GB
+(the expected kill, not a new problem). Auto mode would not let me delete it: remove it to let the queue go on.
 
-## Evidence
-- Plan only: no Unity, no tests, no memory cost (task file). Doc writes acked at rev 54, 56, 71 with no refusals; the doc matched the repo copy
-  before editing (rev 51 read).
+## What changed (commit: see `git log -1`, 218)
+- `TerrainGenChunkSource.Trees2.cs` `GatherLib`: candidate + cell scratch = `UnsafeUtility.Malloc`/`Free` (was `Allocator.Temp`, ~23 KB a call).
+- `TerrainGenChunkSource.Trees.cs` `PointTree`: gathers once per 128-aligned CHUNK column (`v & ~127` = Generate's own footprint), not once per voxel
+  column; `TerrainGenChunkSource.Point.cs` `PointColumn`: tile key + Malloc'd `treeList`/`treePrims` + `Dispose()` (a job may not create a
+  Persistent NativeArray: my first try threw "Jobs can only create Temp memory"); `FarQuery.cs` `PointJob`: `col.Dispose()` at the end of each batch.
+- Diagnostic `-memwatch <MB>` (`Assets/Game/MemWatch.cs`, hooked in `Phase4Bootstrapper.LateUpdate`, default OFF). Tests `PointTreeMemoryTests`,
+  `TempAllocThreadProbeTests` (Explicit). KNOWN_ISSUES entry + CLAUDE.md index line, TASKS.md "Task 218". Scripts `Logs/overnight/218_iso.sh`, `218_memsample.sh`.
+
+## Evidence (isolation first, `Logs/overnight/218/`)
+- `-trees2 0`, 216's flags, jungle_high/walk1/walk2: peak 3,120 MB, flat (`t0.mem`, `look_t0.out`). So the world trees cause it; the 209/209b
+  launch was not needed.
+- Trees ON (default): 2.4 -> 10.2 GB in ~2 min (`on.mem`; watchdog 07:33:56). `footprint` categories (`on2.fp20/35/60.txt`): Untagged (native heap)
+  978 -> 2,283 -> 5,114 MB, IOAccelerator (GPU) flat at 1,172 MB. With `-memwatch 4000` (`player_on3.log`) the 10 s lines stop at t 284 s
+  (2,375 MB) while the footprint climbs to 7.2 GB: the MAIN THREAD was in one frame, right after the first shot's 60 settle frames. That is the
+  survey's `-mirrorprobe` `GenProbeLines`: ONE `FarQuery.GetVoxels` over every resident uniform-air chunk x 1,024 points (713-1,299 chunks).
+- Mechanism proved in EditMode (`Logs/TerrainGen/temp218/probe.txt`): Temp in `job.Run()` (main or worker thread) is given back (+1 / +2 MB for
+  300 x 1 MB); in ONE IJobParallelFor it is not (4,000 batches x 64 KB: +235 MB Schedule, +117 MB Run). Each air point re-gathered (~350 candidates).
+- Regression test `PointQuery_Trees2_FootprintFlat` (16,384 air points in distinct columns): RED before the fix (+332 MB, 4,060 ms), now +0 MB, 377 ms.
+- Parity: filter run 16/16 PASS (`test_after.out`) incl. Slow `Trees2Tests.Chunks_Deterministic_Border_PointAndShellsAgree` (FarQuery == chunk with
+  dense world trees), `FarQueryTests`, `TreeTests`, `TreeGalleryTests`. WHOLE suite: PASS 1142 FAIL 0 SKIP 34, wall 40m34s (`all.out`; usual
+  ~12-13 min: the slowest cases are generator / fluid tests (LakeShore 138 s, FluidPocket PathsAgree 136 / 134 s), the owner had just used the Mac;
+  the last run's per-test times were overwritten, so the slower wall is NOT attributed). No fast suite BEFORE the change (216's fast run at the
+  same code: `Logs/overnight/216/fast_before.out`).
+- Player proof (`iso_fix.out`, `look_fix.out`, `fix.mem`): rebuilt, defaults (trees ON), forest + jungle_high + walk1 + walk2, `-mirrorprobe 1`: all 4 poses shot,
+  ledger peak 2,559.6 MB (sampler max 2,512 MB). `[gen]` probe: 912/713/732/776 air chunks, 0 with generator solids.
+- Screenshots looked at: jungle_high fix vs `-trees2 0`: dense jungle canopy to the snow line, ponds mid-right, no holes / floaters; the trees-ON shot adds a
+  spreading world tree by the pond and pale birches upper right. forest: birches (white bark), redwood grove against the mountain, ground complete.
+
+## Memory (rule 11) -- trees ON after the fix vs `-trees2 0` (the old build; same 3 jungle poses)
+- Process peak 2,560 MB vs 3,120 MB (the OFF arm also paid the point probe's Temp pile-up for today's trees, now gone too).
+- CPU brick pool peak 493,780 vs 495,717 (cap 570,000), valve 484,500 both. GPU body pool full in both; refusals per pose jungle/walk1/walk2:
+  ON +295 / +197 / +105 vs OFF 71 / +15 / +8. That rise is the world trees' content (task 214), NOT this fix (no switch here; this fix only
+  changes the point path). Flagged for the owner: dense world trees push more refusals at jungle poses (KNOWN_ISSUES "GPU body pool full").
+- Rough, not a measurement: survey settle frames ~300 ms with trees ON vs ~215 ms OFF at the same poses.
 
 ## Left / next
-- Owner answers C6 and C7 (below). Nothing queued from this task.
+- Task 216's proof pair (`Logs/overnight/216_pair.sh`) can now run with trees ON (drop its `-trees2 0`): queued already as 218b.
+- Any other `Allocator.Temp` inside an IJobParallelFor `Execute` has the same pile-up (none found on the point path; TorchFloodBuild uses Temp, not checked).
 
 ## For the doc
-What changed (task 217, plan only):
-- Town safety is Decided (C1-C5 all (a), Q-AK): six rules in the Game design doc, Settlements rows updated, A6 wording fixed.
-- Build order before character work: danger map -> room detection -> NPC day routine -> spawn rule (furnished buildings in placement first).
-- Numbers carried from the answers: danger map 1 byte per 8 m cell = ~0.55 MB on Medium; settlement = ~64 m; steps e.g. 5 / 15 / 40 residents.
-- No images: a plan-only text task, nothing visible changed.
-
-NEW questions (recommendation first; also in the Game design doc under C5):
-**C6. How is the 64 m measured?**
-- (a) As a chain: a room joins a settlement when it is within about 64 m of any room already in it; two settlements that grow to within 64 m
-  merge. Cost: none beyond room detection. Unlocks: a city of any size stays one settlement, districts and castle included.
-- (b) From a centre (the first room or a hall): everything within about 64 m of it. Cost: simplest, but a settlement is at most about 128 m
-  across, so a big generated city splits into several.
-**C7. Anger and repair requests?** The brief said residents react to edits with "anger, leaving, asking for repairs"; C2 decided leaving.
-- (a) No separate rule: leaving (C2) is the reaction, and a resident whose room fails the daily check says why (no door, no bed, no light,
-  too dangerous) while the days run out. Cost: one line of text per failed check. Unlocks: the player sees what to fix ("asking for repairs").
-- (b) A mood value per resident (anger) that changes prices and dialogue, on top of leaving.
-- (c) Leaving only, silent.
+- jungle_high, today's defaults (trees ON): footprint 9,088-10,240 MB (killed, 216/218) -> peak 2,560 MB, all 4 poses shot (`Logs/overnight/218/look_fix.out`).
+- Point query, 16,384 air points: +332 MB, 4,060 ms -> +0 MB, 377 ms (`Logs/TerrainGen/temp218/point.txt`).
+- Cause: one FarQuery call of ~1 M points (survey `-mirrorprobe`); each point re-gathered the world trees into ~23 KB of Temp memory that the
+  parallel job only gives back at its end. Now one gather per 128-voxel chunk column, heap scratch freed at once.
+- Memory vs `-trees2 0`: peak 2,560 vs 3,120 MB; GPU refusals at the jungle poses higher with trees ON (295 vs 71 at jungle_high: trees content, task 214).
+- `Screenshots/218/fix/ws_fixed_jungle_high_native_sf0.png` -- jungle_high with trees ON after the fix: the full jungle canopy, no holes; this pose used to kill the player.
+- `Screenshots/218/t0/ws_fixed_jungle_high_native_sf0.png` -- the same pose with `-trees2 0`: compare the right third (world tree by the pond, birches upper right).

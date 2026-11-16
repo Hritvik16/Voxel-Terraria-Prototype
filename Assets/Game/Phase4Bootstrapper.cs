@@ -585,6 +585,7 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     void LateUpdate()
     {
+        MemWatch.Tick();   // task 218: -memwatch <MB> (diagnostic, default off)
         if (Streamer == null) return;
         Vector3 camPos = DebugStreamCentre ?? (Camera.main != null ? Camera.main.transform.position : transform.position);
 

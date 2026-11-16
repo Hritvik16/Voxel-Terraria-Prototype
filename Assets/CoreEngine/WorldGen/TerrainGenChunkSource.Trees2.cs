@@ -308,15 +308,18 @@ namespace VoxelEngine.WorldGen
             bool dense = spec.Trees2Dense;   // task 213
             int cap = TerrainGen.Trees2.MaxCandidates(x0, z0, x1, z1, dense);
             int cellCap = TerrainGen.Trees2.MaxCells(x0, z0, x1, z1, dense);
-            var buf = new NativeArray<TerrainGen.LibInst>(cap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            var cells = new NativeArray<int>(math.max(1, cellCap), Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            var bp = (TerrainGen.LibInst*)buf.GetUnsafePtr();
+            // Task 218: heap scratch, freed before returning. Allocator.Temp is given back only when the whole
+            // job ends, and FarQuery's PointJob (one IJobParallelFor) calls this once per chunk column of every
+            // batch: ~23 KB a call piled up to 9-10 GB at jungle_high (task 216's watchdog kills).
+            var bp = (TerrainGen.LibInst*)UnsafeUtility.Malloc((long)UnsafeUtility.SizeOf<TerrainGen.LibInst>() * math.max(1, cap),
+                                                               UnsafeUtility.AlignOf<TerrainGen.LibInst>(), Allocator.Persistent);
+            var cp = (int*)UnsafeUtility.Malloc(4L * math.max(1, cellCap), 4, Allocator.Persistent);
             var grid = default(TerrainGen.Trees2.LibGrid);
             int nl = TerrainGen.Trees2.Gather(in spec, in map, in o, in lib, x0, z0, x1, z1, bp, cap, out int nBuf,
-                                              (int*)cells.GetUnsafePtr(), cellCap, ref grid, trees + nt, treeCap - nt, ref top);
+                                              cp, cellCap, ref grid, trees + nt, treeCap - nt, ref top);
             TerrainGen.Trees2.Suppress192(bp, nBuf, in grid, trees, nt, prims);
-            cells.Dispose();
-            buf.Dispose();
+            UnsafeUtility.Free(cp, Allocator.Persistent);
+            UnsafeUtility.Free(bp, Allocator.Persistent);
             return nl;
         }
 

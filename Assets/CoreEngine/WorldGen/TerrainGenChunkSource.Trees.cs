@@ -272,39 +272,49 @@ namespace VoxelEngine.WorldGen
             touched.Dispose();
         }
 
-        /// PointVoxel's tree step: the trees touching column (v.x, v.z), gathered
-        /// once per column into the PointColumn (Allocator.Temp: point jobs only).
+        /// PointVoxel's tree step: the trees touching the CHUNK COLUMN of (v.x, v.z) -- the footprint Generate
+        /// gathers, so the point path reads the chunk's own tree list -- gathered once per chunk column into
+        /// the PointColumn (task 218; was once per voxel column). The lists are Allocator.Persistent, freed by
+        /// PointColumn.Dispose at the end of the job's batch: Allocator.Temp in FarQuery's IJobParallelFor is
+        /// given back only when the whole job ends (task 218).
         internal static unsafe byte PointTree(in TerrainGen.TerrainSpec spec, in TerrainGen.MapView map, in TerrainGen.Offsets o,
                                               int3 v, ref PointColumn col)
         {
             byte gallery = GalleryAt(v);   // task 200 (0 without a gallery)
             if (gallery != 0) return gallery;
-            if (!col.treesValid)
+            const int E = EngineConfig.CHUNK_EDGE_VOXELS;   // 128, a power of two
+            int tx = v.x & ~(E - 1), tz = v.z & ~(E - 1);
+            if (!col.treesValid || col.treeTileX != tx || col.treeTileZ != tz)
             {
-                int cap = TerrainGen.Trees.MaxTrees(v.x, v.z, v.x, v.z);
-                int libCap = spec.Trees2 ? TerrainGen.Trees2.MaxTrees(v.x, v.z, v.x, v.z, spec.Trees2Dense) : 0;   // task 210 / 213
-                if (!col.treePrims.IsCreated || col.treePrims.Length < cap * TerrainGen.Trees.MAX_PRIMS || col.treeList.Length < cap + libCap)
+                int x1 = tx + E - 1, z1 = tz + E - 1;
+                int cap = TerrainGen.Trees.MaxTrees(tx, tz, x1, z1);
+                int libCap = spec.Trees2 ? TerrainGen.Trees2.MaxTrees(tx, tz, x1, z1, spec.Trees2Dense) : 0;   // task 210 / 213
+                if (col.treeList == null || col.treePrimsCap < cap * TerrainGen.Trees.MAX_PRIMS || col.treeListCap < cap + libCap)
                 {
-                    col.treeList = new NativeArray<TerrainGen.Tree>(cap + libCap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-                    col.treePrims = new NativeArray<TerrainGen.TreePrim>(cap * TerrainGen.Trees.MAX_PRIMS, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                    col.Dispose();
+                    col.treeListCap = math.max(1, cap + libCap);
+                    col.treePrimsCap = math.max(1, cap * TerrainGen.Trees.MAX_PRIMS);
+                    col.treeList = (TerrainGen.Tree*)UnsafeUtility.Malloc((long)UnsafeUtility.SizeOf<TerrainGen.Tree>() * col.treeListCap,
+                                                                          UnsafeUtility.AlignOf<TerrainGen.Tree>(), Allocator.Persistent);
+                    col.treePrims = (TerrainGen.TreePrim*)UnsafeUtility.Malloc((long)UnsafeUtility.SizeOf<TerrainGen.TreePrim>() * col.treePrimsCap,
+                                                                               UnsafeUtility.AlignOf<TerrainGen.TreePrim>(), Allocator.Persistent);
                 }
                 int top = 0;
-                int nt = TerrainGen.Trees.Gather(in spec, in map, in o, v.x, v.z, v.x, v.z,
-                    (TerrainGen.Tree*)col.treeList.GetUnsafePtr(), cap,
-                    (TerrainGen.TreePrim*)col.treePrims.GetUnsafePtr(), col.treePrims.Length, out col.treePrimCount, ref top);
+                int nt = TerrainGen.Trees.Gather(in spec, in map, in o, tx, tz, x1, z1,
+                    col.treeList, cap, col.treePrims, col.treePrimsCap, out col.treePrimCount, ref top);
                 col.treeCount = nt;
                 if (spec.Trees2)
-                    col.treeCount += GatherLib(in spec, in map, in o, v.x, v.z, v.x, v.z, (TerrainGen.Tree*)col.treeList.GetUnsafePtr(), cap + libCap, nt,
-                                               (TerrainGen.TreePrim*)col.treePrims.GetUnsafePtr(), ref top);
+                    col.treeCount += GatherLib(in spec, in map, in o, tx, tz, x1, z1, col.treeList, cap + libCap, nt, col.treePrims, ref top);
+                col.treeTileX = tx; col.treeTileZ = tz;
                 col.treesValid = true;
             }
             if (spec.Trees2 && col.treeCount > 0)   // task 210: library wood, then library leaves, before 192's
             {
-                byte lm = TerrainGen.Trees2.At(in Trees2Shared.Lib.Data, (TerrainGen.Tree*)col.treeList.GetUnsafeReadOnlyPtr(), col.treeCount, v);
+                byte lm = TerrainGen.Trees2.At(in Trees2Shared.Lib.Data, col.treeList, col.treeCount, v);
                 if (lm != 0) return lm;
             }
             if (col.treePrimCount == 0) return TerrainGen.GenMat.Air;
-            return TerrainGen.Trees.MaterialAt((TerrainGen.TreePrim*)col.treePrims.GetUnsafeReadOnlyPtr(), col.treePrimCount, v);
+            return TerrainGen.Trees.MaterialAt(col.treePrims, col.treePrimCount, v);
         }
     }
 }

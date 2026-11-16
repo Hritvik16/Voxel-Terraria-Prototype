@@ -1889,3 +1889,18 @@ for a few days, checked once a day; a settlement = rooms/residents within ~64 m,
 pieces table with a build order (0 furnished buildings in placement; 1 danger map, 2 room detection, 3 NPC day routine, 4 spawn rule before
 character work). Settlements rows (react to edits, size tiers, own settlement, safety), A6 wording, placement checklist (64 m rule, danger-map
 memory) updated. New questions C6 (64 m as chain vs radius) and C7 (anger and repair requests). Result: HANDOFF 217.
+
+**Task 218 (bug, supervisor 2026-11-16, Q1 (a) of HANDOFF 216): the jungle_high 9-10 GB footprint = the point query's tree gather (FIXED, no switch).**
+Isolation (`Logs/overnight/218_iso.sh <arm> <flags>`, 216's survey flags at jungle_high / walk1 / walk2 (+ `XPOSE=` an extra pose), sampler
+`Logs/overnight/218_memsample.sh`: footprint every 4 s, `footprint` category snapshots at 2.0 / 3.5 / 5.0 / 6.0 GB, SIGTERM at 6.6 GB before the 8 GB
+watchdog): `-trees2 0` peak 3,120 MB; trees ON: Untagged (native) 978 -> 5,114 MB while the main thread sat in the survey's `-mirrorprobe`
+(`GenProbeLines`: one `FarQuery.GetVoxels` of ~1 M points). Cause: `PointTree` re-gathered per voxel column and `GatherLib`'s ~23 KB `Allocator.Temp`
+scratch piles up inside FarQuery's single `IJobParallelFor` (Temp is given back only when the whole job ends). Fix: `GatherLib` scratch =
+`UnsafeUtility.Malloc`/`Free`; `PointTree` gathers once per 128-aligned CHUNK column (Generate's footprint, `& ~127`) into `PointColumn.treeList` /
+`treePrims` (raw Malloc'd pointers: a job may not create a Persistent NativeArray), freed by `PointColumn.Dispose()` at the end of each
+`PointJob` batch. Same bytes (Slow `Trees2Tests.Chunks_Deterministic_Border_PointAndShellsAgree`, `FarQueryTests`, `TreeTests`). Tests:
+`PointTreeMemoryTests.PointQuery_Trees2_FootprintFlat` (16,384 air points in distinct columns: footprint growth < 48 MB; was +332 MB / 4,060 ms,
+now +0 / 377 ms; `Logs/TerrainGen/temp218/point.txt`), `TempAllocThreadProbeTests` (Explicit probe: Temp in `job.Run()` on a worker thread is
+given back, in an IJobParallelFor it is not; `probe.txt`). Diagnostic flag `-memwatch <MB>` (`Assets/Game/MemWatch.cs`, default off): a
+`[memwatch]` line every 10 s (footprint, Unity allocated / reserved, managed heap) and `MemoryLedger.Report()` once at <MB>; no line for > 10 s
+= the main thread is stuck in one frame. Result: HANDOFF 218.

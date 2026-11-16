@@ -16,6 +16,7 @@
 // THREADING: a pure function of its arguments; the map arrays are this
 // source's, shared read-only exactly as the stream workers share them.
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 
 namespace VoxelEngine.WorldGen
@@ -31,12 +32,26 @@ namespace VoxelEngine.WorldGen
             internal TerrainGen.ColumnSample c;
             internal float st;
             internal TerrainGen.DetailField.ColumnDetail cd;
-            // task 180: the trees touching this column (gathered on the first air voxel)
+            // task 180: the trees touching this column (gathered on the first air voxel); task 218: the trees of
+            // the CHUNK COLUMN (treeTileX, treeTileZ), kept across the voxel columns inside it
             internal bool treesValid;
+            internal int treeTileX, treeTileZ;
             internal int treePrimCount;
             internal int treeCount;   // task 210: 192's trees + the library trees in treeList
-            internal NativeArray<TerrainGen.Tree> treeList;
-            internal NativeArray<TerrainGen.TreePrim> treePrims;
+            // Task 218: UnsafeUtility.Malloc(Allocator.Persistent) -- a job may not create a Persistent NativeArray,
+            // and its Allocator.Temp is given back only when the whole job ends. Call Dispose.
+            internal unsafe TerrainGen.Tree* treeList;
+            internal unsafe TerrainGen.TreePrim* treePrims;
+            internal int treeListCap, treePrimsCap;
+
+            /// Task 218: frees the tree lists (the job calls this at the end of its batch).
+            internal unsafe void Dispose()
+            {
+                if (treeList != null) UnsafeUtility.Free(treeList, Allocator.Persistent);
+                if (treePrims != null) UnsafeUtility.Free(treePrims, Allocator.Persistent);
+                treeList = null; treePrims = null; treeListCap = treePrimsCap = 0;
+                treesValid = false;
+            }
         }
 
         // The read-only arrays a point job holds (valid while this source lives).
@@ -75,7 +90,7 @@ namespace VoxelEngine.WorldGen
                 if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                 col.c = c; col.st = m / 1f; col.cd = cd;
                 col.x = x; col.z = z; col.valid = true;
-                col.treesValid = false;
+                // task 218: the tree list belongs to the chunk column (PointTree checks it), not this voxel column
             }
             // Task 190: a building part wins (OverlayBuildings runs last in the chunk pass).
             if (spec.Towns && map.town != null && TerrainGen.Towns.VoxelAt(map.town, v, out byte bg)) return toEngine[bg];

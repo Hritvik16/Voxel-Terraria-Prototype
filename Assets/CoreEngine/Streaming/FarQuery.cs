@@ -293,6 +293,7 @@ namespace VoxelEngine.Streaming
                     }
                     results[i] = m;
                 }
+                col.Dispose();   // task 218: the tree lists are Allocator.Persistent
             }
         }
 

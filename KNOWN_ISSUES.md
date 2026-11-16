@@ -75,13 +75,20 @@ real and separate reason — see the LOD-cascade finding in
     box chunks for a refused in-view / 5x5 chunk (TASKS.md "Task 216"; tests `GpuViewEvictTests`). Its launch pair (refusals ON vs OFF) has not
     run: both arms of the first try were killed by the memory watchdog at jungle_high (entry "JUNGLE_HIGH FOOTPRINT" below), and the owner
     pause stopped the rerun with `-trees2 0` (`Logs/overnight/216_pair.sh`).
-- **JUNGLE_HIGH FOOTPRINT 9-10 GB: THE MEMORY WATCHDOG KILLED THE PLAYER (task 216, 2026-11-16, NOT DIAGNOSED).** Today's defaults, high preset,
-  `-worldsurvey 1 -mapversion 4 -wsarms native_sf0 -lookwait 45 -mirrorprobe 1`, first pose jungle_high (5772.8,566.3,5024.2): both launches
-  (`-gpuviewevict 1` and `0`) passed 8,192 MB physical footprint about 6 min after start, before the first shot, and `tools/mem-watchdog.sh`
-  killed them (9,088 / 9,782 MB; `Logs/overnight/watchdog.log` 23:55:29, 00:02:54; player logs `Logs/overnight/216/killed/`, no `[mem]` line
-  was printed). The same poses ran at a 2.8 GB process peak in task 208 (be67746). Changed since: 209 / 209b (pond shores, pocket streams),
-  210-214 (world trees, default ON since 214: banyan giants are jungle trees). Suspect (unproven): world trees at a jungle pose; next check
-  is the same launch with `-trees2 0`. The `-gpuviewevict 0` arm runs 207's code path, so task 216's code is not the cause.
+- **JUNGLE_HIGH FOOTPRINT 9-10 GB: THE MEMORY WATCHDOG KILLED THE PLAYER (task 216, 2026-11-16; DIAGNOSED + FIXED task 218, 2026-11-16).** Today's defaults, high preset,
+  `-worldsurvey 1 -mapversion 4 -wsarms native_sf0 -lookwait 45 -mirrorprobe 1`, first pose jungle_high (5772.8,566.3,5024.2): both 216 launches passed
+  8,192 MB about 6 min after start and `tools/mem-watchdog.sh` killed them (9,088 / 9,782 MB; `Logs/overnight/216/killed/`).
+  - Isolation (task 218, `Logs/overnight/218/`): `-trees2 0` peak 3,120 MB (`t0.mem`); trees ON 2.4 -> 10 GB in ~2 min (`on.mem`, watchdog 07:33:56). `footprint`
+    categories: **Untagged** (native heap) 978 -> 5,114 MB, graphics flat at 1.17 GB (`on2.fp20/35/60.txt`). `-memwatch 4000` (task 218's diagnostic) printed its
+    10 s line until t 284 s and then nothing: the MAIN THREAD sat in one frame, right after the first shot's settle frames = the survey's `-mirrorprobe`
+    `GenProbeLines`: ONE `FarQuery.GetVoxels` over every resident uniform-air chunk x 1,024 points (~0.7-1.3 M points).
+  - Cause: the point path (`PointTree`) re-gathered the trees for EVERY voxel column, and with world trees `GatherLib` took ~23 KB of `Allocator.Temp`
+    scratch a call. FarQuery's `PointJob` is ONE `IJobParallelFor`, and Unity gives a parallel-for's Temp back only when the WHOLE job ends
+    (`TempAllocThreadProbeTests`: 4,000 batches x 64 KB = +235 MB; `job.Run()` per call = +1 MB; `Logs/TerrainGen/temp218/probe.txt`).
+  - FIX (task 218): `GatherLib` scratch = `UnsafeUtility.Malloc` / `Free` (Persistent, freed before it returns); `PointTree` gathers once per CHUNK COLUMN
+    (128-aligned, `& ~127`: Generate's own footprint) into `PointColumn` lists that are Malloc'd and freed at the end of each batch. Test
+    `PointTreeMemoryTests` (16,384 air points in distinct columns): +332 MB / 4,060 ms -> +0 MB / 377 ms. Player, same flags + forest pose: peak 2,560 MB,
+    all 4 poses shot (`Logs/overnight/218/look_fix.out`). Any other `Allocator.Temp` inside an IJobParallelFor's Execute has the same pile-up.
 
 - **WHITE DASHES ON STEEP FACES = sun-lit 1-voxel treads lit by their own face where FarSlopeNormal's test fails (task 198, 2026-11-14; FIXED by DEFAULT task 215, 2026-11-15: `-dashfix 2` (task 205, top faces only) is the default in play, rigs and capture; `-dashfix 0` = the old call).**
   - Task 215 check (one launch, 205's flags, arms `_df0` vs default): predicted dash px still dashing: cliff_snow 1,296 -> native 6 / dyn 12 -> 1; forest_breaks 374 -> native 0 / dyn 15 -> 0; cave_mouth unchanged (0.16 % px). `Logs/overnight/215/look.out`, `Screenshots/215/sheet215.png`, `zoom215.png`.
