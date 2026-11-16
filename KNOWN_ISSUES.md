@@ -71,10 +71,12 @@ real and separate reason — see the LOD-cascade finding in
   - NOT FIXED, found by it: the GPU body pool now stays FULL at every pose (254.4 k in use vs 203-251 k with the old order). The old valve freed
     GPU bodies by dropping in-view chunks. GPU refusals 857 -> 1,190, and 31-138 chunks stay refused at the shot (drawn by the hand-over).
     The valve still churns ~12 k evictions per pose: the load set is bigger than the valve line, and evicted far chunks reload.
-  - Task 216 (owner Q-AI (a)), CODE DONE, NOT MEASURED, default OFF (`-gpuviewevict 1` = on): the GPU body pool drops out-of-view, farther
-    box chunks for a refused in-view / 5x5 chunk (TASKS.md "Task 216"; tests `GpuViewEvictTests`). Its launch pair (refusals ON vs OFF) has not
-    run: both arms of the first try were killed by the memory watchdog at jungle_high (entry "JUNGLE_HIGH FOOTPRINT" below), and the owner
-    pause stopped the rerun with `-trees2 0` (`Logs/overnight/216_pair.sh`).
+  - Task 216 (owner Q-AI (a)), DEFAULT ON since task 218b (`-gpuviewevict 0` = 207's path): the GPU body pool drops out-of-view, farther
+    box chunks for a refused in-view / 5x5 chunk (TASKS.md "Task 216"; tests `GpuViewEvictTests`). 218b's launch pair (today's defaults, trees ON,
+    jungle_high / walk1 / walk2, `Logs/overnight/218b/`): refusals over the run 81 -> 70 at walk1/walk2 (61 -> 58 at jungle_high, where it
+    acted once), refused in view at the shot 23 -> 22 / 8 -> 6, 12-13 in-view chunks mapped by it (17 victims, 8,183 bodies). SMALL effect, and
+    why: most chunks still refused at the shot lie on the box's FAR EDGE (Chebyshev 7-8 from the camera chunk), where almost no out-of-view chunk
+    is farther, so it rightly finds no victim. Pool still full at every pose; the hand-over still draws what stays refused.
 - **JUNGLE_HIGH FOOTPRINT 9-10 GB: THE MEMORY WATCHDOG KILLED THE PLAYER (task 216, 2026-11-16; DIAGNOSED + FIXED task 218, 2026-11-16).** Today's defaults, high preset,
   `-worldsurvey 1 -mapversion 4 -wsarms native_sf0 -lookwait 45 -mirrorprobe 1`, first pose jungle_high (5772.8,566.3,5024.2): both 216 launches passed
   8,192 MB about 6 min after start and `tools/mem-watchdog.sh` killed them (9,088 / 9,782 MB; `Logs/overnight/216/killed/`).

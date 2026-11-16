@@ -1863,7 +1863,7 @@ levels: forest dyn 0.51 %, cliff_snow native 1.09 %, cave_mouth native 0.16 % (2
 (the first arm was shot before the wall's near detail streamed in). No storage (one shader int). Pictures `Screenshots/215/sheet215.png`,
 `zoom215.png`. Result: HANDOFF 215.
 
-**Task 216 (bug, owner 2026-11-15 Q-AI (a): new eviction design approved; DEFAULT OFF for now, `-gpuviewevict 1` = on; target default ON once its launch pair has run).**
+**Task 216 (bug, owner 2026-11-15 Q-AI (a): new eviction design approved; DEFAULT ON since task 218b, `-gpuviewevict 0` = 207's path).**
 `TerrainClipmap.ViewEvict.cs`: when a chunk IN VIEW (or in the camera's 5x5) is refused by the full GPU body pool, mirror-box chunks that
 are OUT OF VIEW and FARTHER (Chebyshev XZ) give up their bodies first, farthest first (ties: higher box slot), and only if the victims cover the
 whole shortfall (nothing is cleared for a chunk refused anyway). Victims: held by their slot, in the box, not dirty, not touched by a live fluid
@@ -1904,3 +1904,12 @@ now +0 / 377 ms; `Logs/TerrainGen/temp218/point.txt`), `TempAllocThreadProbeTest
 given back, in an IJobParallelFor it is not; `probe.txt`). Diagnostic flag `-memwatch <MB>` (`Assets/Game/MemWatch.cs`, default off): a
 `[memwatch]` line every 10 s (footprint, Unity allocated / reserved, managed heap) and `MemoryLedger.Report()` once at <MB>; no line for > 10 s
 = the main thread is stuck in one frame. Result: HANDOFF 218.
+
+**Task 218b (bug proof, supervisor 2026-11-16: 216's Q2 (b)).** Ran 216's launch pair with today's defaults (world trees ON, 218 fixed the
+jungle_high footprint): `Logs/overnight/218b_pair.sh`, one build, b1 = `-gpuviewevict 1`, b2 = `0`, jungle_high / walk1 / walk2, `-mirrorprobe 1`,
+logs `Logs/overnight/218b/`, shots `Screenshots/218b/b1|b2/`. ON vs OFF: GPU refusals over the run 58 / 70 / 70 vs 61 / 81 / 81; refused in view
+or 5x5 at the shot 22 / 6 / 0 vs 23 / 8 / 0; victims 17 (8,183 bodies), 13 requesters mapped by it; valve evictions 32,088 vs 35,204; CPU pool peak
+496,264 vs 495,941; process peak 2,598 vs 2,510 MB, already reached at the first shot when the eviction had acted once (1 victim, 370 bodies), so
+start-up load variance, not this code (it holds < 0.1 MB). Pictures: walk2 0 px differ, walk1 2,373 px (distant trees), jungle_high 36 k px in the
+far top band; nothing missing in either arm. Default flipped ON (`Phase4Bootstrapper` `-gpuviewevict` default 1, `TerrainClipmap.ViewEvict = true`).
+Small effect: the chunks still refused at the shot sit on the box's far edge, where no out-of-view chunk is farther. Result: HANDOFF 218b.

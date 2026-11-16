@@ -35,8 +35,8 @@
 // victims per pass (each clear costs what an upload of air costs and is charged
 // to the pass's byte count). Main thread only (UploadDirty's caller).
 //
-// DEFAULT OFF until its launch pair runs (HANDOFF 216). `-gpuviewevict 1` turns it on.
-// `-gpuviewevict 0` (ViewEvict = false) or no view (SetView(null)) = today's
+// DEFAULT ON since task 218b (its launch pair ran: HANDOFF 218b).
+// `-gpuviewevict 0` (ViewEvict = false) or no view (SetView(null)) = 207's
 // path byte for byte: TryEvictForView returns false at once and the retry order
 // is 207's.
 using System;
@@ -46,9 +46,8 @@ using VoxelEngine.Memory;
 
 public partial class TerrainClipmap
 {
-    /// Task 216: `-gpuviewevict 0|1` (launch-wide, Phase4Bootstrapper). Default OFF for now (its launch pair
-    /// is still to run, HANDOFF 216); the task's target default is ON.
-    public static bool ViewEvict = false;
+    /// Task 216: `-gpuviewevict 0|1` (launch-wide, Phase4Bootstrapper). Default ON since task 218b.
+    public static bool ViewEvict = true;
     /// Victims never come from the camera's 5x5 (Chebyshev XZ <= 2, 208's valve exemption);
     /// requesters inside it qualify even when out of view (shadows, turning round).
     public const int ViewEvictKeepRadius = 2;
