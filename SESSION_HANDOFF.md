@@ -1,30 +1,28 @@
-# Session handoff -- 2026-11-15 ~05:30 (supervisor; queue RUNNING 210; owner questions open: Q-AH, Q-AI)
+# Session handoff -- 2026-11-15 ~23:40 (supervisor; queue RUNNING 216; then 217; no owner questions open)
 
 ## For the owner
-Why: this chat passed ~10 MB (every turn re-sends it), so the rules say to start a fresh, cheaper session.
-Covered in this chat (14 Nov 18:45 - 15 Nov 05:30):
-- Old supervisor window voxel-sup-2052 closed by you. Runner had ended after 206 (it had snapshotted its list); restarted by sending the run-queue
-  command into the existing idle `overnight` tmux window (the kill-session was blocked and not needed).
-- You answered **Q-AG (a)** (still streams like rivers; stretch goal: look flowing) -> task **209b**; and **Q-AF (a)** plus "why can't we use the
-  island-coast rules?" -> task **209** (done: yes, mostly; ponds now use the coast rule; report + pictures in the doc).
-- Done + reported in the doc with pictures: **205** (white dashes: FSR 3 only dims them; fix `-dashfix 2` built, OFF -> **Q-AH**),
-  **206** (debug views + torch-light kernel fixed in player builds), **207** (GPU retry only what fits: refusals 2,806 -> 685; process peak +68 MB, maybe noise),
-  **208** (valve spares in-view chunks; stopped on rule 11: GPU refusals 857 -> 1,190 -> **Q-AI**; fix is committed ON), **209** (pond coast shores, ON).
-**Open for you:** Q-AH (dash fix on by default? rec. a = `-dashfix 2`) and Q-AI (GPU-side eviction follow-up? rec. a) in "Questions for you".
+Why: this chat passed ~21 MB (every turn re-sends it), so the rules say to start a fresh, cheaper session.
+Covered in this chat (15 Nov 05:30 - 23:40):
+- Ran the queue 209b, 210, 211 (reported with pictures in the doc). You answered Q-AH A, Q-AI A, Q-AJ A, Q-AK "recommended" -> I queued 213-217.
+- You asked for two pauses ("until 6", "for an hour") and a side job on the hackathon project ~/Desktop/mars-survival-nav: README.md, ARCHITECTURE.md,
+  comment-only code docs, then a QA bug hunt + fixes (rover assist, rover visibility, site switching, etc.), and a click-list `DEMO_RECORDING.md`
+  for the 2-minute screen recording (I cannot record the screen; you do it). NOTHING there is committed: review `git diff` in that folder and tell the next session if you want it committed.
+- Done + reported in the doc with pictures: **212** (play today is 106.8 ms at walk_near, far above 8.17's 37-52 ms assumption: step budget needs re-basing; no pictures),
+  **213** (new trees 1.55x denser, refusals 0, memory +24 MB), **214** (dense new trees ON by default, `-trees2 0` = old), **215** (`-dashfix 2` ON by default).
+- Running now: **216** (GPU-side eviction by view priority; refusals must drop back to <= 857 or it stops and asks you). Then **217** (plan only: town-safety answers into the Game design doc).
+**Open for you:** nothing right now. 212's finding (budget re-basing) will matter when you decide the next performance steps (T2, T4 before T3).
 Close THIS window once the new one is up: `! tmux kill-session -t voxel-sup-1832`.
 
 ## Next supervisor
-- Queue: 210 running (trees space colonization; since 05:15), then 209b (pond streams; `Requires: 209`: the runner skipped it at 03:30/05:15, so check it
-  actually runs after 210; if the runner ends with 209b still in queue/, restart it: `tmux send-keys -t overnight "cd <repo> && IDLE_MIN=0 caffeinate -ims nice -n 10 tools/overnight/run-queue.sh" Enter` when the window is an idle shell, or the kill-session `!` line from the owner), 211 (GDD batch-A answers), 212 (T0, last, idle-guarded).
-- Blocked 208 file stays in blocked/ (its code is committed; do NOT requeue). If Q-AI (a): queue a GPU-side eviction task (details in `tools/overnight/blocked/208-bug-valve-spares-in-view-chunks.HANDOFF.md`, option a).
-  If Q-AH (a): queue a tiny task making `-dashfix 2` the default (TASKS.md 205 paragraph).
-- Doc debts (Queue decisions, https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq, container {kind:project,id:DrfR6aQJHYmhnQ2Syu33Hq}):
-  - Reports done for 205-209 in "Task reports" (node d611dfba-5116; newest heading = 209 `mk2vq5dkmp6.163502`; insert before it).
-  - STILL OWED: "Now" tab Done-table rows (node e04dd89d-c6f3, table mk2vq5dkmp6.7022; count rows first) for 205-209, and `Screenshots/205..209` entries in `tools/archive/README.md`.
-  - Questions tab (node 08a1b590-58d9): newest Q-AI heading `mk2vq5dkmp6.49009`, then Q-AH `.47551`. Q-AF/Q-AG are answered but their headings are NOT yet prefixed "ANSWERED" nor moved to the Answered tab (Q-AF answer para `.45363`). A stray empty paragraph sits above the Q-AG heading.
-  - Image recipe: Artifact publish {url: doc url, asset:true, file_paths:[...]} -> `create` object=blob engine=blob payload {asset:<id>} (the batch tool rejects `object`) -> `![alt](blob/<id>)`.
-  - Ops on one tab must use that tab's block ids (I once mixed two tabs in one call: refused).
-- Waiter: one background until-loop on Logs/overnight/runner.log (BLOCKED|done |queue runner end|FAILED|INCOMPLETE); `wc -l < runner.log > /tmp/sup_n` first; re-arm after each event.
+- Queue: 216 running (since 23:27), then 217. After 217 the queue is EMPTY: never leave it idle (memory rule) -> queue the next owner-independent task
+  (candidates: 212's next steps T2 then T4 before T3 from `tools/overnight/HANDOFF.md` / amendment 8.17, but the budget needs re-basing first: consider asking the owner in "Questions for you").
+- Waiter: one background until-loop on `Logs/overnight/runner.log` (BLOCKED|done |queue runner end|FAILED|INCOMPLETE); `wc -l < runner.log > /tmp/sup_n` first; re-arm after each event.
+  If the runner ends, restart: `tmux send-keys -t overnight "cd <repo> && IDLE_MIN=0 caffeinate -ims nice -n 10 tools/overnight/run-queue.sh" Enter`.
+- Doc (Queue decisions, https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq, container {kind:project,id:DrfR6aQJHYmhnQ2Syu33Hq}):
+  - Reports 205-215 are in "Task reports" (node d611dfba-5116; newest heading is 215 `mk2vq5dkmp6.172600`; insert new ones `before` it). Done rows 205-215 are in "Now" (node e04dd89d-c6f3, table `mk2vq5dkmp6.7022`, rows APPEND at the end with side:end).
+  - STILL OWED: archive Screenshots 209b-215 into Archive 2 (`tools/archive/make_sheets.py/make_page.py`, `index2.json`, https://claude.ai/artifact/WJup96K4oCyyktm2VhDqsf; publish only new sheets; volume 1 https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d). Mark Q-AF/Q-AG ANSWERED and move to the Answered tab (also the newly answered Q-AH..Q-AK). Fix a stray ")" left in the 212 Done row text if it reads oddly.
+  - Docs tool recipes: `read` with `payload {"kind":"view","parentId":...}`; edits via `update` engine "prose" with `payload.ops` (insert before a block id with `source {as:markdown, from:{kind:inline, content}}`); table row insert `as:"blocks"`; images: Artifact publish {url: doc url, asset:true, file_paths} -> docs `create` object=blob engine=blob payload {asset:<id>} -> markdown `![alt](blob/<id>)`.
+- Blocked 208 stays in blocked/ (do NOT requeue).
 - Owner rules (memory dir): plain words, look at every picture before captioning, questions in the doc tab, no paid-plan suggestions, max two Claude sessions, efficient by construction.
 
 ## Ready-to-paste prompt
