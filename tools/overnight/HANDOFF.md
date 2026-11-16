@@ -1,58 +1,59 @@
-# 209b-look-pond-streams-at-rest: DONE. Ponds get still streams built like the rivers (every fluid but quicksand), DEFAULT ON; `-pocketstreams 0` = task 209's world byte for byte.
+# 212-perf-t0-measure-play-steps: DONE -- play is 106.8 ms p50 at walk_near (432 rows, warm), not 8.17's est. 43-52; next T2, then T4 before T3
 
-## What changed (commit 63ea792)
-- New `Assets/TerrainGen/PocketStreams.cs` (204's option A). Per pond, on the 8 m map:
-  - INLET: upstream along the cells that drain into the pond (D8, largest catchment). It stops at a keep-out cell, a rise over 2 m per cell (a spring at the cliff foot) or 6-16 cells. If nothing drains in: a one-cell spring.
-  - OUTLET: only if catchment area >= 16 x the pond's area (a simple water balance). It goes downhill to a river (joins at the river's level) or ends sealed.
-  - SEEP: a pond with no outlet gets a lining-material trail from its low rim.
-- Channel: Rivers' shaped section at stream scale, 0.6-1.2 m wide (by catchment) and 0.25-0.35 m deep. The course uses Rivers' B-spline plus Rivers' meander rule at the stream's own scale.
-- Levels: 2 voxels under the pond-shaped ground, never rising downstream, and flush AT the pond level near the shore. Banks, bank raise and LIP rule are Rivers' own.
-- Lips: water lips are RiverLip (drawn as water). Lips of the other fluids are lining-coloured, so 0 new ids. Non-water channels are lined.
-- Seals: a stream never carves under a pond rim, a river's hold or a lake rim, and never touches a column that already holds water. Streams exist at texel 1 only (LOD 0, shells, FarQuery). The far band does not draw them.
-- Storage: one section appended to the pond site plane (`MapView.stream`), so all 6 generator paths and WorldMap.View carry it. Hook: `ShapeField.Sample`, right after `FluidPockets.Apply`.
-- `-pocketstreams` and `StreamTestOverride` live in FluidPockets. The pond tests now run streams-off (OneTimeSetUp). `TASKS.md` has the Task 209b paragraph.
+**Owner, please read:** today's play at play's own flags (rows pinned 432) runs ~107 ms per frame at walk_near (~9 fps) and ~135 ms at
+cliff1. 8.17 section 3 assumed 37.4 ms today and play ~43-52 ms (est.). The torch flood twin (27.8 ms) and sky fill 2 (40.4 ms) are
+together ~68 ms, about the whole rise since 168b (FULL 37.2). 8.17's T1-T5 estimate (-6..-23 ms) cannot reach 33 ms from 107 ms;
+the plan's order holds (T2 first is what the checkpoint says), but its budget table needs re-basing on these numbers (owner/supervisor).
 
-## Why this design is the efficient one (rule 11)
-- Nothing simulates: 0 fluid tiles and 0 tick cost (204: a flowing stream would cost 20-40 MB and slow the fluid tick).
-- The streams are built once per world: 177 ms in the Editor, 20 ms in the player.
-- Storage is 63.9 KB per plane copy, under 204's ~128 KB budget. Nodes are 12 bytes each, behind a 204.8 m index grid.
-- A column far from any stream reads 2 ints and returns. The full channel test only runs within ~2.6 m of a stream.
+## What changed
+- 874f431: 8.17 adopted (status line, section 7 answers Q1-Q7), CLAUDE.md ground truth lists 8.17.
+- 7232a42: cost split arms `flood_off`, `skyfill0` and path set `-costpaths cliff` (capture only, opt-in). Fast suite PASS 1049 FAIL 0 SKIP 22.
+- This commit: TASKS.md paragraph (Task 212) + this HANDOFF. No other code change.
 
-## Evidence
-- Tests: `SUITE=all PASS 1129 FAIL 0 SKIP 32` (34m45s, `Logs/overnight/209b/all.out`). Report: `Logs/TerrainGen/streams209b/streams.txt`.
-- Seed 42 has 131 ponds. They got 104 inlets (28 of them one-cell springs), 35 outlets and 71 seeps: 4,293 nodes, 5.35 km of channel.
-  - Streams per fluid: lava 51, acid 25, water 24, oil 21, honey 17, sludge 1.
-- Every stream column, channel + 2 rings (578 k columns, 336 k holding fluid, 57 k lips): 0 breaches, 0 mixed fluids, 0 unlined faces.
-- 12 CPU fluid-oracle cases (shore + middle of each fluid's longest stream), 150 ticks: nothing moved or reacted.
-  - Every negative control (one wall voxel removed) was caught.
-  - ON vs OFF changes stay inside the stream's reach. FarQuery = chunk, and shell 0 = Generate.
-- OFF plane = 209's FNV 38AF614C8AECA569. Streams-off chunks equal a fresh `-pocketstreams 0` source's.
-- Memory, same build and 9 poses, OFF -> ON (`Logs/overnight/209b/look_{before,after}.out`):
-  - process peak 2,585.3 -> 2,477.6 MB
-  - GPU body pool peak 254,400 -> 254,400, refusals 2,493 -> 2,316
-  - CPU pool peak 493,453 -> 494,244 bricks (valve 484,500)
-  - Valve evictions are not logged in this mode. Within budget.
-- Pictures: I looked at all 9 pairs. Streams read as small winding rivers in oil / honey / water / lava. Acid's outlet sits in a cut gully. Sludge has a short inlet and a mud seep.
+## Arms (warm steady state, AC, play flags, FSR 3 at 432 rows pinned; 3 s settle + 20 s timed per run, order F X X F per arm)
+Saving = arm vs the mean of its two bracketing FULL runs, averaged over the clean sets.
+| arm | walk_near p50 / p95 | saving p50 | cliff1 p50 / p95 | saving p50 |
+|---|---|---|---|---|
+| play (FULL) | 106.8 / 204.7 | -- | 135.3 / 240.0 | -- |
+| flood_off | 79.2 / 153.8 | 27.8 (27.2, 28.4) | 113.0 / 194.9 | 22.0 |
+| skyfill0 | 66.4 / 130.1 | 40.4 (40.9, 39.9) | 78.0 / 130.7 | 54.5 (one-sided, see below) |
+| sun_off | 78.2 / 153.9 | 28.1 (28.8, 28.2, 27.3) | 99.8 / 187.4 | 37.9 |
+| shells_off | 98.8 / 197.6 | 8.4 (9.8, 9.8, 5.6) | 111.1 / 227.3 | 24.7 |
+| ceiling (sun + sky probe + shells off) | 24.6 / 43.4 | 82.6 | 33.9 / 59.1 | 99.4 |
+- Sets: walk_near C `Logs/costsplit_2026-11-15_143504.txt` (warm-up `Logs/tg2world_20261115_142714.txt`), E `Logs/costsplit_2026-11-15_160531.txt`
+  (warm-up `Logs/tg2world_20261115_155847.txt`), F `Logs/costsplit_2026-11-15_181007.txt` (warm-up `Logs/tg2world_20261115_180320.txt`;
+  arms sun_off, shells_off, ceiling only). cliff1: E runs 17-22 (full, flood_off, skyfill0) + F (sun_off, shells_off, ceiling).
+- cliff1 skyfill0 has only its left FULL bracket (132.5; the right one was discarded); cliff FULL runs span 132.5-138.2, effect 54 ms.
+- cliff1 streams through the timing: pinned pose resident ~2,440, deficit 633-662 in every arm (same condition for all arms).
+  walk_near: deficit 0. Shells after the 90 s wait: walk_near s3-s7 missing 2,514-2,557; cliff1 missing 1,479-1,664.
+- p95 is ~2x p50 in every heavy arm (and 1.8x in ceiling): frame times are bimodal; not investigated here.
+- shells_off also swaps the kernel (no shells -> cascade path, analytic torches, task 206 rule), so its saving includes the flood twin's
+  share of that path; it is not a clean "shells alone" number.
+- Idle check: `Logs/overnight/212/hididle` (CoreGraphics per event type) every 5 s, logs `Logs/overnight/212/idlewatch_<set>.txt`;
+  ioreg's HIDIdleTime is reset every ~10 s by a running player, so it was not usable. Set F: idle 930 s at start, 4,256 s at the end.
+- Discarded (input in them): warm-ups A, B, D (aborted); set C's whole cliff1 path (input during runs 17-19); set E run 23 (cliff1
+  FULL pass 3, 159.2 ms, input at 16:46 and the owner hold appeared). No timing above comes from an arm with input in it.
 
-## Unfinished / caveats
-- No outlet reached a river on seed 42 (0 river cells reached), so the river-join code has no real case. It is guarded: it only joins at or below the pond level.
-- Player vs Editor plane: identical counts and size, but the hashes differ (player C5DE7646D4DF6CA9, Editor CACEE583F814B040).
-  - Per field: z, width and depth match; x and level differ. So a few nodes round 1 voxel apart.
-  - Each world is still at rest by construction. An integer course would make them byte-identical.
-- Distant stretches draw as dashes in the shells: shell LOD samples a 1 m channel 1 voxel per 2^k columns.
-- From 70 m up a water stream reads as a dark line (shallow water over a mud bed).
-- No river-style ripples or foam: the flow map is not free (stretch goal, not built).
-- The shot launches ran 38 + 34 min (9 poses x 35 s plus load), over the ~10 min budget. A third, short launch only checked the plane hash.
-- The `water_middle` pose sits inside a tree crown in both arms.
+## 199's finding: CONFIRMED
+Every FULL run prints `kernel lean` (the flood twin `CSMainFarShadeFlood`; diet 2 needs `!floodFarTwin`, `RaymarchFeature.cs:1473`);
+every flood_off run prints `kernel diet2`. Cost of the twin + flood together: 27.8 ms walk_near, 22.0 ms cliff1 (the arm cannot split
+"diet 2 bypassed" from "flood lighting"). At noon (walk_near is 12.00 h) the flood lights almost nothing and still costs this.
 
-## Next step
-- Possible follow-ups (supervisor's call): an integer stream course (player == Editor plane); a seed with an outlet that reaches a river, to show the join.
+## GPU trace: not taken
+`tools/gpu161.py` reads an unlabelled release trace: encoders are named by position only, not by step. 8.17 section 3: per-step ms
+from the trace come only after T6. It would not give per-step ms today, so per the task it was skipped.
+
+## Next step (8.17 checkpoint)
+flood twin 27.8 ms >= 3 -> **T2 is next** (S4 out: flood + point lights, flood twin gone). sky fill 40.4 ms >= 4 -> **T4 before T3**.
+Order by the rule: T2, T1, T4, T3, T5, T6. Sky fill is the biggest single cost, so T2, T4, T1, T3 is the alternative (owner's call).
+
+## Memory (rule 11)
+Measurement only: no content, data or drawing change in this task, nothing to compare against an OFF switch.
 
 ## For the doc
-- Streams added (seed 42): 0 -> 104 inlets, 35 outlets, 71 seeps; 5.35 km of channel on 131 ponds (quicksand none) (`Logs/TerrainGen/streams209b/streams.txt`).
-- At rest: 578 k stream columns checked: 0 breaches, 0 unlined; 12 / 12 oracle cases still; 0 fluid tiles, 0 tick cost.
-- Memory OFF -> ON: peak 2,585 -> 2,478 MB; GPU refusals 2,493 -> 2,316; plane +63.9 KB; build 20 ms in the player.
-- Images (`Screenshots/209b/viewer.html`: Space flips ON / OFF at the same camera, Z = full size):
-  - `Screenshots/209b/sheet_a.jpg`: rows lava shore / lava middle / oil shore, left OFF, right ON. Look at the winding lava and oil channels leaving and entering each pond.
-  - `Screenshots/209b/sheet_b.jpg`: rows acid / honey / sludge. Acid: the outlet in a cut gully at left. Honey: inlet right, outlet left. Sludge: a short inlet and the mud seep strip at left.
-  - `Screenshots/209b/aerial_water_after.png`: 70 m up over a forest. The inlet winds down the clearing (top to bottom centre) into the small pond at the bottom.
+- Play today, walk_near p50: **106.8 ms** (8.17 had assumed 37.4 today, est. 43-52 for play) -- `Logs/costsplit_2026-11-15_160531.txt`
+- Torch flood twin: **27.8 ms** walk_near, 22.0 ms cliff1 (199's finding confirmed: diet 2 is bypassed whenever the flood draws)
+- Sky fill 2: **40.4 ms** walk_near, ~54 ms cliff1
+- Sun shadows 28.1 ms, shells 8.4 ms (walk_near); everything heavy off ("ceiling"): 24.6 ms
+- cliff1 play p50 135.3 ms -- `Logs/costsplit_2026-11-15_181007.txt`; next step T2, then T4 before T3
+- No pictures: measurement only.

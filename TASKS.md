@@ -1817,3 +1817,12 @@ ON vs OFF only inside the reach; FarQuery = chunk; shell 0 = Generate; streams-o
 `Logs/TerrainGen/streams209b/streams.txt`, CPU top views `Screenshots/209b/cpu_top_*.png`), `Streams_Diag_CrossSections` (Explicit).
 The pond tests now run with `StreamTestOverride = 0` (OneTimeSetUp). Shots `Logs/overnight/209b_shots.sh`, `Screenshots/209b/viewer.html`.
 Result: HANDOFF 209b.
+
+**Task 212 (8.17 T0, performance):** adopted amendment 8.17 (874f431). Cost split, capture only and opt-in (7232a42):
+`-costarms flood_off` (torch flood off for the arm), `-costarms skyfill0` (sky fill 0 for the arm), `-costpaths cliff` (walk_near
++ task 199's cliff1 still pose, task 131's cliff1 A, sun 30 deg at 15.95 h; every path now carries its own sun hours). The runner
+`Logs/overnight/212/measure.sh <tag> [arms]` does the warm-up, then one cost split with `$PLAY_SETTINGS_FLAGS -renderrows 432
+-shellwait 90 -costpaths cliff`, and logs keyboard/mouse idle every 5 s (`Logs/overnight/212/hididle`, CoreGraphics per event type:
+ioreg's HIDIdleTime is reset every ~10 s by a running player, so it cannot be used). Result (warm, AC, 432 rows): play walk_near
+p50 106.8 ms, flood twin 27.8, sky fill 2 40.4, sun 28.1, shells 8.4, ceiling 24.6; cliff1 135.3. Next step T2, then T4 before T3.
+Result: HANDOFF 212.
