@@ -155,6 +155,9 @@
 //            -costpaths cliff times walk_near and cliff1 (task 199's heavy view: task 131's cliff1 A, a fixed still pose
 //            from LookReview 2026-11-02_065242 cliffshadow.json, sun 30 deg afternoon) instead of walk_near + walk_open.
 //            Every path now sets its own ClipPath.hours (all older paths carry the launch's hours: unchanged).
+//   TASK 219 (perf feasibility ladder; capture only, opt-in): -costfixed "name|ex,ey,ez|ax,ay,az;..." times still poses
+//            after walk_near (walk_open dropped, as with cliff), at the launch's hours; -costarms none = FULL only;
+//            every path ends with a [mem] line (MemoryLedger.Step14Line: pools, GPU refusals, process peak).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -189,7 +192,9 @@ public partial class PlaygroundCapture
         bool cliffPaths = ArgValue("-costpaths") == "cliff";            // task 212: walk_near + cliff1
         if (torchPaths) hours = ArgFloat("-nighttod", 0.5f);
         string armsArg = ArgValue("-costarms");
-        string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg.Split(',');
+        string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg == "none" ? new string[0] : armsArg.Split(',');   // task 219: none = FULL only
+        string fixedArg = ArgValue("-costfixed");                       // task 219: still poses "name|ex,ey,ez|ax,ay,az;..." after walk_near
+        bool fixedPaths = !string.IsNullOrEmpty(fixedArg);
         SunCycle.SetHours(hours);
         float3 sun = SunCycle.DirectionAt(hours);
         int baseShadow = RaymarchFeature.ShadowQualityLevel, baseTorch = RaymarchFeature.TorchShadowsOverride;
@@ -242,7 +247,7 @@ public partial class PlaygroundCapture
         if (ArgValue("-costpaths") == "lake") pathList.AddRange(CostLakePaths(centre, sun, hours));
         else if (torchPaths) yield return CostTorchScene(centre, hours, far, sm, cam, pathList);
         else
-        foreach (var (pname0, a0) in cliffPaths ? new[] { ("walk_near", aNear) } : new[] { ("walk_near", aNear), ("walk_open", aOpen) })
+        foreach (var (pname0, a0) in (cliffPaths || fixedPaths) ? new[] { ("walk_near", aNear) } : new[] { ("walk_near", aNear), ("walk_open", aOpen) })
         {
             var path = new ClipPath { name = pname0, hours = hours, moving = true, lead = 0,
                                       pos = new Vector3[(int)(RatePathSeconds * 30f) + 1],
@@ -260,6 +265,7 @@ public partial class PlaygroundCapture
             pathList.Add(path);
         }
         if (cliffPaths) pathList.Add(CostCliffPath());
+        if (fixedPaths) pathList.AddRange(CostFixedPaths(fixedArg, hours));
         foreach (var path in pathList)
         {
             string pname = path.name;
@@ -299,6 +305,7 @@ public partial class PlaygroundCapture
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
             CostApply("full");
+            L($"  [mem] {MemoryLedger.Step14Line().Trim()}");   // task 219: CPU / GPU pools + process footprint after this path's runs
             // Task 151: lava stills under each torch arm's knobs (PlaygroundCapture.TorchCost.cs).
             if (torchPaths) { var la = new List<string> { "full" }; foreach (string a in costArms) if (a.StartsWith("tl_") && a != "tl_none") la.Add(a); yield return CostTorchLava(cam, stills, la.ToArray()); }
             Phase4Bootstrapper.DebugStreamCentre = null;
@@ -582,6 +589,30 @@ public partial class PlaygroundCapture
     /// Task 212: task 199's heavy cliff view = task 131's cliff1 A (seed 42; LookReview 2026-11-02_065242 cliffshadow.json):
     /// Q (5217.2, 4768.8) m, eye 1.6 m over today's generated ground, facing the sun (the cliff, 260 m off, 173 m high
     /// then), pitch 5 deg up, sun 30 deg at 15.95 h. A still pose (fixed, not searched again: the same view every run).
+    /// Task 219: -costfixed "name|ex,ey,ez|ax,ay,az;..." (the -wsfixed syntax, metres): one still path per pose,
+    /// eye ex,ey,ez looking at ax,ay,az, at the launch's hours. Capture only, opt-in.
+    private List<ClipPath> CostFixedPaths(string arg, float hours)
+    {
+        var list = new List<ClipPath>();
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        foreach (string item in arg.Split(';'))
+        {
+            string[] f = item.Split('|');
+            if (f.Length < 3) { L($"  -costfixed: skipped '{item}' (want name|ex,ey,ez|ax,ay,az)"); continue; }
+            string[] e = f[1].Split(','), a = f[2].Split(',');
+            if (e.Length < 3 || a.Length < 3) { L($"  -costfixed: skipped '{item}'"); continue; }
+            var eye = new Vector3(float.Parse(e[0], ci), float.Parse(e[1], ci), float.Parse(e[2], ci));
+            var at = new Vector3(float.Parse(a[0], ci), float.Parse(a[1], ci), float.Parse(a[2], ci));
+            var rot = Quaternion.LookRotation((at - eye).normalized, Vector3.up);
+            int n = (int)(RatePathSeconds * 30f) + 1;
+            var path = new ClipPath { name = f[0], hours = hours, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+            for (int k = 0; k < n; k++) { path.pos[k] = eye; path.rot[k] = rot; }
+            path.note = $"still pose (-costfixed), eye {eye:F1} looking at {at:F1}, yaw {rot.eulerAngles.y:F0}, pitch {-Mathf.DeltaAngle(0f, rot.eulerAngles.x):F0} up";
+            list.Add(path);
+        }
+        return list;
+    }
+
     private ClipPath CostCliffPath()
     {
         var eye = new Vector3(5217.2f, 0f, 4768.8f);

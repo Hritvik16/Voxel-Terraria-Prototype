@@ -1913,3 +1913,11 @@ or 5x5 at the shot 22 / 6 / 0 vs 23 / 8 / 0; victims 17 (8,183 bodies), 13 reque
 start-up load variance, not this code (it holds < 0.1 MB). Pictures: walk2 0 px differ, walk1 2,373 px (distant trees), jungle_high 36 k px in the
 far top band; nothing missing in either arm. Default flipped ON (`Phase4Bootstrapper` `-gpuviewevict` default 1, `TerrainClipmap.ViewEvict = true`).
 Small effect: the chunks still refused at the shot sit on the box's far edge, where no out-of-view chunk is farther. Result: HANDOFF 218b.
+
+**Task 219 (perf feasibility ladder, performance).** Capture-only additions to the cost split (`PlaygroundCapture.CostSplit.cs`, opt-in):
+`-costfixed "name|ex,ey,ez|ax,ay,az;..."` (the -wsfixed syntax) times still poses after walk_near at the launch's hours; `-costarms none` =
+FULL only; every path ends with a `[mem]` line (`MemoryLedger.Step14Line`). Runner `Logs/overnight/219/ladder.sh` (warm-up, then one launch
+per `<quality>_<rows>` arm, play flags + `-renderrows <rows> -shellwait 60`, poses walk_near + task 210's forest_eye / jungle_eye), table
+`Logs/overnight/219/table.py` -> `table.md`, pictures `Logs/overnight/219/sheets.py` -> `Screenshots/219/sheets/` + `diff.txt`. Result: no preset
+reaches 30 fps; Ultra / High / Medium / Low all ~108-111 ms at walk_near (the presets size the shells, not the lighting that costs the frame).
+Result: HANDOFF 219.
