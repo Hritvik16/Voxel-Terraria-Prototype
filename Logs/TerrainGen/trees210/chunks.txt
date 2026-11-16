@@ -1,18 +1,18 @@
-seed 42, 204.8 m round (33664, 49280): 109 library trees: oak 17 birch 92
+seed 42, 204.8 m round (33664, 49280): 168 library trees: oak 20 birch 148
 border tree: oak root int3(32592, 5152, 48272) lo int3(32512, 5106, 48174) hi int3(32677, 5318, 48359) turn 3
   chunk int3(254, 39, 376): 0 tree voxels
   chunk int3(255, 39, 376): 0 tree voxels
-  chunk int3(254, 40, 376): 26143 tree voxels
-  chunk int3(255, 40, 376): 19487 tree voxels
+  chunk int3(254, 40, 376): 39193 tree voxels
+  chunk int3(255, 40, 376): 27768 tree voxels
   chunk int3(254, 41, 376): 33649 tree voxels
-  chunk int3(255, 41, 376): 26637 tree voxels
+  chunk int3(255, 41, 376): 42118 tree voxels
   chunk int3(254, 39, 377): 0 tree voxels
   chunk int3(255, 39, 377): 0 tree voxels
-  chunk int3(254, 40, 377): 53535 tree voxels
-  chunk int3(255, 40, 377): 42478 tree voxels
-  chunk int3(254, 41, 377): 72179 tree voxels
-  chunk int3(255, 41, 377): 40341 tree voxels
-  point path: 126447 points equal
-  shell 1: 39339 tree voxels compared, 39339 in the shell chunk, all equal
-  shell 2: 4913 tree voxels compared, 4913 in the shell chunk, all equal
-  shell 3: 612 tree voxels compared, 612 in the shell chunk, all equal
+  chunk int3(254, 40, 377): 57189 tree voxels
+  chunk int3(255, 40, 377): 42502 tree voxels
+  chunk int3(254, 41, 377): 72243 tree voxels
+  chunk int3(255, 41, 377): 40515 tree voxels
+  point path: 136870 points equal
+  shell 1: 44442 tree voxels compared, 44442 in the shell chunk, all equal
+  shell 2: 5583 tree voxels compared, 5583 in the shell chunk, all equal
+  shell 3: 680 tree voxels compared, 680 in the shell chunk, all equal

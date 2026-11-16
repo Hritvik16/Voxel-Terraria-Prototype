@@ -150,6 +150,13 @@ namespace VoxelEngine.WorldGen
             for (int b = 0; b < TerrainGen.GenBiome.Count; b++)
                 for (int sp = 0; sp < TerrainGen.Trees2.SP_COUNT; sp++)
                     if (lib.pq[b * 8 + sp] > 0) sb.Append($" b{b}/{TerrainGen.TreeGallery.SpeciesName[sp]} {lib.pq[b * 8 + sp] / 65536.0:F3}");
+            sb.Append(" | dense (213) p per 12.8 m / 6.4 m cell:");
+            for (int b = 0; b < TerrainGen.GenBiome.Count; b++)
+                for (int sp = 0; sp < TerrainGen.Trees2.SP_COUNT; sp++)
+                {
+                    if (lib.pqD[b * 8 + sp] > 0) sb.Append($" b{b}/{TerrainGen.TreeGallery.SpeciesName[sp]} {lib.pqD[b * 8 + sp] / 65536.0:F3}");
+                    if (lib.pqF[b * 8 + sp] > 0) sb.Append($" b{b}/{TerrainGen.TreeGallery.SpeciesName[sp]}(6.4) {lib.pqF[b * 8 + sp] / 65536.0:F3}");
+                }
             Summary = sb.ToString();
             UnityEngine.Debug.Log("[Trees2] library: " + Summary);
         }
@@ -175,17 +182,24 @@ namespace VoxelEngine.WorldGen
 
         /// -trees2 1 (task 210): the world space-colonization trees. Absent / 0 = today's trees
         /// (the default). Last match wins. Needs the trees on (`-trees 0` turns both off).
-        public static bool Trees2Arg()
+        public static bool Trees2Arg() => Trees2Mode() != 0;
+
+        /// The spec's trees2On from the flags: 0 off, 1 task 213's denser forest (`-trees2 1`),
+        /// 2 task 210's placement (`-trees2 1 -trees2dense 0`). Last match wins per flag.
+        public static byte Trees2Mode()
         {
-            if (Trees2TestOverride >= 0) return Trees2TestOverride != 0;
+            if (Trees2TestOverride >= 0) return (byte)Trees2TestOverride;
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false;
+            bool on = false, dense = true;
             for (int i = 0; i + 1 < a.Length; i++)
+            {
                 if (a[i] == "-trees2" && int.TryParse(a[i + 1], out int p)) on = p != 0;
-            return on;
+                if (a[i] == "-trees2dense" && int.TryParse(a[i + 1], out int d)) dense = d != 0;
+            }
+            return on ? (dense ? (byte)1 : (byte)2) : (byte)0;
         }
 
-        /// Tests: -1 = read the flag; 0 / 1 = the sources built from now on. Not thread-safe.
+        /// Tests: -1 = read the flags; 0 off / 1 dense (213) / 2 task 210's placement, for the sources built from now on. Not thread-safe.
         public static int Trees2TestOverride = -1;
 
         /// Constructor step (after the tree plane): build / share the library when the spec asks for it.
@@ -206,10 +220,14 @@ namespace VoxelEngine.WorldGen
 
         /// Tests and reports: spec.trees2On for the chunks generated from now on (the library is
         /// built on the first ON). Not thread-safe: call between Generate calls.
-        public void SetTrees2(bool on)
+        public void SetTrees2(bool on) => SetTrees2Mode(on ? (byte)1 : (byte)0);
+
+        /// Tests and reports (task 213): 0 off, 1 the denser forest, 2 task 210's placement.
+        public void SetTrees2Mode(byte mode)
         {
+            bool on = mode != 0;
             if (on && !_trees2Owner) { Trees2Library.Acquire(); _trees2Owner = true; }
-            var t = Spec; t.trees2On = on ? (byte)1 : (byte)0; Spec = t;
+            var t = Spec; t.trees2On = mode; Spec = t;
             _columnTop.Clear(); _specStamp++;
         }
 
@@ -218,7 +236,7 @@ namespace VoxelEngine.WorldGen
         public TerrainGen.Tree[] LibTreesIn(int x0, int z0, int x1, int z1)
         {
             if (!Spec.Trees2) return new TerrainGen.Tree[0];
-            var outT = new NativeArray<TerrainGen.Tree>(math.max(1, TerrainGen.Trees2.MaxTrees(x0, z0, x1, z1)), Allocator.TempJob);
+            var outT = new NativeArray<TerrainGen.Tree>(math.max(1, TerrainGen.Trees2.MaxTrees(x0, z0, x1, z1, Spec.Trees2Dense)), Allocator.TempJob);
             var cnt = new NativeArray<int>(1, Allocator.TempJob);
             try
             {
@@ -274,7 +292,8 @@ namespace VoxelEngine.WorldGen
         }
 
         /// Library trees a LOD-0 chunk column can gather.
-        internal static readonly int ChunkMaxLibTrees = TerrainGen.Trees2.MaxTrees(0, 0, EngineConfig.CHUNK_EDGE_VOXELS - 1, EngineConfig.CHUNK_EDGE_VOXELS - 1);
+        /// (Task 213: sized for the dense mode, which is >= task 210's.)
+        internal static readonly int ChunkMaxLibTrees = TerrainGen.Trees2.MaxTrees(0, 0, EngineConfig.CHUNK_EDGE_VOXELS - 1, EngineConfig.CHUNK_EDGE_VOXELS - 1, true);
 
         /// GatherTrees' library step (Burst): appends the library trees after 192's nt trees and empties
         /// 192's trees inside their keep radius. Returns the library trees written.
@@ -285,11 +304,17 @@ namespace VoxelEngine.WorldGen
             if (!spec.Trees2) return 0;
             ref var lib = ref Trees2Shared.Lib.Data;
             if (lib.ready == 0) return 0;
-            int cap = TerrainGen.Trees2.MaxCandidates(x0, z0, x1, z1);
+            bool dense = spec.Trees2Dense;   // task 213
+            int cap = TerrainGen.Trees2.MaxCandidates(x0, z0, x1, z1, dense);
+            int cellCap = TerrainGen.Trees2.MaxCells(x0, z0, x1, z1, dense);
             var buf = new NativeArray<TerrainGen.LibInst>(cap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            var cells = new NativeArray<int>(math.max(1, cellCap), Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             var bp = (TerrainGen.LibInst*)buf.GetUnsafePtr();
-            int nl = TerrainGen.Trees2.Gather(in spec, in map, in o, in lib, x0, z0, x1, z1, bp, cap, out int nBuf, trees + nt, treeCap - nt, ref top);
-            TerrainGen.Trees2.Suppress192(bp, nBuf, trees, nt, prims);
+            var grid = default(TerrainGen.Trees2.LibGrid);
+            int nl = TerrainGen.Trees2.Gather(in spec, in map, in o, in lib, x0, z0, x1, z1, bp, cap, out int nBuf,
+                                              (int*)cells.GetUnsafePtr(), cellCap, ref grid, trees + nt, treeCap - nt, ref top);
+            TerrainGen.Trees2.Suppress192(bp, nBuf, in grid, trees, nt, prims);
+            cells.Dispose();
             buf.Dispose();
             return nl;
         }

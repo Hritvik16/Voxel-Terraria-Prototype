@@ -53,6 +53,20 @@
 // world brick and every instance of a prototype has the same bytes in the bricks
 // it does not share with terrain (what a byte-duplicate GPU pool could share).
 // Quarter turns about the root's corner map the voxel and brick lattices to themselves.
+//
+// TASK 213 (owner 2026-11-15 Q-AJ (a): "make the forest denser"; spec.trees2On 1, the
+// default meaning of `-trees2 1`; trees2On 2 = task 210's placement byte for byte). 210's
+// forest was capped by its grid, not by memory: one tree per 12.8 m cell, 95 % of full-plane
+// forest cells already held one. Dense mode keeps every rule above and changes only WHERE:
+//   oaks (tier 1) alone on the 12.8 m normal grid;
+//   the small trees (tier 2: birch, spruce, acacia) on a FINE 6.4 m grid (root at [8, 56) of
+//   its cell, multiples of 8), one tree a fine cell;
+//   the forest's brick budget raised (BUDGET_D, still bricks per area: a bigger tree stays rarer;
+//   snow and savanna keep 210's budget, only their grid changes).
+// Suppression is the same one level per tier, but read through CELL INDEX maps (the caller's
+// scratch): every keep radius is <= KEEP_N (96 voxels), so an oak's rivals lie in the 3 x 3
+// normal cells round it, a tier-2 tree's in the 5 x 5 fine cells -- O(candidates), not 210's
+// O(candidates^2), which a 4x finer grid at shell 5 would have made ~16x dearer.
 using System;
 using System.Collections.Generic;
 using Unity.Mathematics;
@@ -82,6 +96,9 @@ namespace TerrainGen
         public fixed int variants[8];   // species -> prototypes (0 = none built)
         public fixed int pq[48];        // biome * 8 + species: probability per normal cell (1/65536) at full plane, flat
         public int pqMax;               // max over biomes of the sum
+        public fixed int pqD[48];       // task 213 (dense): normal grid (tier 1 only), per normal cell
+        public fixed int pqF[48];       // task 213 (dense): fine 6.4 m grid (tier 2 only), per fine cell
+        public int pqDMax, pqFMax;
         public int ready;
     }
 
@@ -99,6 +116,8 @@ namespace TerrainGen
     {
         public const int N_SHIFT = 7, N_CELL = 1 << N_SHIFT;     // 12.8 m normal cells
         public const int N_MARGIN = 16, N_SPAN = 96;               // root at [16, 112) (multiples of 8)
+        public const int F_SHIFT = 6, F_CELL = 1 << F_SHIFT;     // task 213: 6.4 m fine cells (tier 2, dense mode)
+        public const int F_MARGIN = 8, F_SPAN = 48;                // root at [8, 56) (multiples of 8)
         public const int G_SHIFT = 10, G_CELL = 1 << G_SHIFT;    // 102.4 m giant cells
         public const int G_MARGIN = 160, G_SPAN = 704;
         /// Bounds the library enforces (a prototype beyond them is not used).
@@ -109,7 +128,7 @@ namespace TerrainGen
         /// Gather ranges past the footprint (see Gather): normal cells, giant cell centres.
         public const int RANGE_N = REACH_N + 3 * KEEP_N, RANGE_G = RANGE_N + KEEP_G + GROVE_R + 8;   // + 8: a member's root is snapped down to a brick
         public const byte SHAPE_LIB = 0x80;   // Tree.shape bit: a library instance (prim0 = prototype, shape & 3 = turn)
-        private const uint SALT_N = 0x7EE52100u, SALT_G = 0x61A27210u;
+        private const uint SALT_N = 0x7EE52100u, SALT_G = 0x61A27210u, SALT_F = 0x5B1C2130u;
 
         // ---- the budget (bricks per 51.2 m x 51.2 m, full plane, flat) and species shares (1/16) ----
         // Today's trees there: density (per mille per 6.4 m cell) x 64 cells x 266 bricks (task 200's cost.txt).
@@ -117,6 +136,13 @@ namespace TerrainGen
         //                                       forest                desert  snow (192's pines keep 6/16)   jungle  savanna        badlands
         private static readonly byte[] SHARE_OAK = { 10, 0, 0, 0, 0, 0 }, SHARE_BIRCH = { 6, 0, 0, 0, 0, 0 },
                                        SHARE_SPRUCE = { 0, 0, 16, 0, 0, 0 }, SHARE_ACACIA = { 0, 0, 0, 0, 16, 0 };
+        // ---- task 213 (dense mode): the forest's budget and shares; other biomes keep 210's ----
+        // Forest: 1.4 x 210's budget, oak 8/16 + birch 8/16. Calibrated by Trees2Tests.Dense_Sweep
+        // (Logs/TerrainGen/trees213/sweep.txt): in a 256 m forest window 1.55 x 210's trees for 1.33 x its
+        // world tree bricks -- inside the ~30 k of 254 k GPU bodies 210 left free at forest_100m (78.4 k tree
+        // bodies there; 2 x the budget was 1.88 x the bricks, over it). Dense_Density_FootprintsAgree pins it.
+        public static readonly int[] BUDGET_D = { 800 * 64 * 266 / 1000 * 14 / 10, 0, 300 * 64 * 266 / 1000 * 10 / 16, 0, 110 * 64 * 266 / 1000, 0 };
+        public static readonly byte[] SHARE_OAK_D = { 8, 0, 0, 0, 0, 0 }, SHARE_BIRCH_D = { 8, 0, 0, 0, 0, 0 };
         /// Giants per giant cell (1/65536) at full plane: a banyan per jungle cell, a grove per wet forest cell.
         public const int P_BANYAN = 19661, P_GROVE = 22938;   // 0.30, 0.35
         /// Task 192's trees the library leaves (1/16 of their density): forest none (oak + birch), desert all
@@ -143,6 +169,10 @@ namespace TerrainGen
             }
         }
         public static int Budget(int biome) => biome < BUDGET.Length ? BUDGET[biome] : 0;
+        /// Task 213 (dense mode): the shares and budget.
+        public static int ShareD(int biome, int species)
+            => species == TreeGallery.SP_OAK ? SHARE_OAK_D[biome] : species == TreeGallery.SP_BIRCH ? SHARE_BIRCH_D[biome] : Share(biome, species);
+        public static int BudgetD(int biome) => biome < BUDGET_D.Length ? BUDGET_D[biome] : 0;
 
         // =====================================================================
         // Library build (managed, thread-safe: one call per prototype on a worker)
@@ -244,6 +274,30 @@ namespace TerrainGen
                 pmax = math.max(pmax, tot);
             }
             lib.pqMax = pmax;
+            // task 213 (dense): tier 1 on the normal grid (16 cells per 51.2 m), tier 2 on the fine grid (64)
+            int dmax = 0, fmax = 0;
+            for (int b = 0; b < GenBiome.Count; b++)
+                for (int grid = 0; grid < 2; grid++)
+                {
+                    double sum = 0, cells = grid == 0 ? 16.0 : 64.0; var p = new double[SP_COUNT];
+                    for (int s = 0; s < SP_COUNT; s++)
+                    {
+                        int sh = ShareD(b, s), t = Tier(s);
+                        if (sh == 0 || meanBricks[s] <= 0 || t == 0 || (t == 1) != (grid == 0)) continue;
+                        p[s] = BudgetD(b) * (sh / 16.0) / (cells * meanBricks[s]);
+                        sum += p[s];
+                    }
+                    double scale = sum > 0.95 ? 0.95 / sum : 1.0;
+                    int tot = 0;
+                    for (int s = 0; s < 8; s++)
+                    {
+                        int q = s < SP_COUNT ? (int)math.round(p[s] * scale * 65536.0) : 0;
+                        if (grid == 0) lib.pqD[b * 8 + s] = q; else lib.pqF[b * 8 + s] = q;
+                        tot += q;
+                    }
+                    if (grid == 0) dmax = math.max(dmax, tot); else fmax = math.max(fmax, tot);
+                }
+            lib.pqDMax = dmax; lib.pqFMax = fmax;
         }
 
         // =====================================================================
@@ -386,16 +440,24 @@ namespace TerrainGen
 
         /// The normal-grid cell's tree candidate (own rules + no surviving giant around it is checked by Gather).
         public static bool NormalCell(in TerrainSpec spec, in MapView map, in Offsets o, in TreeLib lib, int gx, int gz, out LibInst t)
+            => GridCell(in spec, in map, in o, in lib, gx, gz, 0, out t);
+
+        /// grid 0 = task 210's normal cell (lib.pq), 1 = dense normal cell (lib.pqD, oaks), 2 = dense fine cell (lib.pqF).
+        public static bool GridCell(in TerrainSpec spec, in MapView map, in Offsets o, in TreeLib lib, int gx, int gz, int grid, out LibInst t)
         {
             t = default;
-            uint seed = spec.seed ^ SALT_N;
+            bool fine = grid == 2;
+            uint seed = spec.seed ^ (fine ? SALT_F : SALT_N);
+            int shift = fine ? F_SHIFT : N_SHIFT, margin = fine ? F_MARGIN : N_MARGIN, span = fine ? F_SPAN : N_SPAN;
+            int pqMax = grid == 0 ? lib.pqMax : grid == 1 ? lib.pqDMax : lib.pqFMax;
+            if (pqMax == 0) return false;
             uint h0 = Ores.Hash(seed, gx, 0, gz);
-            int rx = (gx << N_SHIFT) + N_MARGIN + (Span(h0 & 0xFFFFu, N_SPAN) & ~7);
-            int rz = (gz << N_SHIFT) + N_MARGIN + (Span(h0 >> 16, N_SPAN) & ~7);
+            int rx = (gx << shift) + margin + (Span(h0 & 0xFFFFu, span) & ~7);
+            int rz = (gz << shift) + margin + (Span(h0 >> 16, span) & ~7);
             int plane = math.min(16, Plane(in spec, in map, rx, rz));
             if (plane == 0) return false;
             long roll = Ores.Hash(seed, gx, 1, gz) & 0xFFFFFFu;
-            if (roll * 16 >= (long)lib.pqMax * plane * 256) return false;   // the cheap reject before any sample
+            if (roll * 16 >= (long)pqMax * plane * 256) return false;   // the cheap reject before any sample
             var c = ShapeField.Sample(in spec, in map, in o, rx + 0.5f, rz + 0.5f, 1);
             byte b = c.surfBiome;
             if (b >= GenBiome.Count || !SiteOk(in spec, in c)) return false;
@@ -403,7 +465,7 @@ namespace TerrainGen
             long acc = 0; int sp = -1;
             for (int s = 0; s < SP_COUNT; s++)
             {
-                int q = lib.pq[b * 8 + s];
+                int q = grid == 0 ? lib.pq[b * 8 + s] : grid == 1 ? lib.pqD[b * 8 + s] : lib.pqF[b * 8 + s];
                 if (q == 0) continue;
                 acc += q;
                 if (roll * 16 < acc * plane * mul) { sp = s; break; }   // roll / 2^24 < sum P x plane/16 x mul/256
@@ -474,21 +536,42 @@ namespace TerrainGen
         public static int4 GiantRange(int x0, int z0, int x1, int z1)
             => new int4((x0 - RANGE_G) >> G_SHIFT, (z0 - RANGE_G) >> G_SHIFT, (x1 + RANGE_G) >> G_SHIFT, (z1 + RANGE_G) >> G_SHIFT);
 
-        /// Candidate buffer Gather needs for the footprint.
-        public static int MaxCandidates(int x0, int z0, int x1, int z1)
+        /// Task 213: the fine cells the dense gather reads (same voxel range as the normal grid).
+        public static int4 FineRange(int x0, int z0, int x1, int z1)
+            => new int4((x0 - RANGE_N) >> F_SHIFT, (z0 - RANGE_N) >> F_SHIFT, (x1 + RANGE_N) >> F_SHIFT, (z1 + RANGE_N) >> F_SHIFT);
+        private static int Cells(int4 r) => (r.z - r.x + 1) * (r.w - r.y + 1);
+
+        /// Candidate buffer Gather needs for the footprint (dense: + the fine cells).
+        public static int MaxCandidates(int x0, int z0, int x1, int z1, bool dense = false)
         {
             int4 a = NormalRange(x0, z0, x1, z1), g = GiantRange(x0, z0, x1, z1);
-            return (a.z - a.x + 1) * (a.w - a.y + 1) + (g.z - g.x + 1) * (g.w - g.y + 1) * GROVE_MAX;
+            return Cells(a) + Cells(g) * GROVE_MAX + (dense ? Cells(FineRange(x0, z0, x1, z1)) : 0);
         }
 
-        /// Library trees Gather can WRITE for the footprint (the trees whose box can touch it).
-        public static int MaxTrees(int x0, int z0, int x1, int z1)
+        /// Task 213: the int scratch the dense gather's cell index maps need (0 in 210's mode).
+        public static int MaxCells(int x0, int z0, int x1, int z1, bool dense)
+            => dense ? Cells(NormalRange(x0, z0, x1, z1)) + Cells(FineRange(x0, z0, x1, z1)) : 0;
+
+        /// Library trees Gather can WRITE for the footprint (the trees whose box can touch it; dense: + fine cells).
+        public static int MaxTrees(int x0, int z0, int x1, int z1, bool dense = false)
         {
             int nx = ((x1 + REACH_N) >> N_SHIFT) - ((x0 - REACH_N) >> N_SHIFT) + 1;
             int nz = ((z1 + REACH_N) >> N_SHIFT) - ((z0 - REACH_N) >> N_SHIFT) + 1;
             int R = GROVE_R + REACH_G + 8;
             int gxn = ((x1 + R) >> G_SHIFT) - ((x0 - R) >> G_SHIFT) + 1, gzn = ((z1 + R) >> G_SHIFT) - ((z0 - R) >> G_SHIFT) + 1;
-            return nx * nz + gxn * gzn * GROVE_MAX;
+            int fine = 0;
+            if (dense)
+                fine = (((x1 + REACH_N) >> F_SHIFT) - ((x0 - REACH_N) >> F_SHIFT) + 1) * (((z1 + REACH_N) >> F_SHIFT) - ((z0 - REACH_N) >> F_SHIFT) + 1);
+            return nx * nz + gxn * gzn * GROVE_MAX + fine;
+        }
+
+        /// Task 213: the dense gather's cell index maps (buf index or -1), for Suppress192's lookups.
+        public struct LibGrid
+        {
+            public int* nIdx, fIdx;
+            public int4 nr, fr;
+            public int nG;        // giants at buf[0, nG)
+            public byte dense;
         }
 
         private static bool Near(int3 r, int x0, int z0, int x1, int z1, int pad)
@@ -505,8 +588,22 @@ namespace TerrainGen
                                  int x0, int z0, int x1, int z1, LibInst* buf, int bufCap, out int nBuf,
                                  Tree* outTrees, int outCap, ref int top)
         {
+            var grid = default(LibGrid);
+            return Gather(in spec, in map, in o, in lib, x0, z0, x1, z1, buf, bufCap, out nBuf, null, 0, ref grid, outTrees, outCap, ref top);
+        }
+
+        /// The same; `cells` (>= MaxCells) is the dense mode's index scratch, `grid` describes it for Suppress192.
+        public static int Gather(in TerrainSpec spec, in MapView map, in Offsets o, in TreeLib lib,
+                                 int x0, int z0, int x1, int z1, LibInst* buf, int bufCap, out int nBuf,
+                                 int* cells, int cellCap, ref LibGrid grid,
+                                 Tree* outTrees, int outCap, ref int top)
+        {
             nBuf = 0;
+            grid = default;
             if (!spec.Trees2 || lib.ready == 0 || map.trees == null) return 0;
+            if (spec.Trees2Dense && cells != null && cellCap >= MaxCells(x0, z0, x1, z1, true))
+                return GatherDense(in spec, in map, in o, in lib, x0, z0, x1, z1, buf, bufCap, out nBuf, cells, ref grid, outTrees, outCap, ref top);
+            if (spec.Trees2Dense) return 0;   // a caller without the scratch gets no dense trees (never 210's in their place)
             int n = 0;
             int4 g = GiantRange(x0, z0, x1, z1);
             for (int gz = g.y; gz <= g.w; gz++)
@@ -573,18 +670,147 @@ namespace TerrainGen
             return w;
         }
 
+        private static int Slot(int* idx, int4 r, int gx, int gz)
+            => gx < r.x || gx > r.z || gz < r.y || gz > r.w ? -1 : idx[(gz - r.y) * (r.z - r.x + 1) + (gx - r.x)];
+
+        /// Task 213: the dense gather. Same tiers, rules and Near ranges as Gather's 210 path; oaks from
+        /// the normal grid, tier 2 from the fine grid, rivals found through the cell index maps
+        /// (every keep <= KEEP_N = 96: an oak's rivals in the 3 x 3 normal cells, a tier-2 tree's in 5 x 5 fine).
+        private static int GatherDense(in TerrainSpec spec, in MapView map, in Offsets o, in TreeLib lib,
+                                       int x0, int z0, int x1, int z1, LibInst* buf, int bufCap, out int nBuf,
+                                       int* cells, ref LibGrid grid, Tree* outTrees, int outCap, ref int top)
+        {
+            int n = 0;
+            int4 g = GiantRange(x0, z0, x1, z1);
+            for (int gz = g.y; gz <= g.w; gz++)
+            for (int gx = g.x; gx <= g.z; gx++)
+                GiantCell(in spec, in map, in o, in lib, gx, gz, buf, ref n, bufCap);
+            int nG = n;
+            for (int i = 0; i < nG; i++) buf[i].state = 2;
+            int4 a = NormalRange(x0, z0, x1, z1), f = FineRange(x0, z0, x1, z1);
+            int* nIdx = cells, fIdx = cells + Cells(a);
+            int nCells = Cells(a) + Cells(f);
+            for (int i = 0; i < nCells; i++) cells[i] = -1;
+            grid = new LibGrid { nIdx = nIdx, fIdx = fIdx, nr = a, fr = f, nG = nG, dense = 1 };
+            int aw = a.z - a.x + 1, fw = f.z - f.x + 1;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int4 r = pass == 0 ? a : f; int* idx = pass == 0 ? nIdx : fIdx; int w0 = pass == 0 ? aw : fw;
+                for (int gz = r.y; gz <= r.w; gz++)
+                for (int gx = r.x; gx <= r.z; gx++)
+                {
+                    if (n >= bufCap) break;
+                    if (!GridCell(in spec, in map, in o, in lib, gx, gz, pass + 1, out var t)) continue;
+                    bool hit = false;
+                    for (int k = 0; k < nG && !hit; k++) hit = D2(t.root, buf[k].root) < buf[k].keep2;
+                    if (hit) continue;
+                    idx[(gz - r.y) * w0 + (gx - r.x)] = n;
+                    buf[n++] = t;
+                }
+            }
+            // tier 1 (oaks, normal grid): a higher-priority oak CANDIDATE's keep
+            for (int i = nG; i < n; i++)
+            {
+                if (buf[i].tier != 1) continue;
+                if (!Near(buf[i].root, x0, z0, x1, z1, REACH_N + 2 * KEEP_N)) { buf[i].state = 0; continue; }
+                bool hit = false;
+                int cx = buf[i].root.x >> N_SHIFT, cz = buf[i].root.z >> N_SHIFT;
+                for (int dz = -1; dz <= 1 && !hit; dz++)
+                for (int dx = -1; dx <= 1 && !hit; dx++)
+                {
+                    int k = Slot(nIdx, a, cx + dx, cz + dz);
+                    hit = k >= 0 && k != i && buf[k].tier == 1 && Before(in buf[k], in buf[i]) && D2(buf[i].root, buf[k].root) < buf[k].keep2;
+                }
+                buf[i].state = hit ? (byte)0 : (byte)2;
+            }
+            // tier 2 (fine grid): dies inside a surviving oak's keep ...
+            for (int i = nG; i < n; i++)
+            {
+                if (buf[i].tier != 2) continue;
+                if (!Near(buf[i].root, x0, z0, x1, z1, REACH_N + KEEP_N)) { buf[i].state = 0; buf[i].cand = 0; continue; }
+                bool hit = false;
+                int cx = buf[i].root.x >> N_SHIFT, cz = buf[i].root.z >> N_SHIFT;
+                for (int dz = -1; dz <= 1 && !hit; dz++)
+                for (int dx = -1; dx <= 1 && !hit; dx++)
+                {
+                    int k = Slot(nIdx, a, cx + dx, cz + dz);
+                    hit = k >= 0 && buf[k].tier == 1 && buf[k].state == 2 && D2(buf[i].root, buf[k].root) < buf[k].keep2;
+                }
+                buf[i].state = hit ? (byte)0 : (byte)1;
+                buf[i].cand = buf[i].state;
+            }
+            // ... and inside a higher-priority tier-2 candidate's keep
+            for (int i = nG; i < n; i++)
+            {
+                if (buf[i].tier != 2 || buf[i].state != 1) continue;
+                if (!Near(buf[i].root, x0, z0, x1, z1, REACH_N)) { buf[i].state = 3; continue; }
+                bool hit = false;
+                int cx = buf[i].root.x >> F_SHIFT, cz = buf[i].root.z >> F_SHIFT;
+                for (int dz = -2; dz <= 2 && !hit; dz++)
+                for (int dx = -2; dx <= 2 && !hit; dx++)
+                {
+                    int k = Slot(fIdx, f, cx + dx, cz + dz);
+                    hit = k >= 0 && k != i && buf[k].tier == 2 && buf[k].cand != 0 && Before(in buf[k], in buf[i]) && D2(buf[i].root, buf[k].root) < buf[k].keep2;
+                }
+                buf[i].state = hit ? (byte)0 : (byte)2;
+            }
+            nBuf = n;
+            int w = 0;
+            for (int i = 0; i < n && w < outCap; i++)
+            {
+                ref var t = ref buf[i];
+                if (t.state != 2) continue;
+                if (t.hi.x < x0 || t.lo.x > x1 || t.hi.z < z0 || t.lo.z > z1) continue;
+                outTrees[w++] = new Tree
+                {
+                    root = t.root, lo = t.lo, hi = t.hi, prim0 = t.proto, primCount = 0,
+                    cellX = t.gx, cellZ = t.gz, biome = t.biome, shape = (byte)(SHAPE_LIB | t.rot),
+                };
+                top = math.max(top, t.hi.y);
+            }
+            return w;
+        }
+
         /// 192's gathered trees [0, nt) whose root lies inside a surviving library tree's keep
         /// radius are dropped: primCount 0 and their primitives emptied (lo > hi), so both
         /// OverlayTrees and MaterialAt skip them. Returns the trees dropped.
         public static int Suppress192(LibInst* buf, int nBuf, Tree* trees, int nt, TreePrim* prims)
+        {
+            var grid = default(LibGrid);
+            return Suppress192(buf, nBuf, in grid, trees, nt, prims);
+        }
+
+        /// The same; in dense mode (grid.dense) the survivors are found through the cell index maps
+        /// (giants by list, oaks in the 3 x 3 normal cells, tier 2 in the 5 x 5 fine cells round the root).
+        public static int Suppress192(LibInst* buf, int nBuf, in LibGrid grid, Tree* trees, int nt, TreePrim* prims)
         {
             int dropped = 0;
             for (int i = 0; i < nt; i++)
             {
                 if ((trees[i].shape & SHAPE_LIB) != 0 || trees[i].primCount == 0) continue;
                 bool hit = false;
-                for (int k = 0; k < nBuf && !hit; k++)
-                    hit = buf[k].state == 2 && D2(trees[i].root, buf[k].root) < buf[k].keep2;
+                if (grid.dense == 0)
+                    for (int k = 0; k < nBuf && !hit; k++)
+                        hit = buf[k].state == 2 && D2(trees[i].root, buf[k].root) < buf[k].keep2;
+                else
+                {
+                    int3 r = trees[i].root;
+                    for (int k = 0; k < grid.nG && !hit; k++) hit = D2(r, buf[k].root) < buf[k].keep2;
+                    int cx = r.x >> N_SHIFT, cz = r.z >> N_SHIFT;
+                    for (int dz = -1; dz <= 1 && !hit; dz++)
+                    for (int dx = -1; dx <= 1 && !hit; dx++)
+                    {
+                        int k = Slot(grid.nIdx, grid.nr, cx + dx, cz + dz);
+                        hit = k >= 0 && buf[k].state == 2 && D2(r, buf[k].root) < buf[k].keep2;
+                    }
+                    cx = r.x >> F_SHIFT; cz = r.z >> F_SHIFT;
+                    for (int dz = -2; dz <= 2 && !hit; dz++)
+                    for (int dx = -2; dx <= 2 && !hit; dx++)
+                    {
+                        int k = Slot(grid.fIdx, grid.fr, cx + dx, cz + dz);
+                        hit = k >= 0 && buf[k].state == 2 && D2(r, buf[k].root) < buf[k].keep2;
+                    }
+                }
                 if (!hit) continue;
                 for (int p = trees[i].prim0; p < trees[i].prim0 + trees[i].primCount; p++) { prims[p].lo = int.MaxValue; prims[p].hi = int.MinValue; }
                 trees[i].primCount = 0;

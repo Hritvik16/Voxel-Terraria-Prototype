@@ -176,7 +176,7 @@ namespace VoxelEngine.WorldGen
         {
             if (!Spec.Trees2 || shell > TerrainGen.Trees.MAX_SHELL) return 0;
             int w = (EngineConfig.CHUNK_EDGE_VOXELS - 1) << shell;
-            return TerrainGen.Trees2.MaxTrees(origin.x + half, origin.z + half, origin.x + half + w, origin.z + half + w);
+            return TerrainGen.Trees2.MaxTrees(origin.x + half, origin.z + half, origin.x + half + w, origin.z + half + w, Spec.Trees2Dense);
         }
 
         /// Gather into a scratch from a Burst job (ColumnJob / ShellColumnJob).
@@ -282,7 +282,7 @@ namespace VoxelEngine.WorldGen
             if (!col.treesValid)
             {
                 int cap = TerrainGen.Trees.MaxTrees(v.x, v.z, v.x, v.z);
-                int libCap = spec.Trees2 ? TerrainGen.Trees2.MaxTrees(v.x, v.z, v.x, v.z) : 0;   // task 210
+                int libCap = spec.Trees2 ? TerrainGen.Trees2.MaxTrees(v.x, v.z, v.x, v.z, spec.Trees2Dense) : 0;   // task 210 / 213
                 if (!col.treePrims.IsCreated || col.treePrims.Length < cap * TerrainGen.Trees.MAX_PRIMS || col.treeList.Length < cap + libCap)
                 {
                     col.treeList = new NativeArray<TerrainGen.Tree>(cap + libCap, Allocator.Temp, NativeArrayOptions.UninitializedMemory);

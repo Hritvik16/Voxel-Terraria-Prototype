@@ -143,6 +143,9 @@ namespace TerrainGen
         /// own sparse grid; 192's trees kept only for the forms the library does not grow).
         /// 0 (the default, a bare spec) = today's trees byte for byte. Needs treesOn and
         /// the library the chunk source builds (`-trees2 1`). Read it through Trees2, never directly.
+        /// Task 213 (owner 2026-11-15 Q-AJ (a)): 1 = the DENSER forest (oaks on the 12.8 m grid, the
+        /// small trees -- birch, spruce, acacia -- on a 6.4 m grid, a bigger forest budget);
+        /// 2 = task 210's placement byte for byte (`-trees2dense 0`, the comparison arm).
         public byte trees2On;
         /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
         /// = the simple material rules (GroundRules.cs: one palette row per biome
@@ -274,6 +277,8 @@ namespace TerrainGen
         public bool Trees => mapVersion >= 4 && treesOn != 0;
         /// Task 210's world trees in force (see trees2On): only with Trees.
         public bool Trees2 => Trees && trees2On != 0;
+        /// Task 213's denser placement (trees2On 1); false = task 210's (trees2On 2).
+        public bool Trees2Dense => trees2On == 1;
 
         /// Task 180b's material rules in force (see matRulesOff): v4 only, ON by
         /// default since task 186.

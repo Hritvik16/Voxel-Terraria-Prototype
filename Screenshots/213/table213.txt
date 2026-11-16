@@ -1,0 +1,15 @@
+Task 213: per pose, 213 dense (-trees2 1) vs 210 (-trees2 1 -trees2dense 0) vs today (-trees2 0); seed 42, noon, one build, lookwait 30 s.
+GPU body pool cap 254,400. 'tree' / 'terrain' = mapped bodies by source; 'ref now' = refused chunks at the shot; 'ref total' = launch total so far; peaks are launch peaks so far.
+pose            arm   in use     tree  terrain   dupes ref now ref total gpu peak  mem peak CPU peak sh miss sh ms
+forest_eye      d    245,704   93,081  151,905  68,110       0         0  245,704    2546.4  493,892   3,425   132
+forest_eye      s    221,323   68,464  152,139  50,254       0         0  221,323    2522.7  491,709   3,501   130
+forest_eye      t0   254,394  112,782  141,354  21,705      40        40  254,394    2522.8  492,335   3,938   148
+forest_100m     d    249,819  103,392  145,941  77,614       0         0  253,907    2546.4  493,892     562   153
+forest_100m     s    224,434   77,714  146,229  56,938       0         0  225,378    2522.7  491,868   2,163   187
+forest_100m     t0   254,334  126,700  127,222  20,202      34       290  254,399    2522.8  494,446   2,363   198
+savanna_100m    d    133,125   18,163  113,174  24,357       0         0  253,907    2546.4  493,892   3,682   127
+savanna_100m    s    131,155   16,189  113,178  22,762       0         0  225,378    2522.7  491,868   5,525   172
+savanna_100m    t0   129,984   15,171  113,025  16,714       0       294  254,399    2522.8  494,446   4,492   152
+snow_100m       d    167,045   51,451  109,242  33,757       0         0  253,907    2546.4  493,892   4,568   112
+snow_100m       s    167,086   51,519  109,242  32,784       0         0  225,378    2522.7  491,868   5,749   162
+snow_100m       t0   173,967   58,805  108,809  25,475       0       294  254,399    2522.8  494,446   4,781   129

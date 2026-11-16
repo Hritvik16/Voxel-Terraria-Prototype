@@ -1826,3 +1826,16 @@ Result: HANDOFF 209b.
 ioreg's HIDIdleTime is reset every ~10 s by a running player, so it cannot be used). Result (warm, AC, 432 rows): play walk_near
 p50 106.8 ms, flood twin 27.8, sky fill 2 40.4, sun 28.1, shells 8.4, ceiling 24.6; cliff1 135.3. Next step T2, then T4 before T3.
 Result: HANDOFF 212.
+**Task 213 -- denser forest for the world trees (owner 2026-11-15 Q-AJ (a); still behind `-trees2 1`, default flip = task 214).**
+`spec.trees2On` now has 3 values: 0 today's trees, 1 = task 213's DENSE placement (the meaning of `-trees2 1`), 2 = task 210's placement
+byte for byte (`-trees2 1 -trees2dense 0`; `Trees2Mode()`, `SetTrees2Mode(byte)`, `Trees2TestOverride` 0/1/2). Dense mode (`Trees2.GatherDense`):
+oaks (tier 1) alone on the 12.8 m grid (`lib.pqD`), the small trees (birch, spruce, acacia) on a FINE 6.4 m grid (`F_SHIFT` 6, root at [8, 56),
+`SALT_F`, `lib.pqF`, 64 cells per 51.2 m square); forest budget `BUDGET_D` = 1.4 x 210's, oak 8/16 + birch 8/16 (snow / savanna keep 210's
+budget, only their grid changes). Same site rules, tiers and Near ranges; rivals found through CELL INDEX maps (keep <= 96 voxels: 3 x 3 normal
+cells for oaks, 5 x 5 fine cells for tier 2; `MaxCells` int scratch in `GatherLib`), so the gather and `Suppress192` are O(candidates) instead of
+210's O(n^2) (a 4x finer grid at shell 5 would have been ~16x dearer). `MaxTrees` / `MaxCandidates` take `dense`. Full plane: forest 25.7 trees
+per 51.2 m (210: 15.1). Calibration `Trees2Tests.Dense_Sweep` (Explicit) -> `Logs/TerrainGen/trees213/sweep.txt`; test
+`Dense_Density_FootprintsAgree` (Slow: 210's counts pinned 109 / oak 17 / birch 92; 256 m forest window dense 233 trees vs 150 = 1.55x for
+1.33x world tree bricks, <= 1.40 asserted; 16 chunk gathers == one 256 m gather; `density.txt`); `Library_Turns_Budget` also checks the dense
+budget and grids. Shots `Logs/overnight/213_shots.sh` (3 arms d / s / t0, 4 poses), table `Logs/overnight/213_table.py` ->
+`Screenshots/213/table213.txt`, `python3 -I tools/trees213.py` -> `sheet213.jpg` + `viewer.html`. Result: HANDOFF 213.

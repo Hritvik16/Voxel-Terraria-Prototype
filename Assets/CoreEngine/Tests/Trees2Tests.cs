@@ -8,6 +8,10 @@
 //                                 bricks per 51.2 m stay within its budget (Logs/TerrainGen/trees210/library.txt)
 //   Chunks_Deterministic_Border_PointAndShellsAgree   an oak across a chunk border: two runs equal, only
 //                                 air becomes tree, the point query and shells 0-3 agree with the chunks
+//   Dense_Density_FootprintsAgree task 213: the denser forest (trees2On 1) vs 210's placement (trees2On 2,
+//                                 pinned to 210's counts): more trees, world tree bricks <= 1.40 x 210's,
+//                                 chunk-size and 256 m gathers agree (Logs/TerrainGen/trees213/density.txt)
+//   Dense_Sweep (Explicit)        task 213's budget / share calibration (sweep.txt)
 //   Poses210 (Explicit)           the shot poses for Logs/overnight/210_shots.sh
 using System;
 using System.Collections.Generic;
@@ -99,6 +103,20 @@ public class Trees2Tests
                 }
                 log.AppendLine($"{bn[bi],-9} {Trees2.Budget(bi),7} {exp,9:F0} {cnt,11:F1}");
                 Assert.LessOrEqual(exp, Trees2.Budget(bi) * 1.001 + 1, $"{bn[bi]}: expected bricks over the budget");
+            }
+            log.AppendLine("task 213 dense mode (tier 1 on the 12.8 m grid, tier 2 on the 6.4 m grid):");
+            for (int bi = 0; bi < GenBiome.Count; bi++)
+            {
+                double exp = 0, cnt = 0;
+                for (int s = 0; s < Trees2.SP_COUNT; s++)
+                {
+                    double pd = lib.pqD[bi * 8 + s] / 65536.0, pf = lib.pqF[bi * 8 + s] / 65536.0;
+                    Assert.IsTrue(pd == 0 || Trees2.Tier(s) == 1, $"{bn[bi]}: a tier-{Trees2.Tier(s)} species on the dense normal grid");
+                    Assert.IsTrue(pf == 0 || Trees2.Tier(s) == 2, $"{bn[bi]}: a tier-{Trees2.Tier(s)} species on the fine grid");
+                    exp += (pd * 16 + pf * 64) * Trees2Library.MeanBricks[s]; cnt += pd * 16 + pf * 64;
+                }
+                log.AppendLine($"{bn[bi],-9} {Trees2.BudgetD(bi),7} {exp,9:F0} {cnt,11:F1}");
+                Assert.LessOrEqual(exp, Trees2.BudgetD(bi) * 1.001 + 1, $"{bn[bi]}: dense expected bricks over the budget");
             }
             Directory.CreateDirectory(LogDir);
             File.WriteAllText(Path.Combine(LogDir, "library.txt"), log.ToString());
@@ -274,6 +292,129 @@ public class Trees2Tests
         Directory.CreateDirectory(LogDir);
         File.WriteAllText(Path.Combine(LogDir, "chunks.txt"), log.ToString());
         UnityEngine.Debug.Log(log.ToString());
+    }
+
+    // ==================================================================
+    // Task 213: the denser forest (trees2On 1) vs task 210's placement (trees2On 2)
+    // ==================================================================
+    private static unsafe long BrickKey(int3 b) => ((long)(b.x & 0xFFFFF) << 40) | ((long)(b.y & 0xFFFFF) << 20) | (long)(b.z & 0xFFFFF);
+
+    /// World bricks a library tree's prototype occupies (roots are multiples of 8 and turns map bricks to bricks).
+    private static unsafe void AddBricks(in Tree t, HashSet<long> set)
+    {
+        ref var P = ref Trees2Shared.Lib.Data.protos[t.prim0];
+        int rot = t.shape & 3;
+        int3 rb = t.root >> 3, lb = P.lo >> 3;
+        for (int by = 0; by < P.nb.y; by++)
+        for (int bz = 0; bz < P.nb.z; bz++)
+        for (int bx = 0; bx < P.nb.x; bx++)
+            if (P.index[(by * P.nb.z + bz) * P.nb.x + bx] >= 0)
+                set.Add(BrickKey(rb + Trees2.FromProto(lb + new int3(bx, by, bz), rot)));
+    }
+
+    /// Dense_Density_FootprintsAgree: in a 256 m forest window round 210's forest pose, the dense mode
+    /// has more trees than 210's and its world tree bricks stay within the body-pool room 210 left
+    /// (<= 1.40 x 210's bricks: the forest poses had ~30 k of 254 k bodies free over 210's 68.9-78.4 k);
+    /// 210's placement is unchanged (its chunks.txt counts); and the dense gather is footprint-independent:
+    /// 16 chunk-size gathers give exactly the trees a 256 m gather gives over the same 51.2 m square.
+    [Test, Category("Slow")]
+    public void Dense_Density_FootprintsAgree()
+    {
+        using var src = Source(42u);
+        var log = new StringBuilder();
+        log.AppendLine("# task 213: denser forest (trees2On 1) vs task 210 (trees2On 2), seed 42; library: " + Trees2Library.Summary);
+        int cx = 33664, cz = 49280;
+        // 210's placement pinned: its chunks.txt round the same point
+        src.SetTrees2Mode(2);
+        var t210 = src.LibTreesIn(cx - 1024, cz - 1024, cx + 1024, cz + 1024);
+        int o210 = 0, b210 = 0;
+        foreach (var t in t210) { string n = TerrainGenChunkSource.LibSpeciesName(t); if (n == "oak") o210++; else if (n == "birch") b210++; }
+        log.AppendLine($"210 placement, 204.8 m round ({cx}, {cz}): {t210.Length} trees, oak {o210} birch {b210} (210's chunks.txt: 109, oak 17 birch 92)");
+        Assert.AreEqual(109, t210.Length, "task 210's placement changed (trees2On 2 must be 210 byte for byte)");
+        Assert.AreEqual(17, o210); Assert.AreEqual(92, b210);
+
+        // density: a 256 m window centred on the forest pose (roots inside the window only)
+        int x0 = 33664 - 1280, z0 = 49280 - 1280, x1 = x0 + 2559, z1 = z0 + 2559;
+        var bricks = new long[3]; var trees = new int[3];
+        foreach (byte mode in new byte[] { 2, 1 })
+        {
+            src.SetTrees2Mode(mode);
+            var all = src.LibTreesIn(x0, z0, x1, z1);
+            var set = new HashSet<long>(); long sum = 0;
+            var counts = new SortedDictionary<string, int>();
+            int n = 0;
+            foreach (var t in all)
+            {
+                if (t.root.x < x0 || t.root.x > x1 || t.root.z < z0 || t.root.z > z1) continue;
+                n++;
+                string nm = TerrainGenChunkSource.LibSpeciesName(t);
+                counts[nm] = counts.TryGetValue(nm, out int k) ? k + 1 : 1;
+                AddBricks(in t, set);
+                unsafe { sum += Trees2Shared.Lib.Data.protos[t.prim0].bricks; }
+            }
+            bricks[mode] = set.Count; trees[mode] = n;
+            log.Append($"mode {mode} ({(mode == 1 ? "213 dense" : "210")}): 256 m window, {n} trees ({n / 25.0:F1} per 51.2 m square):");
+            foreach (var kv in counts) log.Append($" {kv.Key} {kv.Value}");
+            log.AppendLine($" | world tree bricks {set.Count:N0} (sum of prototypes {sum:N0})");
+        }
+        double ratio = (double)bricks[1] / math.max(1, bricks[2]);
+        log.AppendLine($"dense / 210: trees {(double)trees[1] / math.max(1, trees[2]):F2}x, world tree bricks {ratio:F2}x");
+        Directory.CreateDirectory(Path.Combine("Logs", "TerrainGen", "trees213"));
+        File.WriteAllText(Path.Combine("Logs", "TerrainGen", "trees213", "density.txt"), log.ToString());
+        Assert.Greater(trees[1], trees[2] * 3 / 2, "the dense forest has not got denser");
+        Assert.LessOrEqual(ratio, 1.40, "dense forest bricks over the room 210 left in the GPU body pool");
+
+        // footprint independence (dense): 16 chunk gathers over a 51.2 m square == the 256 m gather there
+        src.SetTrees2Mode(1);
+        int sx = cx - 256, sz = cz - 256;
+        var big = new HashSet<string>(); var small = new HashSet<string>();
+        string Key(in Tree t) => $"{t.root} {t.prim0} {t.shape}";
+        foreach (var t in src.LibTreesIn(x0, z0, x1, z1))
+            if (!(t.hi.x < sx || t.lo.x > sx + 511 || t.hi.z < sz || t.lo.z > sz + 511)) big.Add(Key(in t));
+        for (int qz = 0; qz < 4; qz++)
+        for (int qx = 0; qx < 4; qx++)
+            foreach (var t in src.LibTreesIn(sx + qx * 128, sz + qz * 128, sx + qx * 128 + 127, sz + qz * 128 + 127)) small.Add(Key(in t));
+        log.AppendLine($"footprints: 256 m gather {big.Count} trees touch the 51.2 m square, 16 chunk gathers {small.Count}");
+        Assert.Greater(big.Count, 0);
+        Assert.IsTrue(big.SetEquals(small), $"dense gather depends on the footprint: big {big.Count} vs chunks {small.Count}");
+
+        Directory.CreateDirectory(Path.Combine("Logs", "TerrainGen", "trees213"));
+        File.WriteAllText(Path.Combine("Logs", "TerrainGen", "trees213", "density.txt"), log.ToString());
+        UnityEngine.Debug.Log(log.ToString());
+    }
+
+    /// Task 213's calibration (Explicit): forest budget x k and oak / birch shares -> trees, world tree bricks and
+    /// crown area in the 256 m forest window (Logs/TerrainGen/trees213/sweep.txt). Restores the shipped values.
+    [Test, Explicit("task 213 calibration sweep: writes Logs/TerrainGen/trees213/sweep.txt")]
+    public void Dense_Sweep()
+    {
+        using var src = Source(42u);
+        var log = new StringBuilder();
+        int x0 = 33664 - 1280, z0 = 49280 - 1280, x1 = x0 + 2559, z1 = z0 + 2559;
+        int b0 = Trees2.BUDGET_D[0]; byte so = Trees2.SHARE_OAK_D[0], sb = Trees2.SHARE_BIRCH_D[0];
+        var cfg = new (int k100, byte oak, byte birch)[] { (100, 10, 6), (125, 8, 8), (130, 8, 8), (140, 8, 8), (130, 7, 9), (140, 7, 9), (150, 6, 10), (140, 10, 6), (130, 12, 4), (160, 6, 10), (150, 8, 8) };
+        foreach (byte mode in new byte[] { 2, 1 })
+        foreach (var c in cfg)
+        {
+            if (mode == 2 && c.k100 != 100) continue;
+            Trees2.BUDGET_D[0] = 800 * 64 * 266 / 1000 * c.k100 / 100; Trees2.SHARE_OAK_D[0] = c.oak; Trees2.SHARE_BIRCH_D[0] = c.birch;
+            Trees2.Probabilities(ref Trees2Shared.Lib.Data, Trees2Library.MeanBricks);
+            src.SetTrees2Mode(mode);
+            var set = new HashSet<long>(); int n = 0, oaks = 0, birches = 0; double cover = 0;
+            foreach (var t in src.LibTreesIn(x0, z0, x1, z1))
+            {
+                if (t.root.x < x0 || t.root.x > x1 || t.root.z < z0 || t.root.z > z1) continue;
+                n++; string nm = TerrainGenChunkSource.LibSpeciesName(t);
+                if (nm == "oak") oaks++; if (nm == "birch") birches++;
+                unsafe { float lr = Trees2Shared.Lib.Data.protos[t.prim0].leafReach * 0.1f; cover += math.PI * lr * lr; }
+                AddBricks(in t, set);
+            }
+            log.AppendLine($"mode {mode} k {c.k100 / 100.0:F2} oak {c.oak}/16 birch {c.birch}/16: trees {n} (oak {oaks} birch {birches}) bricks {set.Count:N0} crown area {cover:F0} m2 ({cover / (256.0 * 256.0) * 100:F0} % of the window, overlap counted)");
+        }
+        Trees2.BUDGET_D[0] = b0; Trees2.SHARE_OAK_D[0] = so; Trees2.SHARE_BIRCH_D[0] = sb;
+        Trees2.Probabilities(ref Trees2Shared.Lib.Data, Trees2Library.MeanBricks);
+        Directory.CreateDirectory(Path.Combine("Logs", "TerrainGen", "trees213"));
+        File.WriteAllText(Path.Combine("Logs", "TerrainGen", "trees213", "sweep.txt"), log.ToString());
     }
 
     // ==================================================================

@@ -1,0 +1,6 @@
+# task 213: denser forest (trees2On 1) vs task 210 (trees2On 2), seed 42; library: 30 prototypes, 10.6 MB, built in 5813 ms on 6 worker threads | oak 6 x 2656 bricks (slowest 1845 ms) banyan 3 x 9387 bricks (slowest 4535 ms) redwood 3 x 4709 bricks (slowest 2131 ms) birch 6 x 431 bricks (slowest 349 ms) spruce 6 x 865 bricks (slowest 1032 ms) acacia 6 x 554 bricks (slowest 500 ms) | p per 12.8 m cell: b0/oak 0.200 b0/birch 0.741 b2/spruce 0.231 b4/acacia 0.211 | dense (213) p per 12.8 m / 6.4 m cell: b0/oak 0.224 b0/birch(6.4) 0.346 b2/spruce(6.4) 0.058 b4/acacia(6.4) 0.053
+210 placement, 204.8 m round (33664, 49280): 109 trees, oak 17 birch 92 (210's chunks.txt: 109, oak 17 birch 92)
+mode 2 (210): 256 m window, 150 trees (6.0 per 51.2 m square): birch 126 oak 24 | world tree bricks 114,548 (sum of prototypes 117,409)
+mode 1 (213 dense): 256 m window, 233 trees (9.3 per 51.2 m square): acacia 1 birch 205 oak 27 | world tree bricks 152,492 (sum of prototypes 157,992)
+dense / 210: trees 1.55x, world tree bricks 1.33x
+footprints: 256 m gather 19 trees touch the 51.2 m square, 16 chunk gathers 19
