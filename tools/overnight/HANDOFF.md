@@ -1,43 +1,43 @@
-STOP_FOR_OWNER -- 216's code is done and committed with the default OFF. Its proof launches could not run: the memory watchdog killed the
-player at jungle_high in BOTH arms (9.1 / 9.8 GB footprint, `-gpuviewevict 0` too), then the owner pause (`tools/heavy.sh`, 00:03:19) stopped
-the rerun. I did not lift the pause or `tools/overnight/PAUSE`.
-Questions (recommended first):
-  Q1 jungle_high footprint (not caused by this task, see Evidence): (a) queue a bug task. Its first step: the same launch with `-trees2 0`
-     (suspect: world trees, default since 214; banyans are jungle giants). (b) Leave it for the performance stage.
-  Q2 216's proof: (a) run `Logs/overnight/216_pair.sh` as it stands (`-trees2 0`, the world 208 measured). If refusals go down, flip the default ON
-     (one line each in `Phase4Bootstrapper` + `TerrainClipmap.ViewEvict`) and run SUITE=all. (b) Wait for Q1's fix and run it with defaults.
+# 217-plan-gdd-town-safety-answers: DONE (plan only; doc + GAME_DESIGN.md updated, two new owner questions C6-C7)
 
-# 216-bug-gpu-view-priority-eviction: CODE DONE (commit 3aa8acd), NOT MEASURED, default OFF (`-gpuviewevict 1` = on)
 ## What changed
-- `TerrainClipmap.ViewEvict.cs` (new): a chunk IN VIEW or in the camera's 5x5 that the full GPU body pool refuses makes room. Box chunks OUT OF
-  VIEW and FARTHER (Chebyshev XZ) give up their bodies, farthest first, and only if the victims cover the whole shortfall. A victim is held by
-  its slot, not dirty, not touched by live fluid, outside the 5x5 and outside the frustum. It is written as air (the refusal's write) and joins
-  the refused set, so 197's hand-over draws it and 207's retry brings it back.
-- `TerrainClipmap.cs` upload loop: a refusal first calls `TryEvictForView`, then maps again. `GpuPool.cs` retry: requesters are ranked first and
-  may evict too; with eviction on, the retry also re-runs when the view moved. `StreamManager`: `ViewVersion` + `SetView` (208's frustum).
-  `Phase4Bootstrapper`: `-gpuviewevict`. `-mirrorprobe 1` prints a new `[mirror gpuview]` line: refused now in view/5x5 vs other, victims,
-  bodies, chunks saved, GPU pool use.
-- Efficient by construction: one scan of the box's 4,096 slots per upload pass, and only in a pass where a requester is short. One sort of a
-  reused list of packed longs (distance << 32 | slot), used from the far end. No per-chunk storage, no new GPU memory, no pool, layout or API
-  change. At most 16 victims per pass; their 16 KB entry writes count against the pass's bytes. Off or no view = 207's path.
-- Tests `GpuViewEvictTests` (11). TASKS.md "Task 216", KNOWN_ISSUES (208 entry + new "JUNGLE_HIGH FOOTPRINT"), CLAUDE.md index line.
+- Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), edited directly (rev 51 -> 71), and the repo copy
+  `GAME_DESIGN.md`, same content. `TASKS.md` "Task 217" paragraph. Commit: see `git log -1` (217).
+- "Town safety by NPC behaviour" heading now Decided (Q-AK, 15 Nov). The sketch is now six short rules: one danger map (C1), lights/rooms/people
+  lower it (C1), guards (C3), leaving (C2), the 64 m settlement (C5), size steps by resident count (C4).
+- "What it needs" became "Missing pieces, in build order": step 0 furnished buildings (placement phase); before character work 1 danger map,
+  2 room detection (incl. 64 m grouping and resident count), 3 NPC day routine (daily stay/leave check, guard night walk), 4 spawn rule;
+  humanoid generator and creatures go with character work. Note says steps 1-4 are rules + data, testable with stand-ins (marked as the
+  agent's plan). No new numbers: only 0.55 MB, 8 m, 64 m, 5/15/40 from the answers; "about"/"for example" kept.
+- C1-C5 answer lines filled ("(a)", Q-AK) with where each was folded in.
+- Settlements table: "How residents react to edits" Leaning -> Decided (leaving), Open (C7); "Size tiers" gains the resident-count steps;
+  "Your own settlement" says no claimed area, 64 m (C5); "Safety" Open (rules) -> Decided. A6 (a)'s "inside your claimed area" replaced by
+  "(Terraria's rule; no claimed area: C5 (a))". Header and "New, 15 Nov" lines updated.
+- Placement checklist: towns + "Settlements by the 64 m rule"; lairs + "Danger-map memory ~0.55 MB, reported vs switch OFF"; Before character
+  work: the town-safety item now names steps 1-4.
+
 ## Evidence
-- Fast suite BEFORE: PASS 1049 FAIL 0 SKIP 23 (`Logs/overnight/216/fast_before.out`). Filter run (GpuViewEvict, GpuRetryFit, ValveViewOrder,
-  SealedBrick, Tier0LackHandOver): **PASS 40 FAIL 0** (`filter2.out`; run while the default was ON, and the tests set the flag themselves).
-- NOT RUN (blocked by the pause): fast suite after, SUITE=all, the memory pair. The player build compiled ("build OK").
-- Launch pair 1 (today's defaults, jungle_high + walk1/walk2): b1 (ON) and b2 (`-gpuviewevict 0`) were both killed at the first pose, ~6 min
-  after start, at 9,088 / 9,782 MB footprint (`Logs/overnight/watchdog.log`, logs in `Logs/overnight/216/killed/`). No `[mem]` or `[mirror]`
-  line was printed and no shot was taken. The `0` arm runs 207's code (TryEvictForView returns at once; the retry is unchanged), so this blow-up
-  predates 216. Task 208 ran the same poses at a 2.8 GB process peak; 209-215 came after it.
-- No pictures: the shots were never taken.
-## Rule 11
-No numbers yet. By construction the change holds < 0.1 MB (one scratch list <= 4,096 longs + 2 lists of refused coords) and no GPU memory.
-## Next
-Owner answers Q1 / Q2. The pair (`Logs/overnight/216_pair.sh`, ~10 min a launch, b1 then b2) needs the pause lifted.
+- Plan only: no Unity, no tests, no memory cost (task file). Doc writes acked at rev 54, 56, 71 with no refusals; the doc matched the repo copy
+  before editing (rev 51 read).
+
+## Left / next
+- Owner answers C6 and C7 (below). Nothing queued from this task.
 
 ## For the doc
-- 216 GPU view-priority eviction: code + 11 tests done, committed DEFAULT OFF (`-gpuviewevict 1` = on). No before/after numbers yet.
-- Blocker found: at jungle_high the player reached 9.1 / 9.8 GB physical footprint and the memory watchdog killed it, in both arms (ON and OFF).
-  208 ran the same pose at a 2.8 GB peak (`Logs/overnight/watchdog.log` 2026-11-15 23:55:29 and 2026-11-16 00:02:54).
-- Suite: fast before PASS 1049 FAIL 0; 40/40 related tests after; the full suites were blocked by the owner pause.
-- Images: none (both launches died before the first shot).
+What changed (task 217, plan only):
+- Town safety is Decided (C1-C5 all (a), Q-AK): six rules in the Game design doc, Settlements rows updated, A6 wording fixed.
+- Build order before character work: danger map -> room detection -> NPC day routine -> spawn rule (furnished buildings in placement first).
+- Numbers carried from the answers: danger map 1 byte per 8 m cell = ~0.55 MB on Medium; settlement = ~64 m; steps e.g. 5 / 15 / 40 residents.
+- No images: a plan-only text task, nothing visible changed.
+
+NEW questions (recommendation first; also in the Game design doc under C5):
+**C6. How is the 64 m measured?**
+- (a) As a chain: a room joins a settlement when it is within about 64 m of any room already in it; two settlements that grow to within 64 m
+  merge. Cost: none beyond room detection. Unlocks: a city of any size stays one settlement, districts and castle included.
+- (b) From a centre (the first room or a hall): everything within about 64 m of it. Cost: simplest, but a settlement is at most about 128 m
+  across, so a big generated city splits into several.
+**C7. Anger and repair requests?** The brief said residents react to edits with "anger, leaving, asking for repairs"; C2 decided leaving.
+- (a) No separate rule: leaving (C2) is the reaction, and a resident whose room fails the daily check says why (no door, no bed, no light,
+  too dangerous) while the days run out. Cost: one line of text per failed check. Unlocks: the player sees what to fix ("asking for repairs").
+- (b) A mood value per resident (anger) that changes prices and dialogue, on top of leaving.
+- (c) Leaving only, silent.

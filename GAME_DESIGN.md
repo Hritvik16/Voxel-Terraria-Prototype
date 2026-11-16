@@ -1,11 +1,11 @@
-# Game design -- DRAFT, batch A answered (Q-AE, 2026-11-14)
+# Game design -- DRAFT, batch A answered (Q-AE, 2026-11-14), town safety C1-C5 answered (Q-AK, 2026-11-15)
 
-Repo copy of the Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), task 202, 2026-11-14; batch A answers folded in by task 211, 2026-11-15.
+Repo copy of the Claude Doc "Game design" (https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8), task 202, 2026-11-14; batch A answers folded in by task 211, 2026-11-15; town-safety answers C1-C5 by task 217, 2026-11-16.
 The DOC is the live version (the owner answers there); this file is a snapshot. Plan only, no code.
 CLAUDE.md rule 5: `ARCHITECTURE_v8.6.md` is engine only and is not cited here. The game-design brief stays the authority
 for terrain; its Decided rows bind. This doc adds everything else on top of it.
 
-**DRAFT -- batch A answered 14 Nov (Q-AE); town-safety questions C1-C5 and batch B pending.** It collects what the owner has already decided about the game, marks what is still
+**DRAFT -- batch A answered 14 Nov (Q-AE), town safety C1-C5 on 15 Nov (Q-AK); C6-C7 and batch B pending.** It collects what the owner has already decided about the game, marks what is still
 open, and ends with questions. Nothing here is new design by the agent: a thing the owner has not said is marked Open.
 
 - **Decided**: the owner said it; the source and date are given. It binds the work.
@@ -62,71 +62,95 @@ Most of the world and its rules are Decided; combat details, survival rules, cre
 | What towns are for | Trade and services; a safe haven (respawn, rest, protection); quests and story; a marker of world progress. | Decided | Brief |
 | Who builds them | The world generates villages and towns; you can found settlements that NPCs move into. | Decided | Brief |
 | Editing towns | Generated towns are fully editable. | Decided | Brief |
-| How residents react to edits | Anger, leaving, asking for repairs. Note (design principle): this should fall out of the town rules, not a scripted list. A wrecked room has no bed or light, so its resident leaves (question C2). | Leaning | Brief; principle, 14 Nov |
+| How residents react to edits | No scripted list: it falls out of the town rules (design principle). A resident leaves when their room has no door, bed or light, or when danger at home stays above a limit for a few in-game days; one check per resident per day (C2 (a)). Wrecking a town empties it. Anger and repair requests: question C7. | Decided (leaving); Open (C7) | Brief; principle, 14 Nov; Q-AK C2 (a), 15 Nov |
 | How many | Scales with world size. Cities: 2-3 per Medium world; Small and Large scale by land area (Leaning: Small 1-2, Large 3-4). | Decided | Brief; owner, 2026-11-14, Q-AE A2 (c) |
 | Ground | Flatten only under each building. Slopes get foundations, steps, stilts or terraces. Today's towns (task 190) still flatten a whole disc; this replaces that. | Decided | V1 (a), 13 Nov |
 | Layout | Streets first: paths grow from the route along easy ground and buildings line them. A city is more rules: a square, districts, walls, a castle on high ground. | Decided | V2 (a), 13 Nov |
 | Buildings | Made by rules: footprint, floors, roof, biome materials, details; WFC for facades and interiors. They fit any ground, even a cliff. The owner asked for "fantastic looking towns", castles, and "a lot of unique procedurally generated buildings". | Decided | V3 (a), 13 Nov; Questions tab |
 | Placement order | Resources first, then towns, then enemy lairs. | Decided | P6, 6 Nov |
-| Size tiers | Outpost, village, town, frontier town (task 187), and city: 2-3 per Medium world ("2 or 3 cities per medium world"). Which sites become cities: Leaning, the 2-3 best town sites on the biggest easy areas (placement checklist). | Decided (count); Leaning (which sites) | owner, 2026-11-14, Q-AE A2 (c) |
+| Size tiers | Outpost, village, town, frontier town (task 187), and city: 2-3 per Medium world ("2 or 3 cities per medium world"). Which sites become cities: Leaning, the 2-3 best town sites on the biggest easy areas (placement checklist). A settlement steps up by resident count alone, the same for the player's and generated ones (C4 (a); for example 5 village, 15 town, 40 city); each step brings new NPC kinds (merchant, trainer, guard captain). | Decided (count, steps); Leaning (which sites) | owner, 2026-11-14, Q-AE A2 (c); owner, 2026-11-15, Q-AK C4 (a) |
 | Frontier towns | Some towns sit near hard ground (foot of the volcano, the snow line), not only on easy plains. | Leaning | Brief (text, not a row) |
 | Growth | Towns grow and new NPCs arrive as the world advances. | Decided | Brief, Progression |
 | Town life far away | Day and night routines, NPCs move, lights at night. | Decided | Round b3 |
-| Your own settlement | Terraria's rule: an NPC moves in when you build a room with a door, a bed and a light. From there it grows by the same rules as any town, up to a city (Town safety below). Whether you need a claimed area is question C5. | Decided | owner, 2026-11-14, Q-AE A6 (a) |
-| Safety | "It is as safe as the townspeople keep it": safety comes from a few rules (lights, rooms, people), not a fixed no-spawn zone. The rules themselves are Open: see Town safety by NPC behaviour below. | Decided (direction); Open (rules) | owner, 2026-11-14, Q-AE A5 (c) |
+| Your own settlement | Terraria's rule: an NPC moves in when you build a room with a door, a bed and a light. From there it grows by the same rules as any town, up to a city (Town safety below). No claimed area: rooms and residents within about 64 m count as one settlement (C5 (a)). | Decided | owner, 2026-11-14, Q-AE A6 (a); owner, 2026-11-15, Q-AK C5 (a) |
+| Safety | "It is as safe as the townspeople keep it": safety comes from a few rules (lights, rooms, people), not a fixed no-spawn zone. The rules are decided (C1-C5): see Town safety by NPC behaviour below. | Decided | owner, 2026-11-14, Q-AE A5 (c); owner, 2026-11-15, Q-AK C1-C5 |
 
-### Town safety by NPC behaviour (Open)
+### Town safety by NPC behaviour (Decided, 2026-11-15)
 
-A town is "as safe as the townspeople keep it" (owner, 2026-11-14, Q-AE A5 (c)), and the same rules let the player's own settlement "naturally grow into a city". Nothing in this section is decided: it is a sketch of how five simple rules could do it, under the design principle. The owner's answers to C1-C5 below turn it into rows.
+A town is "as safe as the townspeople keep it" (owner, 2026-11-14, Q-AE A5 (c)). The owner answered C1-C5 with the first option of each (2026-11-15, Q-AK: "recommended for all Qs"), so the six rules below are Decided. The same rules grow the player's own settlement into a city.
 
-**The rules (a sketch)**
+**The rules (Decided, Q-AK)**
 
-1. **Danger map.** Every map cell has a danger number. Wild creatures spawn only where it is above a threshold, more often the higher it is. Its base comes from the biome x landform pair and world stage; night raises it (if B3 (a)).
-2. **Light and walls lower it.** Every light and every closed room lowers danger in a radius. There is no town flag and no no-spawn zone: a lit, walled camp in the wild is safe too.
-3. **People lower it.** Each resident lowers danger around their home and the paths they walk. A guard is a resident who walks between the town's lights at night and fights what spawns.
-4. **People stay while they are housed and safe.** A resident needs a room (door, bed, light: A6) and a home that is not too dangerous; otherwise they leave. A town that loses its people keeps only its lights and walls, so it becomes less safe.
-5. **Growth is the same rules run forward.** More safe rooms bring more residents, which bring more safety and room for more: camp, village, town, city. The player's settlement and a generated one grow the same way; a generated city is one the world started further along.
+1. **One danger map (C1 (a)).** Every 8 m map cell holds one danger byte: about 0.55 MB for a Medium island (750 x 750 cells). Wild creatures spawn only where danger is above a threshold, more often the higher it is. Its base comes from the biome x landform pair and world stage; night raises it (if B3 (a)).
+2. **Lights, closed rooms and people lower it (C1 (a)).** Each lowers danger within a radius, all on that one map. There is no town flag and no no-spawn zone: a lit, walled camp in the wild is safe too.
+3. **Guards are residents with one more rule (C3 (a)).** At night a guard walks between the town's lights and fights what spawns. A town has one guard per few residents; a dark town is undefended.
+4. **A resident leaves when unhoused or unsafe (C2 (a)).** Once per in-game day each resident checks two things: a valid room (door, bed, light: A6) and the danger at home. With no valid room, or danger above a limit for a few in-game days, they leave. A town that loses its people keeps only its lights and walls, so it becomes less safe.
+5. **A settlement is rooms close together (C5 (a)).** Rooms and residents within about 64 m count as one settlement. No claimed area and no claim screen: any camp can become a town.
+6. **Size steps by resident count (C4 (a)).** The same for the player's and generated ones, for example 5 = village, 15 = town, 40 = city. Each step brings new NPC kinds (merchant, trainer, guard captain). More valid rooms bring more residents (A6's move-in rule), so growth is these rules run forward; a generated city is one the world started further along.
 
 What falls out of these rules with nothing extra: wrecking a town (breaking lights, walls, beds) raises its danger and makes people leave, which is the reaction to edits; attacks on a town happen when danger around it rises (night, a stage flip) faster than its people push it down, so no scripted raid event is needed.
 
-**What it needs that does not exist yet**
+**Missing pieces, in build order**
 
-| Piece | What it is | Today |
-| --- | --- | --- |
-| Spawn-danger map | One byte per 8 m map cell: about 0.55 MB for a Medium island (750 x 750 cells), updated only near the player. | The route danger map (V4) and planned spawn zones per biome x landform (lairs step) give its base. No live light or people terms. |
-| Light and room finder | Which lights and closed rooms lie near a point. | Torches exist (task 175's torch flood). Rooms are not detected. |
-| NPC routines | A home, a day and night schedule, walking paths; guards with patrols along the streets. | None. Town life far away is decided (Round b3), but there are no NPCs yet. |
-| Humanoid generator | Bodies for residents and guards (A3 (a)). | None. |
-| Creatures and a spawner | Something to spawn where danger is high. | None. |
-| Furnished buildings | Doors, beds and lights inside the generated buildings, so rule 4 holds for generated towns. | Footprints exist (task 190's building list); furniture does not (placement checklist). |
+| Step | Piece | What it is | Today |
+| --- | --- | --- | --- |
+| 0 (placement phase) | Furnished buildings | A door, a bed and a light in every generated home, so generated towns pass rule 4 from the start. | Footprints exist (task 190's building list); furniture does not. |
+| 1 | Danger map | Rule 1's map with its base terms: biome x landform, world stage, night. Updated only near the player. | The route danger map (V4) and the planned spawn zones (lairs step) give its base. |
+| 2 | Room detection | Finds closed rooms with a door, a bed and a light, and the lights near a point (rule 2's light and room terms). Groups rooms within about 64 m into settlements and counts their residents (rules 5 and 6). | Torches exist (task 175's torch flood). Rooms are not detected. |
+| 3 | NPC day routine | A home, a day and night schedule, walking paths; the once-a-day stay-or-leave check (rule 4); the guards' night walk between lights (rule 3); the people term on the danger map. | None. Town life far away is decided (Round b3); there are no NPCs yet. |
+| 4 | Spawn rule | Spawns where danger is above the threshold, more often the higher it is (rule 1). | None. |
+| With character work | Humanoid generator | Bodies for residents and guards (A3 (a)). | None. |
+| With character work | Creatures | What the spawn rule spawns; a roster per biome. | None. |
 
-**Questions C1-C5** (the first option is the recommendation; a letter is enough)
+Steps 1-4 come before character work. Each reads the one before it: rooms feed the danger map, a routine needs a home, spawns read the map. All four are rules and data, so (the agent's plan) they can be built and tested with stand-in bodies and creatures before the humanoid generator and the creature roster exist.
+
+**Questions C1-C5** (answered 2026-11-15, Q-AK: "recommended for all Qs", the first option of each)
 
 **C1. What lowers danger?**
 - (a) Lights, closed rooms and people, each in a radius, all on the one danger map. *Cost:* one coarse map, about 0.55 MB, updated near the player. *Unlocks:* everything below; a base is safe the moment it is lit and walled.
 - (b) People only (guards). *Cost:* a little less, but an empty lit house is as dangerous as the wild.
 - (c) Lights and rooms only, like Terraria; no people term. *Cost:* smallest, but "as safe as the townspeople keep it" no longer holds.
 
+*Answer (owner, 2026-11-15, Q-AK):* **(a)**, "recommended for all Qs". Folded in: rules 1 and 2.
+
 **C2. What makes a resident leave?**
 - (a) Two things: no valid room (door, bed, light), or home danger above a threshold for a few in-game days. *Cost:* one check per resident per day. *Unlocks:* towns empty when the player wrecks them or lets them go dark, so edits get a reaction for free.
 - (b) Only a missing room.
 - (c) Residents never leave; only their mood changes.
+
+*Answer (owner, 2026-11-15, Q-AK):* **(a)**. Folded in: rule 4 and the Settlements row "How residents react to edits".
 
 **C3. Guards?**
 - (a) Guards are ordinary residents with one more rule: at night, walk between the town's lights and fight what spawns; one guard per few residents. *Cost:* patrol paths, which the streets (V2) already give. *Unlocks:* towns visibly defended at night; a dark town is undefended.
 - (b) Fixed guard posts at the gates.
 - (c) No guards; lights and walls only.
 
+*Answer (owner, 2026-11-15, Q-AK):* **(a)**. Folded in: rule 3.
+
 **C4. How does a settlement step up to town and city?**
 - (a) By resident count alone, the same for the player's and generated ones (for example 5 = village, 15 = town, 40 = city); each step brings new kinds of NPC (merchant, trainer, guard captain). *Cost:* nothing beyond C1-C3. *Unlocks:* the player's settlement grows into a city by playing.
 - (b) Resident count plus an item the player places (a hall or charter) to step up.
 - (c) The player's stays a village; only generated settlements are cities.
+
+*Answer (owner, 2026-11-15, Q-AK):* **(a)**. Folded in: rule 6 and the Settlements row "Size tiers".
 
 **C5. Does a settlement need a claimed area?** A6 (a)'s text said "inside your claimed area"; Terraria has none.
 - (a) No claim: a settlement is simply rooms and residents close together (rooms within about 64 m of each other count as one). *Cost:* none, and no claim screen. *Unlocks:* the simplest rule; any camp can become a town.
 - (b) A claim marker the player places.
 - (c) Generated towns keep their site disc; the player's settlement needs a claim.
 
+*Answer (owner, 2026-11-15, Q-AK):* **(a)**. Folded in: rule 5, the Settlements row "Your own settlement", A6's wording and the towns checklist.
+
+**New questions C6-C7** (2026-11-15, from the answers above; the first option is the recommendation; a letter is enough)
+
+**C6. How is the 64 m measured?**
+- (a) As a chain: a room joins a settlement when it is within about 64 m of any room already in it; two settlements that grow to within 64 m merge. *Cost:* none beyond room detection. *Unlocks:* a city of any size stays one settlement, districts and castle included.
+- (b) From a centre (the first room or a hall): everything within about 64 m of it. *Cost:* simplest, but a settlement is at most about 128 m across, so a big generated city splits into several.
+
+**C7. Anger and repair requests?** The brief said residents react to edits with "anger, leaving, asking for repairs"; C2 decided leaving.
+- (a) No separate rule: leaving (C2) is the reaction, and a resident whose room fails the daily check says why (no door, no bed, no light, too dangerous) while the days run out. *Cost:* one line of text per failed check. *Unlocks:* the player sees what to fix; that is the "asking for repairs".
+- (b) A mood value per resident (anger) that changes prices and dialogue, on top of leaving.
+- (c) Leaving only, silent.
 
 ### Resources and materials
 
@@ -250,12 +274,14 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 - [ ] The route network drawn as real roads between towns; wild land off them.
 - [ ] Every building's footprint recorded, so residents can react to edits (the record exists from task 190).
 - [ ] Places for NPCs to use inside buildings: a door, a bed and a light in every home (A6's move-in rule and town safety's rule 4), counters, a hall (static only).
+- [ ] Settlements by the 64 m rule (C5 (a)): rooms and residents within about 64 m count as one settlement, with no claim. A generated town lays out its homes so it reads as one settlement (how the 64 m is measured: question C6).
 - [ ] Reserved space for later additions (a floating city, a sealed vault) in the site plan.
 
 ### Placement: lairs
 
 - [ ] Lair and boss-arena sites by biome x landform, and at landmarks.
 - [ ] Spawn zones per biome x landform, as data only (no creatures yet).
+- [ ] Danger-map memory: one byte per 8 m cell, about 0.55 MB on a Medium island (750 x 750 cells); the spawn zones above are its base term. Reported against its switch OFF when built.
 
 ### Before character work
 
@@ -263,7 +289,7 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 - [ ] Performance: 30 fps on the M1 Air at a lower preset, memory under 3 GB.
 - [ ] The placement phase above.
 - [ ] The humanoid generator (A3 (a)): one rule-based tool (body plan, proportions, clothes, biome culture) for every NPC, and the player creator with sliders.
-- [ ] Town safety by NPC behaviour (A5 (c)): NPC routines and the spawn-danger map, after questions C1-C5.
+- [ ] Town safety (Decided, C1-C5, 2026-11-15): steps 1-4 of its missing-pieces table, in order: danger map, room detection, NPC day routine, spawn rule.
 - [ ] Entity physics test with 10 / 50 / 100 walkers (Brief Q13).
 - [ ] A combat question round: spell crafting, how moves are learned, weapon families.
 - [ ] The classic death rule (Q3, open since 15 Oct).
@@ -273,7 +299,7 @@ The placement phase runs in the owner's order: resources, then towns, then lairs
 
 Batch A comes first because it shapes the placement phase; batch B can wait until combat and survival are designed. In each question the first option is the recommendation. A letter is enough as an answer (answer in the doc).
 
-**New, 15 Nov:** batch C (C1-C5, town safety by NPC behaviour) opened from the owner's A5 answer. It sits in its own section under Settlements, next to the rules it asks about.
+**New, 15 Nov:** batch C (C1-C5, town safety by NPC behaviour) answered, (a) for all (Q-AK). Two follow-ups, C6-C7, sit under them in the Town safety section under Settlements.
 
 ### Batch A: placement (answered 14 Nov)
 
@@ -313,7 +339,7 @@ Batch A comes first because it shapes the placement phase; batch B can wait unti
 *Answer (owner, 2026-11-14, Q-AE):* **(c)**, made dynamic: "I wonder if we can make it dynamic. It is as safe as the townspeople keep it. Obviously this would need planning on how npcs go about doing things ... That way the player can mess with things (also allows the player to automatically build their own settlement that they can naturally grow into a city)". Folded in: Settlements (Safety) and the new section Town safety by NPC behaviour, with questions C1-C5.
 
 **A6. How does your own settlement get residents?**
-- (a) An NPC moves in when you build a room with a door, a bed and a light inside your claimed area (Terraria's rule). *Unlocks:* the list of interior objects placement must provide (doors, beds, lights).
+- (a) An NPC moves in when you build a room with a door, a bed and a light (Terraria's rule; no claimed area: C5 (a), 2026-11-15). *Unlocks:* the list of interior objects placement must provide (doors, beds, lights).
 - (b) You place a town-hall item that founds the settlement; residents come over time.
 - (c) Decide later.
 

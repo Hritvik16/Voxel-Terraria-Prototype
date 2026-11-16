@@ -1881,3 +1881,11 @@ evicts when the view turns, ranks in-view first, off keeps 207's order, victims 
 (b1 `-gpuviewevict 1` / b2 `0`, jungle_high + walk1/walk2, `-trees2 0`). NOT YET MEASURED: with today's defaults both arms of the first pair were
 killed by the memory watchdog at jungle_high (9,088 / 9,782 MB footprint, KNOWN_ISSUES "JUNGLE_HIGH FOOTPRINT"), and the owner pause stopped the
 rerun. Result: HANDOFF 216.
+
+**Task 217 (plan only, owner 2026-11-15 Q-AK "recommended for all Qs"; no code, no launch, no tests): town safety C1-C5 decided.** Claude Doc
+"Game design" + `GAME_DESIGN.md`: section "Town safety by NPC behaviour" is Decided as six rules (one danger map, 1 byte per 8 m cell ~0.55 MB
+Medium; lights/rooms/people lower it; guards = residents walking between lights at night; a resident leaves on no valid room or high home danger
+for a few days, checked once a day; a settlement = rooms/residents within ~64 m, no claim; size steps by resident count, e.g. 5/15/40). Missing
+pieces table with a build order (0 furnished buildings in placement; 1 danger map, 2 room detection, 3 NPC day routine, 4 spawn rule before
+character work). Settlements rows (react to edits, size tiers, own settlement, safety), A6 wording, placement checklist (64 m rule, danger-map
+memory) updated. New questions C6 (64 m as chain vs radius) and C7 (anger and repair requests). Result: HANDOFF 217.
