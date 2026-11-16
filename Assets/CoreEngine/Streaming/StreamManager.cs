@@ -861,6 +861,8 @@ namespace VoxelEngine.Streaming
             LastEvicted = (int)(ChunksEvictedTotal - evicted0);
 
             sw.Restart();
+            // Task 216: the GPU body pool evicts out-of-view chunks for in-view ones (208's frustum).
+            _clipmap.SetView(_viewValid ? (_inViewFn ??= ChunkInView) : null, ViewVersion);
             // Task 168e: with the upload ring on, the shared per-frame cap is UploadRing.CapBytes (default 1 MiB).
             var stats = _clipmap.UploadDirty(_store, _pool, UploadRing.FrameBudget(EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME),
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
@@ -1818,13 +1820,21 @@ namespace VoxelEngine.Streaming
         public void SetViewFrustum(Plane[] planes)
         {
             if (planes == null || planes.Length < 5) { _viewValid = false; return; }
+            bool changed = !_viewValid;
             for (int i = 0; i < 5; i++)
             {
                 Vector3 n = planes[i].normal;
-                _viewPlanes[i] = new float4(n.x, n.y, n.z, planes[i].distance);
+                var p = new float4(n.x, n.y, n.z, planes[i].distance);
+                if (!changed && math.any(p != _viewPlanes[i])) changed = true;
+                _viewPlanes[i] = p;
             }
             _viewValid = true;
+            if (changed) ViewVersion++;
         }
+
+        /// Task 216: bumped whenever the frustum changed (the GPU pool's retry re-runs on it).
+        public int ViewVersion { get; private set; }
+        private Func<int3, bool> _inViewFn;   // ChunkInView, allocated once
 
         public void ClearViewFrustum() => _viewValid = false;
         public bool HasViewFrustum => _viewValid;

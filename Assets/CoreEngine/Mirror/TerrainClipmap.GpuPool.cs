@@ -213,19 +213,29 @@ public partial class TerrainClipmap
     /// Evicted chunks are forgotten (their clear runs anyway); a refused chunk now outside the
     /// box (and not a fluid-dir chunk) needs no body: it is re-queued to park, as before.
     /// Runs only when the free count, the promises or the camera chunk changed.
-    private void RetryGpuRefused(ChunkStore store, int3 cameraChunk)
+    private void RetryGpuRefused(ChunkStore store, int3 cameraChunk, ref UploadStats stats)
     {
         int promised = PurgeRetryPending();   // every pass: a promise ends once its upload ran
         if (_gpuRefused.Count == 0) return;
         if (!RetryOnlyWhatFits) { RetryAllRefused(store); return; }
 
+        // Task 216: with view eviction the retry also runs when the view moved (new victims, new
+        // requesters), and requesters (in view / 5x5) are ranked before the rest. Off = 207's retry.
+        bool view = ViewEvictActive;
         int avail = _gpuFreeTop - promised;
-        if (avail == _retryAvailSeen && cameraChunk.Equals(_retryCamSeen)) return;
-        _retryAvailSeen = avail; _retryCamSeen = cameraChunk;
-        if (avail <= 0) return;
+        if (avail == _retryAvailSeen && cameraChunk.Equals(_retryCamSeen) && (!view || _viewVersion == _retryViewSeen)) return;
+        _retryAvailSeen = avail; _retryCamSeen = cameraChunk; _retryViewSeen = view ? _viewVersion : -1;
+        if (avail <= 0 && !view) return;
 
         _gpuRefusedScratch.Clear();
-        _gpuRefusedScratch.AddRange(_gpuRefused);
+        _retryOthers.Clear();
+        if (view)
+        {
+            foreach (int3 c in _gpuRefused)
+                if (IsViewRequester(c, cameraChunk)) _gpuRefusedScratch.Add(c); else if (avail > 0) _retryOthers.Add(c);
+            if (_gpuRefusedScratch.Count == 0 && _retryOthers.Count == 0) return;
+        }
+        else _gpuRefusedScratch.AddRange(_gpuRefused);
         _retryCam = cameraChunk;
         _retryOrder ??= (a, b) =>
         {
@@ -236,15 +246,28 @@ public partial class TerrainClipmap
             return a.x.CompareTo(b.x);
         };
         _gpuRefusedScratch.Sort(_retryOrder);
+        int nRequesters = view ? _gpuRefusedScratch.Count : 0;
+        if (_retryOthers.Count > 0) { _retryOthers.Sort(_retryOrder); _gpuRefusedScratch.AddRange(_retryOthers); }
 
-        int promisedNow = 0;
-        foreach (int3 c in _gpuRefusedScratch)
+        int promisedNow = 0, freedNow = 0;
+        for (int i = 0; i < _gpuRefusedScratch.Count; i++)
         {
+            int3 c = _gpuRefusedScratch[i];
             if (store.GetChunk(c) == null) { ForgetRefused(c); continue; }
             if (!InMirrorBox(c) && FluidDirEntryOf(c) < 0) { ForgetRefused(c); _dirtyChunks.Add(c); continue; }
             int need = _gpuRefusedNeed.TryGetValue(c, out int n) ? n : 0;
             if (_dirtyChunks.Contains(c)) { avail -= need; continue; }   // queued by an edit: its upload decides
-            if (need > avail) continue;                                   // stays refused, still handed over
+            if (need > avail)
+            {
+                // Task 216: a requester may make room from out-of-view, farther box chunks.
+                if (i >= nRequesters || !InMirrorBox(c)) continue;       // stays refused, still handed over
+                int f0 = _gpuFreeTop;
+                if (!TryEvictForView(c, cameraChunk, need - avail, ref stats)) continue;
+                freedNow += _gpuFreeTop - f0;
+                avail += _gpuFreeTop - f0;
+                if (need > avail) continue;                               // freed less than counted (shared bodies)
+                GpuViewEvictSavedTotal++;
+            }
             avail -= need;
             ForgetRefused(c);
             _dirtyChunks.Add(c);
@@ -253,8 +276,9 @@ public partial class TerrainClipmap
             GpuPoolRetriesTotal++;
         }
         // = the next pass's (free - promised) while nothing changes: it then skips the sort.
-        _retryAvailSeen -= promisedNow;
+        _retryAvailSeen += freedNow - promisedNow;
     }
+    private readonly List<int3> _retryOthers = new List<int3>();   // task 216: non-requesters, after the requesters
 
     /// Ends the promises of re-queued chunks whose upload already ran (landed, refused again,
     /// parked, evicted: no longer dirty); returns the GPU bodies still promised.

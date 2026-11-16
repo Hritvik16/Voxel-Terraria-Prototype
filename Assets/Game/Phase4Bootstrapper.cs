@@ -358,6 +358,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         TerrainClipmap.SealHiddenBricks = ArgInt("-gpuseal", 1) == 1;   // task 201a: sealed bricks take no GPU body (pool on only)
         TerrainClipmap.RetryOnlyWhatFits = ArgInt("-retryfit", 1) == 1;   // task 207: 0 = the old retry (whole refused set per freed slot)
         StreamManager.ValveViewOrder = ArgInt("-valveview", 1) == 1;   // task 208: 0 = the old valve order (pure LRU, in-view chunks too)
+        // Task 216: 1 = the GPU body pool drops out-of-view chunks for in-view ones. Default OFF until its launch
+        // pair has run (the owner pause stopped it, HANDOFF 216); the task's target default is ON.
+        TerrainClipmap.ViewEvict = ArgInt("-gpuviewevict", 0) == 1;
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
         if (gpuBrickCap > 0)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f; " +

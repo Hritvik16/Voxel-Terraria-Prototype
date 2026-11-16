@@ -321,6 +321,7 @@ number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
 - GPU body pool full at every pose since 195a (201a; FIXED: sealed bricks take no body, `-gpuseal 0` = old; start-up load still refuses ~132).
 - CPU valve evicted in-view chunks (197; FIXED 208: out of view + far first, `-valveview 0` = old; GPU pool now stays full, refusals up).
+- jungle_high footprint 9-10 GB, watchdog killed both 216 launches (2026-11-16, NOT DIAGNOSED; suspect world trees). 216's GPU view eviction: code done, OFF, unmeasured.
 - GPU fluid CA read terrain from the tier-0 mirror box (93e; FIXED, Q55 (b): fluid terrain directory; 93f maps its bodies).
 - Shells cost +10-15 ms steady, shell 3 unfilled while walking (93b; NOT FIXED; cut by 99/132/134; shells ON in play, 93c).
 - Owner pause (`tools/heavy.sh`) DRAINS, it does not freeze (14/14b): rerun an arm that prints "owner paused".

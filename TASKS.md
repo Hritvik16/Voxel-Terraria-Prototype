@@ -1862,3 +1862,22 @@ predicted dash pixels still dashing, cliff_snow 1,296 -> 6 native, 12 -> 1 FSR 3
 levels: forest dyn 0.51 %, cliff_snow native 1.09 %, cave_mouth native 0.16 % (205: 0.42 / 1.05 / 0.16). forest's native pair is NOT comparable
 (the first arm was shot before the wall's near detail streamed in). No storage (one shader int). Pictures `Screenshots/215/sheet215.png`,
 `zoom215.png`. Result: HANDOFF 215.
+
+**Task 216 (bug, owner 2026-11-15 Q-AI (a): new eviction design approved; DEFAULT OFF for now, `-gpuviewevict 1` = on; target default ON once its launch pair has run).**
+`TerrainClipmap.ViewEvict.cs`: when a chunk IN VIEW (or in the camera's 5x5) is refused by the full GPU body pool, mirror-box chunks that
+are OUT OF VIEW and FARTHER (Chebyshev XZ) give up their bodies first, farthest first (ties: higher box slot), and only if the victims cover the
+whole shortfall (nothing is cleared for a chunk refused anyway). Victims: held by their slot, in the box, not dirty, not touched by a live fluid
+tile (`SetFluidWanted`), outside the 5x5, outside the frustum. A victim is written as air (entries, air mips, height, sealed mask, the refusal's
+write), its bodies freed, and it joins the refused set with its body count: FarField's hand-over draws it (IsGpuRefused) and 207's retry brings it
+back when it fits. The retry ranks requesters (in view / 5x5) before the rest and may evict for an in-view refused chunk too; with view eviction
+on it also re-runs when the frustum changed (`StreamManager.ViewVersion`). The frustum is 208's (`StreamManager.ChunkInView`, handed over by
+`TerrainClipmap.SetView` before every UploadDirty). One lazy scan of the box's slots per pass (only when a requester is short), one sort of a
+reused list of packed longs, at most 16 victims per pass (their 16 KB entry writes are charged to the pass's bytes). No per-chunk storage, no
+new GPU memory, no pool, layout or API change. Off / no view = 207's code path. Counters `GpuViewEvictedTotal`, `GpuViewEvictedBodiesTotal`,
+`GpuViewEvictSavedTotal`, `GpuRefusedByView` (refused now split in view / 5x5 vs other), printed on `-mirrorprobe 1`'s new `[mirror gpuview]`
+line; `UploadStats.viewEvicted / viewEvictBytes`. Tests `GpuViewEvictTests` (11: farthest-first order and landing, victims must be farther and
+cover the shortfall, out-of-view far requesters do not evict, the 5x5 does, in-view chunks never are victims, off / no view = today, the retry
+evicts when the view turns, ranks in-view first, off keeps 207's order, victims come back through the retry). Driver `Logs/overnight/216_pair.sh`
+(b1 `-gpuviewevict 1` / b2 `0`, jungle_high + walk1/walk2, `-trees2 0`). NOT YET MEASURED: with today's defaults both arms of the first pair were
+killed by the memory watchdog at jungle_high (9,088 / 9,782 MB footprint, KNOWN_ISSUES "JUNGLE_HIGH FOOTPRINT"), and the owner pause stopped the
+rerun. Result: HANDOFF 216.

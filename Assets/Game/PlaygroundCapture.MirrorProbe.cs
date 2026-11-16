@@ -75,6 +75,13 @@ public partial class PlaygroundCapture
             if (refused) nRefused++; else if (dirty) nDirty++; else if (parked) nParked++; else nLost++;
             cand.Add(c);
         }
+        // Task 216: refused now split into in-view / 5x5 chunks vs the rest (the rest includes view-evicted ones).
+        Vector3 cp = cam.transform.position;
+        int3 camChunk = new int3((int)math.floor(cp.x * 10f) >> 7, 0, (int)math.floor(cp.z * 10f) >> 7);
+        clip.GpuRefusedByView(camChunk, out int refReq, out int refOther);
+        lines.Add($"  [mirror gpuview] GPU view evict {(TerrainClipmap.ViewEvict ? "ON" : "OFF")}{(clip.ViewTest == null ? " (no view)" : "")}: " +
+                  $"refused now in view/5x5 {refReq}, other {refOther} | victims total {clip.GpuViewEvictedTotal:N0} (bodies {clip.GpuViewEvictedBodiesTotal:N0}), requesters mapped by it {clip.GpuViewEvictSavedTotal:N0} | " +
+                  $"GPU pool in use {clip.GpuPoolInUse:N0} of {clip.GpuPoolCapacity:N0}, peak {clip.GpuPoolPeakUsed:N0}");
         lines.Add($"  [mirror] box {o}..{o + d - 1} layers {lo}..{hi} | MISSING (resident, not air, slot not its own): refused {nRefused}, dirty {nDirty}, parked {nParked}, LOST {nLost} | " +
                   $"ABSENT over solid {nAbsentOverSolid} (queued {nAbsentQueued}, loading {nAbsentLoading}) | dirty set {clip.DirtyCount:N0}, pending loads {smr?.PendingLoads ?? -1}, in flight {smr?.InFlightLoads ?? -1}, refused now {clip.GpuPoolRefusedNow} (refusals total {clip.GpuPoolRefusedTotal:N0}, retries total {clip.GpuPoolRetriesTotal:N0}, re-refused {clip.GpuPoolReRefusedTotal:N0}, retry pending {clip.GpuPoolRetryPending}) | " +
                   $"evicted total {smr?.ChunksEvictedTotal ?? -1:N0} (LRU valve {smr?.LruEvictionsTotal ?? -1:N0}, in view {smr?.ValveInViewEvictionsTotal ?? -1:N0}, in view near {smr?.ValveInViewNearEvictionsTotal ?? -1:N0}) | hand-over columns {FarField.Active?.HandOverColumns ?? -1}");

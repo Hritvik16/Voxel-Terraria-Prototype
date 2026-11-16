@@ -71,6 +71,17 @@ real and separate reason — see the LOD-cascade finding in
   - NOT FIXED, found by it: the GPU body pool now stays FULL at every pose (254.4 k in use vs 203-251 k with the old order). The old valve freed
     GPU bodies by dropping in-view chunks. GPU refusals 857 -> 1,190, and 31-138 chunks stay refused at the shot (drawn by the hand-over).
     The valve still churns ~12 k evictions per pose: the load set is bigger than the valve line, and evicted far chunks reload.
+  - Task 216 (owner Q-AI (a)), CODE DONE, NOT MEASURED, default OFF (`-gpuviewevict 1` = on): the GPU body pool drops out-of-view, farther
+    box chunks for a refused in-view / 5x5 chunk (TASKS.md "Task 216"; tests `GpuViewEvictTests`). Its launch pair (refusals ON vs OFF) has not
+    run: both arms of the first try were killed by the memory watchdog at jungle_high (entry "JUNGLE_HIGH FOOTPRINT" below), and the owner
+    pause stopped the rerun with `-trees2 0` (`Logs/overnight/216_pair.sh`).
+- **JUNGLE_HIGH FOOTPRINT 9-10 GB: THE MEMORY WATCHDOG KILLED THE PLAYER (task 216, 2026-11-16, NOT DIAGNOSED).** Today's defaults, high preset,
+  `-worldsurvey 1 -mapversion 4 -wsarms native_sf0 -lookwait 45 -mirrorprobe 1`, first pose jungle_high (5772.8,566.3,5024.2): both launches
+  (`-gpuviewevict 1` and `0`) passed 8,192 MB physical footprint about 6 min after start, before the first shot, and `tools/mem-watchdog.sh`
+  killed them (9,088 / 9,782 MB; `Logs/overnight/watchdog.log` 23:55:29, 00:02:54; player logs `Logs/overnight/216/killed/`, no `[mem]` line
+  was printed). The same poses ran at a 2.8 GB process peak in task 208 (be67746). Changed since: 209 / 209b (pond shores, pocket streams),
+  210-214 (world trees, default ON since 214: banyan giants are jungle trees). Suspect (unproven): world trees at a jungle pose; next check
+  is the same launch with `-trees2 0`. The `-gpuviewevict 0` arm runs 207's code path, so task 216's code is not the cause.
 
 - **WHITE DASHES ON STEEP FACES = sun-lit 1-voxel treads lit by their own face where FarSlopeNormal's test fails (task 198, 2026-11-14; FIXED by DEFAULT task 215, 2026-11-15: `-dashfix 2` (task 205, top faces only) is the default in play, rigs and capture; `-dashfix 0` = the old call).**
   - Task 215 check (one launch, 205's flags, arms `_df0` vs default): predicted dash px still dashing: cliff_snow 1,296 -> native 6 / dyn 12 -> 1; forest_breaks 374 -> native 0 / dyn 15 -> 0; cave_mouth unchanged (0.16 % px). `Logs/overnight/215/look.out`, `Screenshots/215/sheet215.png`, `zoom215.png`.
