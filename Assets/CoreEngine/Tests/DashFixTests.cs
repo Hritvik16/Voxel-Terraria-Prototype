@@ -1,9 +1,9 @@
 // Assets/CoreEngine/Tests/DashFixTests.cs
 //
-// Task 205 (task 198's option 1, `-dashfix 1`, default OFF): the white 1-px dashes on steep walls are sun-lit
+// Task 205 (task 198's option 1, `-dashfix 1|2`; task 215: default 2, `-dashfix 0` = old): the white 1-px dashes on steep walls are sun-lit
 // treads lit by their own face where FarSlopeNormal's bracket test fails. The fix keeps the filtered cube light
 // there for sky-open hits. The look is checked with stills (-worldsurvey arms native_df1 / dyn_df1); this covers
-// the flag (OFF by default, last match wins), its binding, and the shader contract: OFF calls the old
+// the flag (2 by default since task 215, last match wins), its binding, and the shader contract: OFF calls the old
 // CubeFilterWeight unchanged; FarSlopeCode 2 == FarSlopeNormal's true; mode 2 = top faces only, undersides never.
 using System.IO;
 using NUnit.Framework;
@@ -11,7 +11,7 @@ using NUnit.Framework;
 public class DashFixTests
 {
     [Test]
-    public void Flag_DefaultOff_LastMatchWins()
+    public void Flag_Default2_LastMatchWins()
     {
         string cs = File.ReadAllText("Assets/CoreEngine/Rendering/RaymarchFeature.cs");
         // RaymarchFeature derives from a URP type the test assembly does not reference: read its text.
@@ -20,7 +20,7 @@ public class DashFixTests
         string body = cs.Substring(ps, 300);
         StringAssert.Contains("int v = def;", body, "absent = the default");
         StringAssert.Contains("if (a[i] == flag) v = int.TryParse(a[i + 1], out int n) ? n : def;", body, "the last match wins");
-        StringAssert.Contains("DashFix = ValidDashFix(ParseArgInt(System.Environment.GetCommandLineArgs(), \"-dashfix\", 0));", cs, "OFF by default");
+        StringAssert.Contains("DashFix = ValidDashFix(ParseArgInt(System.Environment.GetCommandLineArgs(), \"-dashfix\", 2));", cs, "task 215: 2 (top faces) by default");
         StringAssert.Contains("public static int ValidDashFix(int v) => v == 1 || v == 2 ? v : 0;", cs, "only 1 and 2 turn it on");
         StringAssert.Contains("\"_DashFix\", DashFix)", cs, "the flag reaches the shader");
     }

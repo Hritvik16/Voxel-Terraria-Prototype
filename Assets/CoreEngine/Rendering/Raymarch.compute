@@ -4000,7 +4000,7 @@ float CubeFilterWeight(float3 p, float distVoxels, uint m, out float3 nS)
 }
 
 // ===========================================================================
-// TASK 205 (task 198's option 1, `-dashfix 1|2`, default 0 = OFF): white 1-px dashes on steep walls
+// TASK 205 (task 198's option 1, `-dashfix 1|2`; DEFAULT 2 since task 215, 0 = OFF): white 1-px dashes on steep walls
 // are sun-lit voxel TREADS (top faces) lit by their OWN face where the bracket test above fails
 // (CubeFilterWeight 0; 205's oracle: every such dash lies ABOVE the four column tops). With _DashFix
 // the filtered light also applies there -- with the column slope -- scaled by `open`, the hit's sky

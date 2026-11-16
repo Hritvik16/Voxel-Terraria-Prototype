@@ -1853,3 +1853,12 @@ assertion changed. Player log: `[StreamManager] tg2 chunk source: ... world tree
 -trees2dense 0)` / `OFF (-trees2 0)`. No identity/hash rig builds the tg2 world, so no rig needed the flag. Shots
 `Logs/overnight/214_shots.sh` (default vs `-trees2 0`, 3 poses), table `Logs/overnight/214_table.py` -> `Screenshots/214/table214.txt`.
 Result: HANDOFF 214.
+
+**Task 215 (defaults, 2026-11-15, owner Q-AH (a)): `-dashfix 2` is the DEFAULT (task 205's white-dash fix, top faces only); `-dashfix 0` = the old call.**
+`RaymarchFeature.DashFix` parses `-dashfix` with default 2 (play, rigs, capture; voxel / shell path only, the far band's call is unchanged; F6 has no
+field). Survey arm suffix `_df0` still forces the old call per shot. Test `DashFixTests.Flag_Default2_LastMatchWins` pins the default. Check: one launch,
+205's flags + `-gpupoolprobe 1`, arms `native_df0,native,dyn_df0,dyn` at forest_breaks / cliff_snow / cave_mouth (`Logs/overnight/215/shoot.sh`):
+predicted dash pixels still dashing, cliff_snow 1,296 -> 6 native, 12 -> 1 FSR 3 dyn; forest_breaks 374 -> 0 native, 15 -> 0 dyn; pixels changed > 8
+levels: forest dyn 0.51 %, cliff_snow native 1.09 %, cave_mouth native 0.16 % (205: 0.42 / 1.05 / 0.16). forest's native pair is NOT comparable
+(the first arm was shot before the wall's near detail streamed in). No storage (one shader int). Pictures `Screenshots/215/sheet215.png`,
+`zoom215.png`. Result: HANDOFF 215.
