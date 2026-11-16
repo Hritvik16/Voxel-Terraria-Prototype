@@ -44,6 +44,7 @@ public class TreeGalleryTests
     {
         using var src = new TerrainGenChunkSource(42);
         src.SetTrees(true);
+        src.SetTrees2(false);   // task 214: today's trees (-trees2 0), as recorded
         var m = src.Map;
         var plane = TreeTable.DensityPlane(m.Record, src.Spec.mapCells);
         fixed (byte* pl = plane)
@@ -201,6 +202,7 @@ public class TreeGalleryTests
     {
         using var src = new TerrainGenChunkSource(42);
         src.SetTrees(true);
+        src.SetTrees2(false);   // task 214: today's trees (-trees2 0), as recorded
         var spec = src.Spec; var o = src.O; var view = src.Map.View;
         // a dry, gentle land column near the world's centre (a spiral of 16 m steps)
         int3 site = -1;
@@ -281,6 +283,7 @@ public class TreeGalleryTests
     public unsafe void Gallery_Layout()
     {
         using var src = new TerrainGenChunkSource(42);
+        src.SetTrees2(false);   // task 214: today's trees (-trees2 0), as recorded
         var spec = src.Spec; var o = src.O; var view = src.Map.View;
         var plane = TreeTable.DensityPlane(src.Map.Record, spec.mapCells);
         const int G = 160;   // 16 m grid

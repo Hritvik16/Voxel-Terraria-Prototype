@@ -227,6 +227,7 @@ public class TreePoolTests
         string path = Path.Combine(LogDir, $"pools_{pose}.txt");
         var L = ShellLayout.From(QualityPreset.High);
         var src = new TerrainGenChunkSource(42u);
+        src.SetTrees2(false);   // task 214: task 188's arms are today's trees (-trees2 0)
         var log = new StringBuilder();
         log.AppendLine($"task 188: seed 42, High, camera at 180's {pose} pose {eye} m. Every chunk each shell STORES (the streamer's box minus the hole), generated.");
         log.AppendLine("arms: OFF (-trees 0), ON (-trees 1), ADV-F / ADV-J (adversarial: every tree cell that passes the physical rules gets a forest / jungle tree).");

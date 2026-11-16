@@ -180,17 +180,18 @@ namespace VoxelEngine.WorldGen
     {
         private bool _trees2Owner;
 
-        /// -trees2 1 (task 210): the world space-colonization trees. Absent / 0 = today's trees
-        /// (the default). Last match wins. Needs the trees on (`-trees 0` turns both off).
+        /// -trees2 (task 210; DEFAULT ON since task 214, owner Q-AJ (a)): the world space-colonization
+        /// trees. `-trees2 0` = today's (pre-210) trees byte for byte. Last match wins. Needs the trees
+        /// on (`-trees 0` turns both off).
         public static bool Trees2Arg() => Trees2Mode() != 0;
 
-        /// The spec's trees2On from the flags: 0 off, 1 task 213's denser forest (`-trees2 1`),
-        /// 2 task 210's placement (`-trees2 1 -trees2dense 0`). Last match wins per flag.
+        /// The spec's trees2On from the flags: 1 task 213's denser forest (the default since task 214),
+        /// 2 task 210's placement (`-trees2dense 0`), 0 today's trees (`-trees2 0`). Last match wins per flag.
         public static byte Trees2Mode()
         {
             if (Trees2TestOverride >= 0) return (byte)Trees2TestOverride;
             string[] a = Environment.GetCommandLineArgs();
-            bool on = false, dense = true;
+            bool on = true, dense = true;   // task 214: ON unless -trees2 0
             for (int i = 0; i + 1 < a.Length; i++)
             {
                 if (a[i] == "-trees2" && int.TryParse(a[i + 1], out int p)) on = p != 0;
@@ -208,7 +209,7 @@ namespace VoxelEngine.WorldGen
             if (Spec.trees2On == 0) return;
             Trees2Library.Acquire();
             _trees2Owner = true;
-            UnityEngine.Debug.Log($"[Trees2] world trees ON (-trees2 1): {Trees2Library.Summary}");
+            UnityEngine.Debug.Log($"[Trees2] world trees ON (default; -trees2 0 = today's trees): {Trees2Library.Summary}");
         }
 
         private void DisposeTrees2()

@@ -65,6 +65,9 @@ public unsafe partial class FluidPocketTests
         var log = new StringBuilder();
         int failures = 0;
         void Fail(string m) { failures++; log.AppendLine("  FAIL " + m); }
+        // task 214: pinned to today's trees (-trees2 0). Its tree filter (IsTreeTrunk / IsTreeLeaf) predates the world trees: on the
+        // default world the only out-of-reach change at water_shore is 2,908 air <-> GenMat.Leaves (birch leaf) voxels.
+        int keepT2 = TerrainGenChunkSource.Trees2TestOverride; TerrainGenChunkSource.Trees2TestOverride = 0;
         FluidPockets.StreamTestOverride = 1;
         try
         {
@@ -299,7 +302,7 @@ public unsafe partial class FluidPocketTests
             Assert.GreaterOrEqual(cases.Count, 8, "too few stream cases (4 fluids x 2)");
             Assert.AreEqual(0, failures, "see " + Path.Combine(StreamLogDir, "streams.txt"));
         }
-        finally { FluidPockets.StreamTestOverride = 0; }
+        finally { FluidPockets.StreamTestOverride = 0; TerrainGenChunkSource.Trees2TestOverride = keepT2; }
     }
 
     [Test, Explicit, Category("Slow")]

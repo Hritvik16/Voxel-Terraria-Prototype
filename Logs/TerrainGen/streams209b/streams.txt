@@ -6,7 +6,7 @@ Task 209b streams, seed 42: 131 ponds; inlets 104 (one-cell springs 28), outlets
     oil      streams  21, seeps  11, nodes   606
     sludge   streams   1, seeps   1, nodes     8
     water    streams  24, seeps  20, nodes   700
-  every stream, channel + 2 rings: 578,069 columns, 335,880 hold fluid, 57,295 lips; breaches 0, mixed fluids 0, unlined faces 0 (85 s)
+  every stream, channel + 2 rings: 578,069 columns, 335,880 hold fluid, 57,295 lips; breaches 0, mixed fluids 0, unlined faces 0 (84 s)
   no outlet joins a river on seed 42
   oil_shore: oil stream of 67 nodes, node 2 at (28509, 6329, 34120); PASS; ON vs OFF changed 125,572 voxels (tree voxels outside the reach 0); settle 150 ticks 16,256 mobile cells: nothing moved or reacted; negative control: hole at int3(28510, 6329, 34119) -> changed 16 cells, 0 reactions (first at tick 1); 
   oil_middle: oil stream of 67 nodes, node 33 at (28739, 6321, 34357); PASS; ON vs OFF changed 139,164 voxels (tree voxels outside the reach 0); settle 150 ticks 13,719 mobile cells: nothing moved or reacted; negative control: hole at int3(28778, 6321, 34373) -> changed 16 cells, 0 reactions (first at tick 1); 

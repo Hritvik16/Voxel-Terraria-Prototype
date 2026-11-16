@@ -53,6 +53,7 @@ public class TreeTests
         {
             src = new TerrainGenChunkSource(seed);
             src.SetTrees(true);
+            src.SetTrees2(false);   // task 214: these pin today's trees (-trees2 0); Trees2Tests covers the default
             var m = src.Map;
             h = new NativeArray<float>(m.Height, Allocator.Persistent);
             r = new NativeArray<float>(m.Rough, Allocator.Persistent);

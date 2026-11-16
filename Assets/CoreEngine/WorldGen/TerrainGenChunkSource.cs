@@ -270,7 +270,7 @@ namespace VoxelEngine.WorldGen
             if (TreesArg()) spec.treesOn = 1;   // task 180
             spec.treeLeafFill = LeafFillArg();   // task 192
             if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
-            if (spec.treesOn != 0) spec.trees2On = Trees2Mode();   // task 210 (-trees2 1; default off); 213: -trees2dense 0 = 210's placement
+            if (spec.treesOn != 0) spec.trees2On = Trees2Mode();   // task 210 / 214: ON unless -trees2 0; 213: -trees2dense 0 = 210's placement
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183 / 201: ON unless -fluidpockets 0
@@ -302,7 +302,7 @@ namespace VoxelEngine.WorldGen
             string gallery = TreeGalleryArg();   // task 200: -treegallery <layout> (examples only; default off)
             if (gallery != null) BuildGallery(gallery, treeCells);
             _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
-            InitTrees2();   // task 210 (returns at once unless -trees2 1)
+            InitTrees2();   // task 210 (returns at once with -trees2 0 / -trees 0)
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             BuildPocketPlane();   // task 183 (length 1 = none under -fluidpockets 0)
             if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change

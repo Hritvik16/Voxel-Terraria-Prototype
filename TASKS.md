@@ -1839,3 +1839,17 @@ per 51.2 m (210: 15.1). Calibration `Trees2Tests.Dense_Sweep` (Explicit) -> `Log
 1.33x world tree bricks, <= 1.40 asserted; 16 chunk gathers == one 256 m gather; `density.txt`); `Library_Turns_Budget` also checks the dense
 budget and grids. Shots `Logs/overnight/213_shots.sh` (3 arms d / s / t0, 4 poses), table `Logs/overnight/213_table.py` ->
 `Screenshots/213/table213.txt`, `python3 -I tools/trees213.py` -> `sheet213.jpg` + `viewer.html`. Result: HANDOFF 213.
+
+**Task 214 -- the world trees are the DEFAULT (owner 2026-11-15, Q-AJ (a): "the new trees become the default in every world").**
+`TerrainGenChunkSource.Trees2Mode()` now defaults ON: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build one)
+gets `spec.trees2On` 1 = task 213's dense world trees (Trees2Library built once per process, 30 prototypes, ~10.6 MB, ~0.5 s on workers);
+`-trees2dense 0` = task 210's placement; `-trees2 0` leaves `trees2On` 0 = today's (pre-210) trees byte for byte (the library is never
+built). `-trees 0` still turns both off. As 195a / 201, the `TerrainSpec` field is NOT flipped (a bare spec stays 0). The tests that
+pin today's trees pass the flag explicitly (`src.SetTrees2(false)`): `TreeTests` (its `Ctx`), `TreeGalleryTests` (`TodayTrees_Pinned`,
+`Gallery_Chunk_AirOnly`, `Gallery_Layout`), `TreePoolTests` (task 188's arms), and `FluidPocketTests.Streams_Seed42_AtRest_PathsAgree`
+(`Trees2TestOverride = 0`: its out-of-reach tree filter is IsTreeTrunk / IsTreeLeaf, which misses the birch's `GenMat.Leaves`; on the default
+world its only out-of-reach change was 2,908 air <-> Leaves voxels at water_shore); `Trees2Tests` already sets `Trees2TestOverride`. No
+assertion changed. Player log: `[StreamManager] tg2 chunk source: ... world trees ON (default, dense)` / `ON (210 placement,
+-trees2dense 0)` / `OFF (-trees2 0)`. No identity/hash rig builds the tg2 world, so no rig needed the flag. Shots
+`Logs/overnight/214_shots.sh` (default vs `-trees2 0`, 3 poses), table `Logs/overnight/214_table.py` -> `Screenshots/214/table214.txt`.
+Result: HANDOFF 214.

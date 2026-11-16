@@ -1,8 +1,8 @@
 // Assets/TerrainGen/Trees2.cs
 //
 // Task 210 (owner 2026-11-14, Q-AD "a for all"): the WORLD space-colonization
-// trees, behind `-trees2 1` (TerrainSpec.trees2On; default OFF = today's trees,
-// byte for byte).
+// trees (TerrainSpec.trees2On). DEFAULT ON in the chunk source since task 214
+// (owner Q-AJ (a)); `-trees2 0` = today's trees byte for byte (a bare spec is 0).
 //
 // WHAT IS SHARED. A tree is not built per world position: task 200's method (a)
 // (TreeGallery.Build, M_SPACE) grows a small LIBRARY of prototypes once per
