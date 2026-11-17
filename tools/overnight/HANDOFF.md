@@ -1,58 +1,54 @@
-# 226-look-lotl-polish: DONE -- four look pieces, each its own switch, all ON (pictures better, cost small); commit d428f9d
+# 227-perf-sky-fill-lowres: DONE -- sky fill traced once per 4x4 pixel block; walk_near p50 106.8 -> 72.3 ms (warm), no visible change; commits abda510, 70b1a45
 
-## What changed (Raymarch.compute, RaymarchFeature.cs, KernelHealth.cs, PlaygroundCapture.CostSplit.cs, LotlLookTests.cs, TASKS.md)
-1. Per-voxel colour (`-voxvary`, `_LotlLook` bit 0, `LotlVoxelVary`): each voxel gets x(1 +- A) brightness and +-3 % warm/cool from two
-   position hashes. The hashes are tied to world position, so the colour does not flicker under FSR/TAA, and the mean colour is unchanged.
-   A comes from the material's own look albedo: 12 % on the darkest, 6 % on white, so light materials do not clip. No hand-picked
-   material list. It fades out where a voxel is 4 -> 2 px, which avoids aliasing. Fluids, self-lit and emitting materials are skipped.
-2. Crevice shade (`-crevice`, bit 1): the existing FaceAO (the hit's own 8 occupancy reads) now also takes half its depth off the DIRECT
-   light. Before, it darkened only the ambient, so crevices never showed on sunlit faces. No new read. It fades where VAO fades (20-50 m).
-3. Aerial haze (`-aerial`, bit 2; `-aerialrange`): the sky-haze range goes 1800 -> 1100 m, with the same exponential height falloff.
-   Haze desaturation goes 0.5 -> 0.75. Only constants change.
-4. Bloom (`-bloom`, `-bloomk`): new kernels BloomDown (quarter of the render rows; per-pixel bright share smoothstep(0.55,1.0) of linear luma),
-   BloomBlur x2 (separable Gaussian, sigma 2.5 quarter-texels) and BloomAdd (render rows, 4 loads + read-modify-write). They run after the
-   frame's last writer and before FSR 3, so there is NO pass at output resolution. Look 1 only.
-- Capture arms: `lotl_off` (= before), `vary_only`, `crevice_only`, `aerial_only`, `bloom_only`, plus `X_off`.
+## What changed (Raymarch.compute, RaymarchFeature.cs, SkyFillReference.cs, KernelHealth.cs, PlaygroundCapture.CostSplit.cs, 2 test files, TASKS.md)
+- Where the 40 ms went (212): one cosine sky-fill ray per tier-0 pixel per frame (2 legs on a ground-half sample). Most of these are
+  long, near-level rays that run to the window edge (up to ~200 m), and every pixel of one voxel face traced the SAME ray (the seed is the face).
+- New design (`-skyfillres 1|2|4`, DEFAULT 4; 1 = the old inline path): the primary kernel no longer traces. It shades with the face's
+  running mean, now one frame old. New kernel `CSSkyFillTrace` runs ONE thread per 4x4 block (1/16 of the rays). It traces one face of
+  the block exactly as before (same seed, half and direction) and folds the sample into every pixel of the block on the SAME FACE PLANE:
+  same normal, same coordinate along it, and within twice the block's pixel footprint. That rule is the depth/normal-aware filter:
+  trunk vs ground, ledge top vs floor, and trunk vs wall behind it never share. A face with no history takes a compatible reprojected
+  neighbour's record. Only with no neighbour does it trace inline (exact; no guessed value).
+- Why this design is the efficient one (rule 11a): no new G-buffer and no new UAV (the main kernels sit at Metal's 8-UAV cap). The face
+  rides in the existing history record (8 -> 12 B). The trace pass is compacted, so it costs 1/16 of the SIMD work, not 1/16 of the lanes.
+- Bug found and fixed on the way: the first build's share test (a bool select after an early return) came out of HLSLcc as
+  `as_type<float>(bool)`. Metal rejected it, so CSMainFarShadeFlood (play's kernel) did not load: magenta frames, same failure as task 206.
+  Rewritten as integer arithmetic (`SkyShareBad`). A test pins "no `?`/`==` in it" and that it equals the plain rule on 50k cases.
+  That launch was killed and discarded (`Logs/overnight/227/player_day_broken.log`).
 ## Evidence
-- Fast suite `PASS 1071 FAIL 0 SKIP 25` (`Logs/overnight/226/fast.out`). `LotlLookTests` 5/5: flags, gating (OFF = old path), bloom
-  order (after TAA, before FSR 3), and a CPU mirror of the variation (mean within 1 %, bounded by A, stable, exactly 1 when faded).
-  `SkyLookTests` anchor updated for the new range expression.
-- Launches: day (walk_near, forest_eye, jungle_eye x 6 arms) and night (torch_camp x 4 arms), High, 432 rows, `-costtimed 1`
-  (`Logs/overnight/226/run.sh`; reports `costsplit_day.txt`, `costsplit_night.txt`). Diff table: `Logs/overnight/226/diff.txt`.
-  Every arm differs from "before" by only ~1-3 levels mean. Part of that is cross-arm noise of unmeasured size (an arm whose piece
-  should change little, e.g. bloom at walk_near, still reads 1.6). Judge the pieces from the pictures, not that table.
-- What the pictures show: vary is clearly visible. The flat walk_near wall becomes a patchwork of slightly different stones (the biggest
-  step toward LotL). Aerial makes forest_eye's far mountain paler and blue-grey, softer against the sky. Crevice is subtle by day: a little
-  darkening at concave step corners. Bloom is subtle by day (sky edges round the jungle canopy), but at night each torch head gets a soft glow halo.
-- Rule 11/12 (P1): only bloom adds GPU bytes: two quarter-res half4 render-graph transients = 2 x 192 x 108 x 8 B = 0.33 MB at
-  768x432 (0.52 MB at 960x540). Pieces 1-3 add 0 bytes. The OFF arms run in the same launch, so peak memory is shared: process peak
-  2,548 MB (day) / 2,558 MB (night), vs 2,492 / 2,515 in 225's launches (different poses, no streaming change). GPU refusals: 0 at
-  walk_near and forest_eye, 7,979 at jungle_eye. That is the same path effect 225 saw (5,104), from the pool already full after forest
-  (254,398 / 254,400). It is not this change: no streaming or pool code was touched. CPU pool peak 496,935 (valve 484,500), the same as 225.
-- P2 pass cards (no frame timing; rough cost class): (1) vary: render rows, every frame, 2 hashes + ~10 ALU per hit pixel, 0 B, rides
-  the hit shading ("sky fill"/shade step share unchanged). (2) crevice: 1 lerp + mul per hit pixel, 0 reads, 0 B. (3) aerial: 0 extra
-  ops (constants). (4) bloom: NEW pass, 3 kernels at quarter render res (16 + 2x16 loads per quarter texel) + 1 at render rows (4 loads +
-  RMW), every frame, 0.33 MB. It does not run at output resolution and is not a ray march. Estimated as the cheapest pass in the frame
-  (well under 0.5 ms), but not timed. Its own switch is `-bloom`, with capture arm `bloom_off`. P4: no content change. P5: no ray-march change.
-  The new pass is below output resolution, nothing printed OVER SHARE, and P1 is within budget, so this task is not HEAVY.
+- Fast suite `PASS 1076 FAIL 0 SKIP 25` (`Logs/overnight/227/fast.out`). New LowRes_* tests (SkyFillReferenceTests, CPU twin `LowResFrame`):
+  ledge top stays EXACTLY 1.000 beside a 0.3 m slot floor (0.034, quadrature 0.057). Trunk / wall / ground stay within 0.07 of their own truth.
+  A one-face block matches the inline path (0.466 vs 0.468, 0.616 vs 0.612, 0.628 vs 0.626).
+- Timing: WARM steady state (warm-up `Logs/tg2world_20261117_045823.txt`). One cost-split launch, arms F, then X X F (ABBA), High, 432 rows,
+  play flags (`Logs/overnight/227/costsplit_day.txt`). PLAN written before measuring: `Logs/overnight/227/PLAN.md`.
+  p50 ms        inline(before)   2x2     4x4(default)   sky fill off
+  walk_near        106.8         78.0      72.3           66.3      -> sky fill cost 40.5 -> 6.0 ms
+  forest_eye       140.4        108.9     102.5           90.5      -> 49.9 -> 12.0 ms
+  jungle_eye       109.8         75.4      66.5           68.1      -> 41.7 -> ~0 (framing shifts between arms here, known 221 issue)
+  4x4 beat 2x2 by >= 5 ms at every pose with no visible cost. Per PLAN that makes 4x4 the default.
+- Pictures (diff vs the inline path; `Logs/overnight/227/diff.txt`; noise floor 221): mean|d| / px>32 %: walk_near 2x2 1.82/0.17, 4x4 1.99/0.29
+  (floor 0.90/0.03; sky fill off 2.60/0.44); forest 1.99/0.16, 2.14/0.22 (floor 2.06/0.36; off 9.26/12.95); jungle 1.92/0.37, 2.12/0.35
+  (floor 0.67/0.08; off 11.99/7.55); torch_camp night 1.09/0.02, 1.01/0.01 (floor 0.80/0.01). The zooms show what the residual is:
+  the old path's per-pixel speckle on far shaded ground and on trunks is gone, and there is NO bleed at trunk edges or trunk feet.
+- Rule 11/12: P1 GPU bytes +2.65 MB (history 2 x 768 x 432 x 12 B = 7.96 MB, was 5.3; +7.4 MB at 1280x720). Process peak 2,564.9 MB (day)
+  / 2,495.6 (night) vs 226's 2,548 / 2,558. GPU refusals 0 / 0 / 5,787 (walk / forest / jungle; 226: 0 / 0 / 7,979, same path effect).
+  CPU pool peak 497,865 (226: 496,935). P2 pass card CSSkyFillTrace: render rows, every frame, 1 thread per 4x4 block, 1 sky-fill ray
+  (2 legs on a ground half) + 16 record reads + <= 16 read-modify-writes; 8.17 sky-fill/shade step, its share drops from ~40 to ~6 ms.
+  P5: sky-fill rays/frame drop from 1 per tier-0 pixel to 1/16 + orphans. No counter line exists: the ShadowStats counters live in the
+  Diag kernels this build strips. Not HEAVY: no output-res pass, no new per-pixel march, peak within +50 MB.
 ## Left / next
-- The budget-check task (230) could time `bloom_off` to give bloom's real ms.
-- LotL gaps this does NOT close: green/warm multi-bounce light in the shade (jungle stays dark; see 225), volumetric clouds and a paler
-  sky (our zenith is still saturated blue), denser hand-shaped trees, authored objects, turquoise water.
-- Aerial 1100 m: at 2 km the haze is ~84 % (was 67 %). Far ridges stay visible as silhouettes, and the 6.5 km terrain still draws, but far
-  terrain reads softer. `-aerialrange 1800` (or `-aerial 0`) gives the old haze back if the owner wants crisper far views. Nothing is
-  simulated or streamed differently.
-- The night launch first ran with the wrong arms (my sed missed). It was re-run. The night stills are from the second run.
-- Not committed (not mine): `Assets/Scenes/Playground.unity` (scene builder), `Logs/TerrainGen/*` edits.
+- Fast-lighting idea for the preset ladder, as numbers only (defaults unchanged): 4x4 = 72 ms at walk_near. "Lumen-Low-like" further
+  steps would be a sky-ray distance cap or 8x8 blocks. Not done: one performance change per measurement.
+- The default flip to 4 is a C# default plus a shader comment, made after the measured build. The 4x4 code ran as arm sfres4 in that build.
+  The next build carries it.
+- Not committed (not mine): `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*` edits.
 
 ## For the doc
-- Four look pieces, all ON: per-voxel colour, crevice shade, aerial haze, bloom. Each has its own switch (`-voxvary/-crevice/-aerial/-bloom 0` = off).
-- GPU memory added: 0 MB for pieces 1-3, 0.33 MB for bloom (quarter-res). No pass at output resolution. Process peak 2,548 MB (day launch).
-- Haze range 1800 -> 1100 m: far mountains hazier and bluer. Desaturation 0.5 -> 0.75.
-- Night torch_camp: median luma 24.4 -> 24.6, black px 10.5 -> 9.9 % (`Logs/overnight/226/diff.txt`). Torch heads now glow.
-- `Screenshots/226/sheets/doc_sheet.png`: rows walk_near / forest_eye / jungle_eye / torch_camp; columns before, + each piece alone,
-  all four. Look at the walk_near wall (column 2 vs 1): flat grey becomes varied stones. Look at the torch row (column 5): glow round torches.
-- `Screenshots/226/sheets/forest_eye_full_before.png` / `forest_eye_full_after.png`: full-size pair. Flip between them and watch the far
-  mountain top-left turn paler and bluer, and the bark and grass get per-voxel variation.
-- `Screenshots/226/sheets/sheet_lotl.png`: ours before | ours after | Lay of the Land. Closer: stone and bark read as many slightly
-  different blocks, and far hills fade toward the sky. Still far: their lit, warm shade, clouds and pale sky, big trees, and buildings.
+- Sky fill (shade light) now traces one ray per 4x4 pixel block instead of one per pixel (`-skyfillres 1` = old). walk_near p50 106.8 -> 72.3 ms;
+  forest_eye 140.4 -> 102.5 ms; jungle_eye 109.8 -> 66.5 ms (warm, ABBA; `Logs/overnight/227/costsplit_day.txt`).
+- Sky fill's own cost: ~40-50 ms -> ~6-12 ms. Sky fill off would be 66.3 ms at walk_near, so the shade light now costs ~6 ms.
+- GPU memory +2.65 MB (history record 8 -> 12 B). Process peak 2,565 MB.
+- `Screenshots/227/sheets/doc_sheet.png`: rows walk_near / forest / jungle / torch_camp night; columns before | 2x2 | 4x4 | sky fill off.
+  Columns 1-3 look the same; only column 4 (off) shows the black trunks this light fixes.
+- `Screenshots/227/sheets/zoom4_forest_eye.png` (and `zoom4_jungle_eye.png`): trunk feet at 3x, before | 2x2 | 4x4. Look at the trunk edges:
+  no grass colour bleeds onto bark and no halo forms. Before has dark speckles on the bark and far ground; after is smoother.
