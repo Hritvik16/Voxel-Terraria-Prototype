@@ -1,5 +1,5 @@
 # 221-look-lighting-off-pictures: DONE -- pictures of each lighting switch off (sky fill, torch flood, sun shadows, all three) at 4 poses
-## What changed: no code. TASKS.md "Task 221" (commit below). Runner `Logs/overnight/221/run.sh`, sheets/diff `Logs/overnight/221/sheets.py` (Logs git-ignored).
+## What changed: no code. TASKS.md "Task 221" (commit 7b2c0a3). Runner `Logs/overnight/221/run.sh`, sheets/diff `Logs/overnight/221/sheets.py` (Logs git-ignored).
 ## How: release player (219's build), play's flags, High, 432 rows, shell wait 60 s, `-costtimed 1` (stills only; NO timing quoted -- the ms below are 212's).
 Poses: walk_near, forest_eye, jungle_eye (219's, noon, sun behind) + torch_camp (task 151's 32-torch night scene, 28 placed, flood I 1.6 k 0.35).
 NOT one launch: 7 (the tool cannot stack arms; listed in run.sh): day (A,B,C,D) 81 min, dayE (E) 44 min, night/nightE/nightA/nightB 4-5 min each,
