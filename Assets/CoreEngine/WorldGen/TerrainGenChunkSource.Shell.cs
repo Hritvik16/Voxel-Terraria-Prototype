@@ -240,7 +240,10 @@ namespace VoxelEngine.WorldGen
                 return half;
             }
 
-            var stats = new NativeArray<int>(4, Allocator.TempJob);
+            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
+            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
+            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
+            var stats = new NativeArray<int>(4, Allocator.Persistent);
             try
             {
                 new ShellVoxelJob

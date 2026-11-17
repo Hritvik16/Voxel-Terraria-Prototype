@@ -113,17 +113,20 @@ namespace VoxelEngine.WorldGen
             if ((!ShellFill && !force) || !FillsShell(output.Shell) || output.IsUniformAir) return;
             int k = output.Shell;
             int3 origin = output.Coord << (CHUNK_SHIFT + k);
-            var boxes = new NativeList<int3>(Allocator.TempJob);
-            var stats = new NativeArray<int>(8, Allocator.TempJob);
-            var pass = new NativeArray<byte>(256, Allocator.TempJob);
-            var open = new NativeArray<ulong>(128 * 128 * 128 / 64, Allocator.TempJob);
-            var lyOpen = new NativeArray<int>(128 * 128, Allocator.TempJob);
-            var halo = new NativeArray<int>(4 * 128, Allocator.TempJob);
-            var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-            var head = new NativeArray<int>(128 * 128, Allocator.TempJob);
-            var cand = new NativeList<int>(1024, Allocator.TempJob);
-            var next = new NativeList<int>(1024, Allocator.TempJob);
-            var scanLo = new NativeArray<int>(128 * 128, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
+            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
+            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
+            var boxes = new NativeList<int3>(Allocator.Persistent);
+            var stats = new NativeArray<int>(8, Allocator.Persistent);
+            var pass = new NativeArray<byte>(256, Allocator.Persistent);
+            var open = new NativeArray<ulong>(128 * 128 * 128 / 64, Allocator.Persistent);
+            var lyOpen = new NativeArray<int>(128 * 128, Allocator.Persistent);
+            var halo = new NativeArray<int>(4 * 128, Allocator.Persistent);
+            var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
+            var head = new NativeArray<int>(128 * 128, Allocator.Persistent);
+            var cand = new NativeList<int>(1024, Allocator.Persistent);
+            var next = new NativeList<int>(1024, Allocator.Persistent);
+            var scanLo = new NativeArray<int>(128 * 128, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             try
             {
                 if (ops != null)
@@ -208,7 +211,7 @@ namespace VoxelEngine.WorldGen
             // only if the coarse value is below (0.0156 + 0.71 V G) / 0.0084.
             private const float LINE_W_MAX = 0.0156f, LINE_W_MIN = 0.0084f, LINE_GRAD = 1.74f * 3.5f / 2200f;
 
-            // Scratch the caller allocates (TempJob) and disposes; zeroed.
+            // Scratch the caller allocates (Persistent since task 223) and disposes; zeroed.
             public NativeArray<byte> _pass;
             public NativeArray<ulong> _open;
             public NativeArray<int> _lyOpen;    // per column: first ly whose sample is above h - V (unclamped)

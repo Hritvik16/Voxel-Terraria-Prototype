@@ -1934,3 +1934,11 @@ search snippets for X). Findings, table and options: `RESEARCH_LAY_OF_THE_LAND.m
 (ours High 219 vs 3 official Steam shots; git-ignored; Steam images are linked, not committed). Dev devlogs carry no captions (music-only);
 `yt-dlp` not installed. Key: 10 cm voxels (QUOTED), UE5 Lumen, meshed terrain (INFERRED), finite pre-generated world, MIN GTX 1660 Ti 1080p
 Low 30 fps (~2.1x M1's 2.6 TF). Result: HANDOFF 222.
+
+**Task 223 (bug audit: Temp/TempJob allocations in and around jobs; no switch).** Table and evidence: `AUDIT_TEMP_ALLOC.md`. Only three
+`IJobParallelFor`s exist (FarQuery `PointJob`, fixed by 218; FarField `FillRegionJob` / `FillTg2Job`, no heap allocation); every Temp in a
+single `IJob` is made once per `Execute`; nothing has a peak above 50 MB. The "older than 4 frames" / "JobTempAlloc" warnings were
+`Allocator.TempJob` scratch held for a whole chunk build on the streaming worker threads (`Generate`, `GenerateShellChunkRaw`,
+`FillShellChunk`); no logged stack ever named TorchFloodBuild. Fix: those 16 allocations -> `Allocator.Persistent` (same sizes, freed in
+the same `finally`). Explicit probe `GenScratchHashTests.GeneratorOutput_Hash` (`HASH_TAG=<tag>`, writes `Logs/TerrainGen/temp223/hash_<tag>.txt`):
+identical hashes before/after. Launch pair `Logs/overnight/223_pair.sh`: warnings 169 + 68 -> 0 + 0, peak 2,528 -> 2,516 MB. Result: HANDOFF 223.

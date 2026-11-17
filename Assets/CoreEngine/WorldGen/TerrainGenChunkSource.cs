@@ -482,7 +482,10 @@ namespace VoxelEngine.WorldGen
                 return;
             }
 
-            ColumnPass own = pass == null ? new ColumnPass(Allocator.TempJob) : null;
+            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
+            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
+            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
+            ColumnPass own = pass == null ? new ColumnPass(Allocator.Persistent) : null;
             var cp = pass ?? own;
             NativeArray<byte> mats = default, uniform = default;
             NativeArray<bool> isUniform = default;
@@ -521,10 +524,10 @@ namespace VoxelEngine.WorldGen
                 if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
                 else chunk.bricks = allocator.Alloc();
 
-                mats = new NativeArray<byte>(E * E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-                uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-                isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-                stats = new NativeArray<int>(4, Allocator.TempJob);
+                mats = new NativeArray<byte>(E * E * E, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
+                isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
+                stats = new NativeArray<int>(4, Allocator.Persistent);
                 new VoxelJob
                 {
                     toEngine = _toEngine, spec = Spec, o = O, origin = coord * E,
