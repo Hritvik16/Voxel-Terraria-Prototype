@@ -1,0 +1,16 @@
+pose        view    arm         whole: mean|d|  px>32%   | top third      | middle third   | bottom third (near)   floor (clean)
+walk_near   clean   full         2.03   0.41 |   0.51   0.08 |   2.03   0.30 |   3.54   0.84   0.90 / 0.03
+walk_near   clean   sun_off      2.52   0.66 |   0.51   0.01 |   2.56   0.43 |   4.49   1.53   0.90 / 0.03
+forest_eye  clean   full         1.88   0.20 |   1.41   0.17 |   2.91   0.35 |   1.30   0.07   2.06 / 0.36
+forest_eye  clean   sun_off      9.36  10.97 |   6.68   5.29 |  14.49  18.65 |   6.91   8.96   2.06 / 0.36
+jungle_eye  clean   full         1.72   0.10 |   1.16   0.03 |   1.80   0.06 |   2.21   0.22   0.67 / 0.08
+jungle_eye  clean   sun_off     11.45  10.63 |   5.23   0.24 |   8.04   1.40 |  21.07  30.25   0.67 / 0.08
+walk_near   sunvis  full         1.91   1.28 |   5.70   3.82 |   0.02   0.03 |   0.00   0.00   0.90 / 0.03
+            zoom at x 1202..1362, y 192..282 of 1920x1080
+walk_near   sunvis  sun_off      1.04   0.59 |   0.92   0.75 |   0.03   0.03 |   2.17   0.99   0.90 / 0.03
+forest_eye  sunvis  full         2.76   2.52 |   5.74   5.78 |   2.52   1.77 |   0.01   0.01   2.06 / 0.36
+            zoom at x 1202..1362, y 307..397 of 1920x1080
+forest_eye  sunvis  sun_off     70.80  34.94 |  84.54  42.22 | 104.81  52.07 |  23.05  10.53   2.06 / 0.36
+jungle_eye  sunvis  full         0.53   0.35 |   0.02   0.03 |   1.58   1.02 |   0.01   0.01   0.67 / 0.08
+            zoom at x 1760..1920, y 528..618 of 1920x1080
+jungle_eye  sunvis  sun_off    144.57  68.61 | 155.88  67.56 | 140.45  71.35 | 137.39  66.91   0.67 / 0.08
