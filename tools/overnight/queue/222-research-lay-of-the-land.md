@@ -31,3 +31,9 @@ sand simulation (voxels under gravity), "thousands of moving voxels simulated", 
 
 ## End
 HANDOFF with `## For the doc`: the 6-10 key facts, the table, the side-by-side picture with captions, and the options in plain words.
+
+## Owner addition (2026-11-16): large-scale simulation
+One devlog shows a large-scale falling-sand style simulation (owner's recollection; verify). Find that video, and in the doc say: what is simulated
+(sand, water, both), how many cells / how big an area, how often it ticks, on what hardware, how it is stored (separate grid vs the voxel data), and
+whether it runs on CPU or GPU if stated (quote or tag INFERRED). Compare with our fluid sim (GPU CA, fixed 6.5 Hz + adaptive drain, task 91/97) and say in
+plain words whether they get it cheaper and how we could too. Options only, no redesign.
