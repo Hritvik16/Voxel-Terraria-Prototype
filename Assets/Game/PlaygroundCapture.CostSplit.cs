@@ -158,6 +158,8 @@
 //   TASK 219 (perf feasibility ladder; capture only, opt-in): -costfixed "name|ex,ey,ez|ax,ay,az;..." times still poses
 //            after walk_near (walk_open dropped, as with cliff), at the launch's hours; -costarms none = FULL only;
 //            every path ends with a [mem] line (MemoryLedger.Step14Line: pools, GPU refusals, process peak).
+//   TASK 226 (look, stills only): arms lotl_off (the four look-polish pieces off = before 226), vary_only, crevice_only,
+//            aerial_only, bloom_only (one piece on), vary_off, crevice_off, aerial_off, bloom_off (all but one).
 //   TASK 225 (look, stills only): arms lookfix_off (= before 225), lookexact_off, skylinear_off; -shadeprobe 1 adds the
 //            SHADE TERMS stills shade15..18 (debug views 15-18; decoder Logs/overnight/225/probe.py, sim.py).
 using System.Collections;
@@ -444,11 +446,25 @@ public partial class PlaygroundCapture
         // Task 225: lookfix_off (both off = before 225), lookexact_off, skylinear_off (FULL keeps the launch's values).
         RaymarchFeature.LookExactSrgb = arm != "lookfix_off" && arm != "lookexact_off" && _costBaseLookExact;
         RaymarchFeature.SkyShareLinear = arm != "lookfix_off" && arm != "skylinear_off" && _costBaseSkyLinear;
+        // Task 226: lotl_off (all four off = before 226); X_only = only that piece on (the "after one piece" picture);
+        // X_off = all but X. FULL keeps the launch's values.
+        RaymarchFeature.VoxelVary = CostLotlPiece(arm, "vary", _costBaseVary);
+        RaymarchFeature.Crevice = CostLotlPiece(arm, "crevice", _costBaseCrevice);
+        RaymarchFeature.AerialHaze = CostLotlPiece(arm, "aerial", _costBaseAerial);
+        RaymarchFeature.Bloom = CostLotlPiece(arm, "bloom", _costBaseBloom);
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
         // Task 151: tl_K_I_R / tl_none torch arms (PlaygroundCapture.TorchCost.cs); no-op without -costpaths torch.
         CostTorchApply(arm);
+    }
+
+    /// Task 226: one look piece's state in an arm (see CostApply).
+    private static bool CostLotlPiece(string arm, string piece, bool launchValue)
+    {
+        if (arm == "lotl_off" || arm == piece + "_off") return false;
+        if (arm == "vary_only" || arm == "crevice_only" || arm == "aerial_only" || arm == "bloom_only") return arm == piece + "_only";
+        return launchValue;
     }
 
     /// Task 225: `-shadeprobe 1` adds the SHADE TERMS stills (views 15-18) to every arm's still set.
@@ -464,6 +480,7 @@ public partial class PlaygroundCapture
     private static int _costBaseSkyTilt;
     private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
     private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
+    private static bool _costBaseVary = true, _costBaseCrevice = true, _costBaseAerial = true, _costBaseBloom = true;   // task 226
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -646,7 +663,9 @@ public partial class PlaygroundCapture
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
                                  _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill;   // task 212
-                                 _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear; }   // task 225
+                                 _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
+                                 _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
+                                 _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

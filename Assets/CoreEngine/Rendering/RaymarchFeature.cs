@@ -636,6 +636,28 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool SkyShareLinear = ReadIntArg("-skylinear", 1) != 0;
     public static int LookFixBits => (LookExactSrgb ? 1 : 0) | (SkyShareLinear ? 2 : 0);
 
+    /// TASK 226 (look, owner Q-AN 2026-11-16: "cheap look polish ... closer to Lay of the Land"): four pieces, each its
+    /// own switch (Raymarch.compute _LotlLook / LotlVoxelVary / the BLOOM kernels). `-voxvary 0`: no per-voxel
+    /// brightness / warm-cool swing. `-crevice 0`: FaceAO back on the ambient only. `-aerial 0`: the haze range
+    /// SkyHazeRangeM (1800 m) and desaturation 0.5 again. `-bloom 0`: no bloom. None adds storage except bloom's two
+    /// quarter-res half4 textures (render-graph transients; 0.2-0.5 MB). Off = the pre-226 image.
+    public static bool VoxelVary = ReadIntArg("-voxvary", 1) != 0;
+    public static bool Crevice = ReadIntArg("-crevice", 1) != 0;
+    public static bool AerialHaze = ReadIntArg("-aerial", 1) != 0;
+    public static bool Bloom = ReadIntArg("-bloom", 1) != 0;
+    /// Task 226: bytes of bloom's two quarter-res textures this frame (0 = off); the HANDOFF's GPU-bytes line.
+    public static long LastBloomBytes;
+    public static int LotlLookBits => (VoxelVary ? 1 : 0) | (Crevice ? 2 : 0) | (AerialHaze ? 4 : 0);
+    /// Their constants. Vary: +-12 % brightness on the darkest look albedo, +-6 % on white (a light material would
+    /// clip), +-3 % warm/cool. Crevice: the direct light takes half of FaceAO's depth. Aerial: haze range and the
+    /// desaturation share (task 121's 0.5 -> 0.75). Bloom: bright share smoothstep(0.55, 1.0) of linear luma, strength,
+    /// blur sigma in quarter-res texels.
+    public const float VaryAmplitude = 0.12f, VaryHue = 0.03f, CreviceDirectShare = 0.5f, AerialDesaturation = 0.75f;
+    public static float AerialHazeRangeM = ReadFloatArg("-aerialrange", 1100f);
+    public const float BloomT0 = 0.55f, BloomT1 = 1.0f, BloomSigma = 2.5f;
+    public static float BloomStrength = ReadFloatArg("-bloomk", 0.6f);
+    public static Vector4 LotlParams => new Vector4(VaryAmplitude, VaryHue, CreviceDirectShare, AerialDesaturation);
+
     /// TASK 194 (bug fix, default ON): the REFUSED-CHUNK HAND-OVER (Raymarch.compute, the block of that name):
     /// while the near GPU body pool holds refused chunks, a tier-0 hit past the ray's entry into a
     /// non-resident column goes to the shells, which draw the refused chunk. `-refusedhandover 0` = the old
@@ -770,6 +792,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public Matrix4x4 tsPrevVP;
             public int skyFill, sfValid;                 // task 193
             public int lookFix;                          // task 225
+            public int lotlLook;                         // task 226
+            public Vector4 lotlParams;                   // task 226
+            public int kBloomDown = -1, kBloomBlur = -1, kBloomAdd = -1;   // task 226 (-1 = bloom off this frame)
+            public TextureHandle bloomA, bloomB;         // task 226: quarter-res ping-pong
+            public Vector4 bloomParams;
             public uint sfFrame;
             public GraphicsBuffer sfRead, sfWrite;
             public Matrix4x4 sfPrevVP;
@@ -1000,6 +1027,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 ? UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTaaCur", false)
                 : TextureHandle.nullHandle;
 
+            // Task 226: bloom's two quarter-res textures (render-graph transients; used only if the pass below keeps bloom on).
+            bool bloomWant = Bloom && !useStripped && !useMemoryProbe && _debugMode == 0 && taaCam.cameraType == CameraType.Game
+                          && activeCompute.HasKernel("BloomAdd");
+            TextureHandle bloomA = TextureHandle.nullHandle, bloomB = TextureHandle.nullHandle;
+            if (bloomWant)
+            {
+                var bd = desc;
+                bd.width = Mathf.Max(1, (dispatchW + 3) >> 2);
+                bd.height = Mathf.Max(1, (dispatchH + 3) >> 2);
+                bd.graphicsFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat;
+                bloomA = UniversalRenderer.CreateRenderGraphTexture(renderGraph, bd, "_RaymarchBloomA", false);
+                bloomB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, bd, "_RaymarchBloomB", false);
+                LastBloomBytes = 2L * bd.width * bd.height * 8L;
+            }
+            else LastBloomBytes = 0L;
+
             using (var builder = renderGraph.AddComputePass<ComputePassData>("VoxelRaymarch_Compute", out var passData))
             {
                 var clip = TerrainClipmap.Active;
@@ -1058,6 +1101,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 int sfMode = ValidSkyFill(SkyFill);
                 passData.skyFill = sfMode;
                 passData.lookFix = LookFixBits;   // task 225
+                passData.lotlLook = LotlLookBits;   // task 226
+                passData.lotlParams = LotlParams;
+                passData.kBloomDown = passData.kBloomBlur = passData.kBloomAdd = -1;
+                passData.bloomA = bloomA; passData.bloomB = bloomB;
+                passData.bloomParams = new Vector4(BloomT0, BloomT1, BloomStrength, BloomSigma);
                 if (sfMode != 0)
                 {
                     if (_sfA == null || _sfW != dispatchW || _sfH != dispatchH)
@@ -1261,7 +1309,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
                 passData.riverLook = RiverLook ? 1 : 0;
-                passData.farShadeParams = new Vector4(FarShadeSkyStrength, (SkyHaze ? SkyHazeRangeM : FarShadeHazeRangeM) * 10f,
+                passData.farShadeParams = new Vector4(FarShadeSkyStrength, (SkyHaze ? (AerialHaze ? AerialHazeRangeM : SkyHazeRangeM) : FarShadeHazeRangeM) * 10f,
                                                       FarShadeHazeScaleHeightM * 10f, FarShadeLightHaze);
                 {
                     var farR = VoxelEngine.Rendering.FarField.Active;
@@ -1592,6 +1640,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.maxRayDistance = MaxRayDistance;
                 }
 
+                // Task 226: bloom only on the look-1 image (the look this was tuned on).
+                if (bloomWant && passData.look == 1)
+                {
+                    passData.kBloomDown = activeCompute.FindKernel("BloomDown");
+                    passData.kBloomBlur = activeCompute.FindKernel("BloomBlur");
+                    passData.kBloomAdd = activeCompute.FindKernel("BloomAdd");
+                    builder.UseTexture(bloomA, AccessFlags.ReadWrite);
+                    builder.UseTexture(bloomB, AccessFlags.ReadWrite);
+                }
                 builder.UseTexture(target, AccessFlags.Write);
                 if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
                 if (passData.kSunDefer >= 0) builder.UseTexture(passData.sunDeferB, AccessFlags.ReadWrite);   // task 168c
@@ -1709,6 +1766,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_SkyProbeTilt", data.skyProbeTilt);
                         cmd.SetComputeIntParam(data.compute, "_SkyFill", data.skyFill);              // task 193
                         cmd.SetComputeIntParam(data.compute, "_LookFix", data.lookFix);              // task 225
+                        cmd.SetComputeIntParam(data.compute, "_LotlLook", data.lotlLook);            // task 226
+                        cmd.SetComputeVectorParam(data.compute, "_LotlParams", data.lotlParams);
                         cmd.SetComputeIntParam(data.compute, "_SkyHistValid", data.sfValid);
                         cmd.SetComputeIntParam(data.compute, "_SkyFrame", (int)data.sfFrame);
                         cmd.SetComputeMatrixParam(data.compute, "_SkyPrevViewProj", data.sfPrevVP);
@@ -1986,6 +2045,30 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeTextureParam(data.compute, data.kTaaSharpen, "ResultTexture", data.target);
                         cmd.DispatchCompute(data.compute, data.kTaaSharpen, threadGroupsX, threadGroupsY, 1);
                         cmd.EndSample("VE.Raymarch.Taa");
+                    }
+                    // Task 226: BLOOM, after the frame's last writer, before FSR 3 (a later render-graph pass).
+                    if (data.kBloomDown >= 0)
+                    {
+                        cmd.BeginSample("VE.Raymarch.Bloom");
+                        int qw = (data.dispatchWidth + 3) >> 2, qh = (data.dispatchHeight + 3) >> 2;
+                        cmd.SetComputeVectorParam(data.compute, "_BloomParams", data.bloomParams);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDims", data.dispatchWidth, data.dispatchHeight, qw, qh);
+                        int qgx = (qw + 7) / 8, qgy = (qh + 7) / 8;
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomDown, "ResultTexture", data.target);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomDown, "BloomDst", data.bloomA);
+                        cmd.DispatchCompute(data.compute, data.kBloomDown, qgx, qgy, 1);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDir", 1, 0);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomSrc", data.bloomA);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomDst", data.bloomB);
+                        cmd.DispatchCompute(data.compute, data.kBloomBlur, qgx, qgy, 1);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDir", 0, 1);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomSrc", data.bloomB);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomDst", data.bloomA);
+                        cmd.DispatchCompute(data.compute, data.kBloomBlur, qgx, qgy, 1);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomAdd, "BloomSrc", data.bloomA);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomAdd, "ResultTexture", data.target);
+                        cmd.DispatchCompute(data.compute, data.kBloomAdd, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.Bloom");
                     }
                 });
             }

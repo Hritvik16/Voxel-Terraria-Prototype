@@ -18,7 +18,7 @@ public class SkyLookTests
         StringAssert.Contains("SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), \"-skyhaze\")", cs);
         StringAssert.Contains("\"_SkyLook\", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0)", cs, "the flags reach the shader");
         StringAssert.Contains("\"_LookSkyRim\", data.lookSkyRim", cs);
-        StringAssert.Contains("(SkyHaze ? SkyHazeRangeM : FarShadeHazeRangeM) * 10f", cs, "-skyhaze 0 keeps the 3500 m range");
+        StringAssert.Contains("(SkyHaze ? (AerialHaze ? AerialHazeRangeM : SkyHazeRangeM) : FarShadeHazeRangeM) * 10f", cs, "-skyhaze 0 keeps the 3500 m range (task 226: -aerial picks the sky-haze range)");
         Assert.AreEqual(3500f, RaymarchFeature.FarShadeHazeRangeM, "the old range is unchanged");
         Assert.Less(RaymarchFeature.SkyHazeRangeM, RaymarchFeature.FarShadeHazeRangeM);
     }

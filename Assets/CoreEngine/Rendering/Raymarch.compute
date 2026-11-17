@@ -91,6 +91,10 @@
 #pragma kernel FarMipBuild
 #pragma kernel TaaResolve
 #pragma kernel TaaSharpen
+// TASK 226 (look): bloom, a post step at a QUARTER of the render rows (RaymarchFeature.Bloom, -bloom 0|1).
+#pragma kernel BloomDown
+#pragma kernel BloomBlur
+#pragma kernel BloomAdd
 #pragma kernel CSMainChecker
 // TASK 24: CSMain + the voxel-detail square (DetailRadius.cs). Every task-24
 // line is under #ifdef VE_DETAIL_SPEED, so CSMain/CSMainChecker compile from
@@ -1251,6 +1255,30 @@ float3 LookAlbedo(uint mat, int3 voxel)
         baseColor = lerp(mixColor, colorDeep, smoothstep(0.3, 0.9, noiseMedium));
     }
     return baseColor + noiseDetail;
+}
+
+// ---- TASK 226 (look, owner Q-AN 2026-11-16: "cheap look polish ... closer to Lay of the Land") ----
+// _LotlLook (RaymarchFeature.LotlLookBits; every bit ON by default, 0 = the pre-226 look byte for byte):
+//   bit 0 VOXEL VARY  (-voxvary): every voxel its own brightness (+-A) and a slight warm/cool shift (+-_LotlParams.y),
+//                     from two position hashes -- world-anchored, so stable under FSR / TAA. A comes from the
+//                     material's OWN look albedo (darker material -> larger relative swing, so light ones do not
+//                     clip): A = lerp(_LotlParams.x, _LotlParams.x * 0.5, luma). Fades out where a voxel is < 4 px
+//                     -> 2 px (it would only alias there); fluids, self-lit and emitting materials keep their colour.
+//   bit 1 CREVICE     (-crevice): FaceAO (task-old VAO, the 8 occupancy reads the hit already pays) also darkens the
+//                     DIRECT term by _LotlParams.z of its depth; before, it touched only the ambient, so on a sunlit
+//                     face (most of a day frame) crevices did not show. No new read.
+//   bit 2 AERIAL      (-aerial): FarShadeApplyHaze's desaturation share _LotlParams.w (was 0.5); the haze range
+//                     itself is RaymarchFeature.AerialHazeRangeM (in _FarShadeParams.y, set on the CPU).
+// Bloom (-bloom) is not a bit here: it is its own post step (BloomDown / BloomBlur / BloomAdd below).
+int    _LotlLook;
+float4 _LotlParams;   // x vary amplitude (dark end), y hue shift, z crevice share of direct, w aerial desaturation
+float3 LotlVoxelVary(uint mat, int3 v, float fade)
+{
+    float luma = dot(MaterialAlbedoLook(mat), float3(0.2126, 0.7152, 0.0722));
+    float amp = lerp(_LotlParams.x, _LotlParams.x * 0.5, saturate(luma)) * fade;
+    float b = VoxelHash(v.zxy + int3(7919, 104729, 1299709)) * 2.0 - 1.0;
+    float t = VoxelHash(v.yzx + int3(15485863, 32452843, 49979687)) * 2.0 - 1.0;
+    return (1.0 + amp * b) * (1.0 + _LotlParams.y * fade * t * float3(1.0, 0.0, -1.0));
 }
 
 // Self-lit materials skip the darkening terms so they stay hot. This is a
@@ -4102,7 +4130,7 @@ float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distV
         // Task 125 (bit 2, -edgefade): that fade is DrawnEdgeFade instead, the pixel's last step.
         if ((_SkyLook & 4) == 0) h = max(h, DrawnEdgeAmount(rayDir, distVoxels));
         // Aerial perspective also takes colour out (half the haze amount).
-        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, 0.5 * h);
+        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, ((_LotlLook & 4) != 0 ? _LotlParams.w : 0.5) * h);   // task 226 bit 2
     }
     return lerp(lit, LookAtmosphere(rayDir), h) + lightAdd * (h * (1.0 - _FarShadeParams.w));
 }
@@ -5865,6 +5893,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
             float3 baseColor = LookAlbedo(lm, voxel);
 #endif
+            if ((_LotlLook & 1) != 0 && !selfLit && MaterialEmissive(lm) <= 0.0 && !MaterialIsClearFluid(RiverLipAsWater(lm)))
+            {   // task 226 bit 0: per-voxel colour (the drawn cell's hash, as LookAlbedo's)
+#ifdef VE_FAR_SHADE
+                float vpa = max(_ShellPixelAngle, 1e-6);
+                baseColor *= LotlVoxelVary(lm, _CellHash != 0 ? (voxel >> cellShift) << cellShift : voxel,
+                                           1.0 - smoothstep(0.25 / vpa, 0.5 / vpa, currentDist));   // 4 px -> 2 px
+#else
+                baseColor *= LotlVoxelVary(lm, voxel, 1.0);
+#endif
+            }
             if (_RiverLook != 0 && lm == 6u && passMat == 0u && normal.y > 0)   // task 76: flow and foam
             {
                 float rb;
@@ -5941,6 +5979,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
 #endif
+            if ((_LotlLook & 2) != 0)   // task 226 bit 1: crevices also shade the direct light
+            {
+#ifdef VE_FAR_SHADE
+                direct *= lerp(1.0, lerp(vao, 1.0, aoFade), _LotlParams.z);
+#else
+                direct *= lerp(1.0, vao, _LotlParams.z);
+#endif
+            }
 
             float3 hitPosM = hitP * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
@@ -6933,6 +6979,74 @@ void TaaSharpen(uint3 id : SV_DispatchThreadID)
     float3 lo = min(c, min(min(l, r), min(d, u)));
     float3 hi = max(c, max(max(l, r), max(d, u)));
     ResultTexture[id.xy] = float4(clamp(s, lo, hi), 1.0);
+}
+
+// ===========================================================================
+// TASK 226 (look, owner Q-AN): BLOOM. Three small kernels after the frame's last writer (the march, the
+// sun-defer pass or TAA) and before FSR 3, so it adds no pass at OUTPUT resolution:
+//   BloomDown  quarter-res (render w/4 x h/4): 16 loads per texel; each render pixel's bright share is
+//              smoothstep(t0, t1, its linear luma) -- thresholded per pixel BEFORE the average, so a 1-2 px torch
+//              head still blooms.
+//   BloomBlur  quarter-res, separable Gaussian (sigma _BloomParams.w texels, 2 * 3 sigma + 1 taps), run twice
+//              (x then y; BloomSrc -> BloomDst, the C# side swaps the two).
+//   BloomAdd   render res: one bilinear read of the blurred quarter image (4 loads), + strength x it, in linear.
+// The frame is LDR (the look saturates in LookToLinear), so what blooms is what is already near white: torch
+// heads, lava, the sky round the sun, bright snow / sand. GPU memory: two quarter-res half4 textures.
+// ===========================================================================
+RWTexture2D<float4> BloomSrc;
+RWTexture2D<float4> BloomDst;
+float4 _BloomParams;   // x t0, y t1 (linear luma), z strength, w blur sigma (quarter-res texels)
+int4   _BloomDims;     // x, y render size; z, w quarter size
+int2   _BloomDir;
+
+[numthreads(8, 8, 1)]
+void BloomDown(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.z || (int)id.y >= _BloomDims.w) return;
+    int2 hi = _BloomDims.xy - 1;
+    float3 s = float3(0.0, 0.0, 0.0);
+    [unroll] for (int y = 0; y < 4; y++)
+    [unroll] for (int x = 0; x < 4; x++)
+    {
+        float3 c = ResultTexture[min(int2(id.xy) * 4 + int2(x, y), hi)].rgb;
+        s += c * smoothstep(_BloomParams.x, _BloomParams.y, dot(c, float3(0.2126, 0.7152, 0.0722)));
+    }
+    BloomDst[id.xy] = float4(s * (1.0 / 16.0), 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void BloomBlur(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.z || (int)id.y >= _BloomDims.w) return;
+    int2 hi = _BloomDims.zw - 1;
+    float sig = max(_BloomParams.w, 0.5);
+    int r = min((int)ceil(3.0 * sig), 12);
+    float3 s = float3(0.0, 0.0, 0.0);
+    float wsum = 0.0;
+    for (int i = -r; i <= r; i++)
+    {
+        float w = exp(-0.5 * (i * i) / (sig * sig));
+        s += BloomSrc[clamp(int2(id.xy) + _BloomDir * i, int2(0, 0), hi)].rgb * w;
+        wsum += w;
+    }
+    BloomDst[id.xy] = float4(s / wsum, 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void BloomAdd(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.x || (int)id.y >= _BloomDims.y) return;
+    float2 q = (float2(id.xy) + 0.5) * 0.25 - 0.5;   // this pixel's centre in quarter-res texels
+    int2 q0 = (int2)floor(q);
+    float2 f = q - (float2)q0;
+    int2 hi = _BloomDims.zw - 1;
+    float3 b00 = BloomSrc[clamp(q0, int2(0, 0), hi)].rgb;
+    float3 b10 = BloomSrc[clamp(q0 + int2(1, 0), int2(0, 0), hi)].rgb;
+    float3 b01 = BloomSrc[clamp(q0 + int2(0, 1), int2(0, 0), hi)].rgb;
+    float3 b11 = BloomSrc[clamp(q0 + int2(1, 1), int2(0, 0), hi)].rgb;
+    float3 b = lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+    float4 c = ResultTexture[id.xy];
+    ResultTexture[id.xy] = float4(c.rgb + _BloomParams.z * b, c.a);
 }
 
 // ===========================================================================

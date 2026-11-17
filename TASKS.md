@@ -1972,3 +1972,18 @@ FRACTION of linear light but it still entered the display-space lerp, so 25 % op
 Cost: no buffer, no pass, one select + pow per pixel. Capture arms `lookfix_off` (= before), `lookexact_off`, `skylinear_off`
 (`PlaygroundCapture.CostSplit.cs`). Tests `LookFixTests` (flags, shader text, curves vs `Mathf.GammaToLinearSpace`, the crush numbers).
 Shots: `Logs/overnight/225/run2.sh day2|night2`, `compare.py` (sheets in `Screenshots/225/`). Result: HANDOFF 225.
+
+**Task 226 -- look polish toward Lay of the Land (owner Q-AN 2026-11-16; LOOK, stills only, no timing). Four pieces, each its own
+switch, all ON in play, rigs and capture (`RaymarchFeature.VoxelVary` `-voxvary`, `Crevice` `-crevice`, `AerialHaze` `-aerial`
+(+ `-aerialrange` m, default 1100), `Bloom` `-bloom` (+ `-bloomk` strength, default 0.6); shader `_LotlLook` bits 0-2 + the BLOOM kernels).**
+(1) VOXEL VARY (`LotlVoxelVary`): every voxel x(1 +- A) brightness and +-3 % warm/cool, from two position hashes (world-anchored: stable
+under FSR / TAA), A from the material's own look albedo (12 % dark -> 6 % white, so light materials do not clip), mean-neutral; faded out
+where a voxel is < 4 -> 2 px; fluids, self-lit and emitting materials skipped. (2) CREVICE: FaceAO (the hit's existing 8 occupancy reads)
+also takes half of its depth off the DIRECT term (before: ambient only, so sunlit crevices never showed); fades where VAO fades. No new
+read. (3) AERIAL: the sky-haze range 1800 -> 1100 m (height falloff unchanged) and desaturation share 0.5 -> 0.75 (`FarShadeApplyHaze`).
+(4) BLOOM: `BloomDown` (quarter render res, per-pixel bright share smoothstep(0.55, 1.0) of linear luma), `BloomBlur` x2 (separable
+Gaussian sigma 2.5 quarter texels), `BloomAdd` (render res, 4 loads + RMW) -- after the frame's last writer, before FSR 3 (no pass at
+output resolution); look 1 only; two quarter-res half4 render-graph textures (0.33 MB at 768x432). Capture arms `lotl_off` (= before),
+`vary_only`, `crevice_only`, `aerial_only`, `bloom_only`, `X_off` (`PlaygroundCapture.CostSplit.cs`). Tests `LotlLookTests`
+(flags, gating, bloom order, CPU mirror of the variation: mean-neutral, bounded, stable, gone when faded). Shots:
+`Logs/overnight/226/run.sh day|night`, `sheets.py` (sheets in `Screenshots/226/sheets/`). Result: HANDOFF 226.

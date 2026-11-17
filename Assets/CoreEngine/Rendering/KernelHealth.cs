@@ -91,6 +91,7 @@ namespace VoxelEngine.Rendering
             "CSMainFarShadeDiag", "CSShellPrepassDiag", "CSMainFlood", "CSMainFarShadeFlood", "CSMainFarShadeLean",
             "CSShellPrepassLean", "CSMainFarShadeLeanRoof", "BuildHeightRawCols", "BuildHeightDilateCols",
             "BuildHeightLevelCols", "HeightVerify", "CSMainFarShadeLeanSun", "CSSunDeferLean",
+            "BloomDown", "BloomBlur", "BloomAdd",   // task 226
         };
 
         /// The kernel's name (for the log line), or null if it is not one of RaymarchKernels.
