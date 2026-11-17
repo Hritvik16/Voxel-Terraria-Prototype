@@ -1921,3 +1921,11 @@ per `<quality>_<rows>` arm, play flags + `-renderrows <rows> -shellwait 60`, pos
 `Logs/overnight/219/table.py` -> `table.md`, pictures `Logs/overnight/219/sheets.py` -> `Screenshots/219/sheets/` + `diff.txt`. Result: no preset
 reaches 30 fps; Ultra / High / Medium / Low all ~108-111 ms at walk_near (the presets size the shells, not the lighting that costs the frame).
 Result: HANDOFF 219.
+**Task 221 (look QA, capture only: lighting-off pictures for Q-AN).** No code. The cost split as task 219 (`$PLAY_SETTINGS_FLAGS -quality high
+-renderrows 432 -shellwait 60`, `-costtimed 1`: stills only, the timings are meaningless), runner `Logs/overnight/221/run.sh <launch>...`,
+sheets + diff `Logs/overnight/221/sheets.py` -> `Screenshots/221/sheets/`, `Screenshots/221/full/<pose>_<arm>.png`, `Logs/overnight/221/diff.txt`.
+Arms: A play, B `skyfill0`, C `flood_off` (old point-light torches), D `sun_off`, E = launch `-skyfill 0 -torchflood 0` + arm `sun_off`.
+Gotchas found: `-shadowlevel 3` on the launch line is NOT applied in a `-costsplit` run (header still says rung 0) -- stack via an arm;
+`-costpaths torch` turns the torch flood OFF in every arm except `tf_on` (task 158), so the play look at night is arm `tf_on`
+(sky fill 0 + flood = launch `-skyfill 0` + arm `tf_on`); the jungle_eye still pose is not repeatable across arms (camera came out at
+minimap alt 18 / 20 / 33 m in different runs). Result: HANDOFF 221.
