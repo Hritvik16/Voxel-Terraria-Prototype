@@ -1987,3 +1987,21 @@ output resolution); look 1 only; two quarter-res half4 render-graph textures (0.
 `vary_only`, `crevice_only`, `aerial_only`, `bloom_only`, `X_off` (`PlaygroundCapture.CostSplit.cs`). Tests `LotlLookTests`
 (flags, gating, bloom order, CPU mirror of the variation: mean-neutral, bounded, stable, gone when faded). Shots:
 `Logs/overnight/226/run.sh day|night`, `sheets.py` (sheets in `Screenshots/226/sheets/`). Result: HANDOFF 226.
+
+**Task 227 (performance, owner Q-AN 2026-11-16 "lower-resolution sky and bounce light, like Lumen's Low"): LOW-RES SKY FILL,
+`-skyfillres 1|2|4` (DEFAULT 4; 1 = task 193's inline path, one ray per pixel, for A/B).** Raymarch.compute block LOW-RES SKY FILL: the
+primary kernel no longer traces sky fill; it shades with the face's running mean (one frame old) and writes a 12 B record (`SkyRec`
+{v, a, b}: task 193's S/B/counts plus the FACE, `SkyReqPack` voxel + normal; key derived, so matching is 193's). New kernel
+`CSSkyFillTrace` (VE_FAR_SHADE, after the primary passes) runs one thread per 2x2 / 4x4 block: picks one face of the block (scan start
+rotates every 2 frames, per-block offset), traces its sample exactly as the inline path (`SkyFillTraceSample`, same seed/half/direction)
+and folds it into every pixel of the block on the SAME FACE PLANE (`SkyShareBad` == 0: same normal, same coordinate along it,
+tangential <= 1 + 2 B x voxels-per-pixel). A face with no history takes a compatible reprojected neighbour's record (counts capped 8),
+and only with none traces inline (orphan). `SkyShareBad` is integer arithmetic on purpose: the first, bool-select version made HLSLcc
+emit `as_type<float>(bool)` and CSMainFarShadeFlood failed to load in the player (task 206's failure). Only with a far-shading
+primary kernel (play, capture runs); others trace inline. Capture: cost arms `sfres1|sfres2|sfres4`; the cost-split run line prints
+`skyfill N res inline|2x2|4x4`. CPU twin `SkyFillReference` (ReqPack/Unpack, ShareOk, ShareBad, ShareT, BlockStart, LowResFrame);
+tests in `SkyFillReferenceTests` (LowRes_*: pack round trip + shader pins, share rule at trunk/wall/ledge/slot edges and shader form
+== rule on 50k cases, ledge top stays EXACTLY 1 beside a 0.3 m slot floor (0.03), trunk/wall/ground keep their own light, one-face
+block == inline path within 1/16), `KernelHealthTests` (one backwards fetch loop for every kernel). Memory: history 2 x W x H x 12 B
+(+2.65 MB at 768x432). Runner `Logs/overnight/227/run.sh day|night`, pictures `sheets.py`, `zoom4.py` -> `Screenshots/227/sheets/`.
+Result (warm, ABBA, walk_near p50): 106.8 ms inline -> 78.0 (2x2) -> 72.3 (4x4); sky fill off 66.3. Result: HANDOFF 227.

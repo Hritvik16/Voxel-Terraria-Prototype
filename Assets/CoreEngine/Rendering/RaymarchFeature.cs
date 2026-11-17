@@ -623,9 +623,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// OFF (0 = the vertical sky probe). 1: the ambient's sky visibility is the open share of the face's sky
     /// half (one cosine-weighted ray per pixel per frame, a per-pixel running mean); 2: also the share of its
     /// ground half that lands on sunlit ground (a second, sun ray from there). Raymarch.compute SKY FILL;
-    /// CPU twin SkyFillReference. Costs a 2 x W x H x 8 B history while on (7.4 MB at 1280x720).
+    /// CPU twin SkyFillReference. Costs a 2 x W x H x 12 B history while on (task 227: 12 B, was 8; 21.1 MB at 1280x720,
+    /// 8.0 MB at play's 768x432).
     public static int SkyFill = ValidSkyFill(ReadIntArg("-skyfill", 0));
     public static int ValidSkyFill(int v) => v == 1 || v == 2 ? v : 0;
+
+    /// TASK 227 (performance, owner Q-AN 2026-11-16): LOW-RES SKY FILL, `-skyfillres 1|2|4` (default 4). 2 / 4: the sky-fill
+    /// rays are traced by CSSkyFillTrace, one per 2x2 / 4x4 pixel block, and shared with the block's pixels on the same face
+    /// plane (Raymarch.compute LOW-RES SKY FILL); the primary kernel shades with the face's history. 1 = task 193's path
+    /// (one ray per pixel, inline), kept for A/B. Only with a far-shading primary kernel (play's and the capture runs');
+    /// any other kernel traces inline as before. CPU twin SkyFillReference (ReqPack, ShareOk, ShareT).
+    /// Default 4x4 (task 227's warm A/B at walk_near: 1 ray / px 106.8 ms p50, 2x2 78.0, 4x4 72.3, sky fill off 66.3; no
+    /// visible bleed, Logs/overnight/227/costsplit_day.txt, Screenshots/227/sheets/).
+    public static int SkyFillRes = ValidSkyFillRes(ReadIntArg("-skyfillres", 4));
+    public static int ValidSkyFillRes(int v) => v == 1 || v == 2 ? v : 4;
+    /// The trace pass drawn last frame (capture lines): 0 = inline, 2 / 4 = the block size.
+    public static int SkyFillResDrawnLastFrame;
 
     /// TASK 225 (look, owner Q-AN "why are the tree trunks pitch black"): two exact fixes to the look's
     /// display<->linear handling, both ON by default (Raymarch.compute _LookFix, LookToLinear / LookSkyOpen).
@@ -664,6 +677,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// behaviour (a refused surface chunk shows as a 12.8 m box pit), for before/after pictures only.
     public static bool RefusedHandOver = ReadIntArg("-refusedhandover", 1) != 0;
     private static GraphicsBuffer _sfA, _sfB, _sfDummyR, _sfDummyW;
+    private const int SKY_REC_STRIDE = 12;   // task 227: Raymarch.compute SkyRec {v, a, b}
     private static int _sfW, _sfH, _sfMode;
     private static bool _sfValid;
     private static uint _sfFrame;
@@ -791,6 +805,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
             public int skyFill, sfValid;                 // task 193
+            public int sfLow, kSkyTrace = -1;            // task 227: block shift (0 = inline) and CSSkyFillTrace, or -1
+            public Vector4 sfLowParams;                  // task 227: width, height, pixel angle
             public int lookFix;                          // task 225
             public int lotlLook;                         // task 226
             public Vector4 lotlParams;                   // task 226
@@ -1095,8 +1111,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // record holds no ground half).
                 if (_sfDummyR == null)
                 {
-                    _sfDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
-                    _sfDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                    _sfDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SKY_REC_STRIDE);
+                    _sfDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SKY_REC_STRIDE);
                 }
                 int sfMode = ValidSkyFill(SkyFill);
                 passData.skyFill = sfMode;
@@ -1111,10 +1127,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     if (_sfA == null || _sfW != dispatchW || _sfH != dispatchH)
                     {
                         _sfA?.Release(); _sfB?.Release();
-                        _sfA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        _sfB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        var fill = new uint[dispatchW * dispatchH * 2];
-                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _sfA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SKY_REC_STRIDE);
+                        _sfB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SKY_REC_STRIDE);
+                        var fill = new uint[dispatchW * dispatchH * 3];   // task 227: {v, a, b}, b = none
+                        for (int i = 2; i < fill.Length; i += 3) fill[i] = 0xFFFFFFFFu;
                         _sfA.SetData(fill); _sfB.SetData(fill);
                         _sfW = dispatchW; _sfH = dispatchH; _sfValid = false;
                     }
@@ -1560,6 +1576,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         passData.sunDeferB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchSunDeferB", false);
                     }
                 }
+                // Task 227: the low-res sky fill's trace pass, with a far-shading primary kernel (play's, the capture runs').
+                passData.sfLow = 0; passData.kSkyTrace = -1;
+                if (sfMode != 0 && SkyFillRes > 1 && (passData.primaryFarShade || diet2) && activeCompute.HasKernel("CSSkyFillTrace"))
+                {
+                    passData.sfLow = SkyFillRes == 4 ? 2 : 1;
+                    passData.kSkyTrace = activeCompute.FindKernel("CSSkyFillTrace");
+                    passData.sfLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
+                }
+                SkyFillResDrawnLastFrame = passData.sfLow == 0 ? 0 : 1 << passData.sfLow;
                 // Task 206: a kernel that did not load at run time is LOUD (KernelHealth): one error per kernel,
                 // the frame painted magenta by the blit pass, DebugBuffer's ray slots NaN.
                 {
@@ -1570,6 +1595,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kShellPrepass) ?? "#" + passData.kShellPrepass;
                     else if (passData.kSunDefer >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSunDefer))
                         failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunDefer) ?? "#" + passData.kSunDefer;
+                    else if (passData.kSkyTrace >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSkyTrace))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSkyTrace) ?? "#" + passData.kSkyTrace;
                     KernelFailedLastFrame = failed;
                     PrimaryKernelLastFrame = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary);
                     _kernelFailedThisFrame = failed != null;
@@ -1773,6 +1800,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeMatrixParam(data.compute, "_SkyPrevViewProj", data.sfPrevVP);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistR", data.sfRead);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistW", data.sfWrite);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFillLow", data.sfLow);              // task 227
+                        cmd.SetComputeVectorParam(data.compute, "_SkyLowParams", data.sfLowParams);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
 
@@ -2014,6 +2043,31 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeTextureParam(data.compute, data.kSunDefer, "ResultTexture", data.taaResolve != 0 ? data.taaScratch : data.target);
                         cmd.DispatchCompute(data.compute, data.kSunDefer, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
                         cmd.EndSample("VE.Raymarch.SunDefer");
+                    }
+                    if (data.kSkyTrace >= 0)
+                    {
+                        // Task 227: LOW-RES SKY FILL -- one sky-fill ray per 2x2 / 4x4 block, folded into this frame's records
+                        // (Raymarch.compute CSSkyFillTrace). Binds what TraceShadowRay reads, as the primary kernel has it.
+                        int kSky = data.kSkyTrace;
+                        cmd.BeginSample("VE.Raymarch.SkyFillTrace");
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBuffer", data.clipmapBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBuffer", data.brickDataBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip1", data.airMip1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip2", data.airMip2);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip3", data.airMip3);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip4", data.airMip4);
+                        if (data.airMipPacked != null) cmd.SetComputeBufferParam(data.compute, kSky, "AirMipPacked", data.airMipPacked);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBufferTier1", data.clipmapTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBufferTier1", data.brickDataTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBufferTier2", data.clipmapTier2);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBufferTier2", data.brickDataTier2);
+                        if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSky, "HeightMipRO", data.heightMip);
+                        if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSky, "DebugOut", data.debugBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "SkyHistW", data.sfWrite);
+                        int sfBs = data.sfLow;
+                        int bx = (data.dispatchWidth + (1 << sfBs) - 1) >> sfBs, by = (data.dispatchHeight + (1 << sfBs) - 1) >> sfBs;
+                        cmd.DispatchCompute(data.compute, kSky, (bx + 7) / 8, (by + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.SkyFillTrace");
                     }
                     if (data.kShellProbe >= 0)
                     {

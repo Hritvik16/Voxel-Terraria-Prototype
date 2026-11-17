@@ -356,4 +356,157 @@ public class SkyFillReferenceTests
         Assert.Greater(bu, 0.05f, "the crown's underside sees sun on the ground around (mode 2)");
         AssertMatches(SKY, g, new int3(1, 0, 0), Up, h => QS(h, Up), "ground under the canopy", 8, 0.08f);
     }
+
+    // ---------------------------------------------------------------------
+    // TASK 227: LOW-RES SKY FILL (CSSkyFillTrace; `-skyfillres 2|4`). The CPU twin is SkyFillReference.LowResFrame:
+    // one ray per block, shared with the block's pixels on the SAME FACE PLANE (ShareOk). Adversarial: a thin trunk
+    // in front of a wall (same normal, other plane), a ledge top beside a dark trench floor (same normal, other
+    // plane), a trunk side beside the ground (other normal).
+    // ---------------------------------------------------------------------
+
+    private SkyFillReference.Pixel P(int3 v, int3 n) => new SkyFillReference.Pixel { has = true, v = v, n = n, rec = SkyFillReference.Record.Empty };
+
+    /// Runs `frames` frames of the low-res path over one 2x2 block (shareT 64 voxels: only the normal / plane test may stop
+    /// a share), then returns each pixel's openness.
+    private float[] RunBlock(SkyFillReference.Pixel[] px, int frames, uint bx = 3, uint by = 5, float shareT = 64f)
+    {
+        float3 cam = Cam(px[0].v, px[0].n);
+        for (uint f = 0; f < frames; f++)
+            SkyFillReference.LowResFrame(BOTH, _store, px, 2, bx, by, f, shareT, Sun, cam, ClampM);
+        var o = new float[px.Length];
+        for (int i = 0; i < px.Length; i++)
+        {
+            var w = W(px[i].n); var r = px[i].rec;
+            o[i] = SkyFillReference.Open(BOTH, px[i].n, r.s, r.cs, r.b, r.cb, w.ws, w.wb);
+        }
+        return o;
+    }
+
+    [Test]
+    public void LowRes_Contract_FacePackRoundTrips_AndShaderMatches()
+    {
+        var rng = new Unity.Mathematics.Random(227);
+        int3[] ns = { Up, Down, PX, NX, new int3(0, 0, 1), new int3(0, 0, -1) };
+        for (int k = 0; k < 20000; k++)
+        {
+            int3 v = new int3(rng.NextInt(-1048576, 1048576), rng.NextInt(-131072, 131072), rng.NextInt(-1048576, 1048576));
+            if (k < 8) v = new int3((k & 1) != 0 ? -1048576 : 1048575, (k & 2) != 0 ? -131072 : 131071, (k & 4) != 0 ? -1 : 0);
+            int3 n = ns[k % 6];
+            uint2 ab = SkyFillReference.ReqPack(v, n);
+            Assert.AreNotEqual(SkyFillReference.REQ_NONE, ab.y, "a face is never the none mark");
+            SkyFillReference.ReqUnpack(ab.x, ab.y, out int3 v2, out int3 n2);
+            if (math.any(v2 != v) || math.any(n2 != n)) Assert.Fail($"{v} {n} -> {v2} {n2}");
+        }
+        string src = System.IO.File.ReadAllText("Assets/CoreEngine/Rendering/Raymarch.compute");
+        StringAssert.Contains("struct SkyRec { uint v; uint a; uint b; };", src);
+        StringAssert.Contains("#define SKY_PRIOR_N 8u", src);
+        Assert.AreEqual(8u, SkyFillReference.PRIOR_N);
+        StringAssert.Contains("#pragma kernel CSSkyFillTrace VE_FAR_SHADE VE_SKYFILL_TRACE", src);
+        // The primary kernel traces only a face with no record (or the old path): the low path's only inline rays.
+        StringAssert.Contains("bool traceHere = fillTrace && (_SkyFill == 0 || _SkyFillLow == 0 || (cs == 0u && cb == 0u));", src);
+        string feat = System.IO.File.ReadAllText("Assets/CoreEngine/Rendering/RaymarchFeature.cs");
+        StringAssert.Contains("private const int SKY_REC_STRIDE = 12;", feat);
+        StringAssert.Contains("public static int SkyFillRes = ValidSkyFillRes(ReadIntArg(\"-skyfillres\", 4));", feat);
+        StringAssert.Contains("public static int ValidSkyFillRes(int v) => v == 1 || v == 2 ? v : 4;", feat);
+    }
+
+    [Test]
+    public void LowRes_ShareRule_StopsAtEveryNormalAndPlaneEdge()
+    {
+        // The adversarial pairs, by the rule alone (any distance limit aside).
+        Assert.IsFalse(SkyFillReference.ShareOk(new int3(150, 30, 150), NX, new int3(149, 9, 150), Up, 1e6f), "trunk side vs ground at its foot");
+        Assert.IsFalse(SkyFillReference.ShareOk(new int3(150, 30, 150), NX, new int3(156, 30, 145), NX, 1e6f), "trunk vs the wall behind it");
+        Assert.IsFalse(SkyFillReference.ShareOk(new int3(239, 39, 200), Up, new int3(240, 9, 200), Up, 1e6f), "ledge top vs the floor below");
+        Assert.IsFalse(SkyFillReference.ShareOk(new int3(239, 20, 200), PX, new int3(243, 20, 200), NX, 1e6f), "the two walls of a slot");
+        Assert.IsTrue(SkyFillReference.ShareOk(new int3(150, 30, 150), NX, new int3(150, 31, 151), NX, 1f), "one trunk face, next voxel");
+        Assert.IsTrue(SkyFillReference.ShareOk(new int3(150, 30, 150), NX, new int3(150, 30, 150), NX, 0f), "the very same face");
+        Assert.IsFalse(SkyFillReference.ShareOk(new int3(100, 9, 100), Up, new int3(103, 9, 100), Up, 2.5f), "beyond the footprint");
+        // The shader's integer form (no bool select: HLSLcc's as_type<float>(bool), task 206) = the plain rule, everywhere.
+        var rng = new Unity.Mathematics.Random(2271);
+        int3[] ns = { Up, Down, PX, NX, new int3(0, 0, 1), new int3(0, 0, -1) };
+        int agree = 0;
+        for (int k = 0; k < 50000; k++)
+        {
+            int3 v = rng.NextInt3(-50, 50), rv = v + rng.NextInt3(-6, 7) * (rng.NextBool() ? 1 : 0);
+            int3 n = ns[rng.NextInt(6)], rn = rng.NextInt(4) == 0 ? ns[rng.NextInt(6)] : n;
+            float t = rng.NextFloat(0f, 8f);
+            bool ok = SkyFillReference.ShareOk(v, n, rv, rn, t), bad0 = SkyFillReference.ShareBad(v, n, rv, rn, t) == 0;
+            if (ok != bad0) Assert.Fail($"{v} {n} / {rv} {rn} t {t}: rule {ok}, shader form {bad0}");
+            if (ok) agree++;
+        }
+        Assert.Greater(agree, 1000, "the sample holds sharing pairs too");
+        string src = System.IO.File.ReadAllText("Assets/CoreEngine/Rendering/Raymarch.compute");
+        var f = System.Text.RegularExpressions.Regex.Match(src, @"int SkyShareBad\(.*?\n\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+        Assert.IsTrue(f.Success);
+        StringAssert.DoesNotContain("?", f.Value, "no select in the shader form");
+        StringAssert.DoesNotContain("==", f.Value);
+        // ShareT: 1 + 2 B x voxels per pixel. Play's 432 rows at 60 deg: 0.00267 rad/px; at 10 m (100 voxels), B = 2: 2.07.
+        float pa = 2f * math.tan(math.radians(30f)) / 432f;
+        Assert.AreEqual(1f + 4f * 100f * pa, SkyFillReference.ShareT(new int3(0, 0, 0), new float3(0.5f, 0.5f, 100.5f), 2f, pa), 1e-4f);
+    }
+
+    [Test]
+    public void LowRes_LedgeTopBesideDarkTrench_StaysExactlyOne_TrenchStaysDark()
+    {
+        Fill(new int3(100, 0, 100), new int3(300, 9, 300), Materials.Stone);      // ground, top y 9
+        Fill(new int3(200, 10, 180), new int3(239, 39, 239), Materials.Stone);    // ledge A, 3 m, top y 39
+        Fill(new int3(243, 10, 180), new int3(282, 39, 239), Materials.Stone);    // ledge B: a 0.3 m x 3 m slot between
+        int3 top0 = new int3(239, 39, 200), top1 = new int3(239, 39, 201), fl0 = new int3(240, 9, 200), fl1 = new int3(240, 9, 201);
+        var px = new[] { P(top0, Up), P(fl0, Up), P(top1, Up), P(fl1, Up) };   // the slot's lip in one 2x2 block
+        float[] o = RunBlock(px, 128);
+        float qFloor = QS(fl0, Up);
+        TestContext.WriteLine($"ledge top {o[0]:F3} {o[2]:F3}; slot floor {o[1]:F3} {o[3]:F3} (quadrature {qFloor:F3}); " +
+                              $"floor samples {px[1].rec.cs}, foreign {px[1].samplesFromOtherFaces}");
+        Assert.AreEqual(1f, o[0], "an open ledge top never takes the slot floor's dark samples");
+        Assert.AreEqual(1f, o[2]);
+        Assert.Less(qFloor, 0.15f, "the slot floor really is dark");
+        Assert.Less(o[1], qFloor + 0.15f, "the slot floor never takes the ledge top's open samples");
+        Assert.Less(o[3], qFloor + 0.15f);
+        Assert.Greater(px[1].rec.cs, 0u, "a face alone among foreign ones still gets samples (its own turns)");
+    }
+
+    [Test]
+    public void LowRes_ThinTrunkBeforeWall_AndGround_EachKeepsItsOwnLight()
+    {
+        Fill(new int3(100, 0, 100), new int3(300, 9, 300), Materials.Stone);      // ground, top y 9
+        Fill(new int3(150, 10, 150), new int3(151, 60, 151), Materials.Stone);    // a 0.2 m trunk, 5 m tall
+        Fill(new int3(156, 10, 120), new int3(158, 60, 180), Materials.Stone);    // a wall 0.5 m behind it (+x side)
+        // Block C: the trunk's -x face over the wall's -x face (same normal, planes x 150 / 156).
+        var c = new[] { P(new int3(150, 30, 150), NX), P(new int3(156, 30, 145), NX), P(new int3(150, 31, 150), NX), P(new int3(156, 31, 145), NX) };
+        // Block D: the trunk's -x face over the ground at its foot (other normals).
+        var d = new[] { P(new int3(150, 12, 150), NX), P(new int3(149, 9, 150), Up), P(new int3(150, 12, 151), NX), P(new int3(148, 9, 151), Up) };
+        float[] oc = RunBlock(c, 128), od = RunBlock(d, 128, 7, 2);
+        for (int i = 0; i < 4; i++)
+        {
+            var q = c[i]; var e = d[i];
+            float tc = Mix(q.n, QS(q.v, q.n), QB(q.v, q.n)), td = e.n.y > 0 ? QS(e.v, e.n) : Mix(e.n, QS(e.v, e.n), QB(e.v, e.n));
+            TestContext.WriteLine($"C[{i}] {q.v} {q.n}: low {oc[i]:F3} truth {tc:F3}   D[{i}] {e.v} {e.n}: low {od[i]:F3} truth {td:F3}");
+            Assert.AreEqual(tc, oc[i], 0.25f, $"C[{i}]: trunk / wall keep their own light");
+            Assert.AreEqual(td, od[i], 0.25f, $"D[{i}]: trunk side / ground keep their own light");
+        }
+        float wall = Mix(NX, QS(new int3(156, 30, 145), NX), QB(new int3(156, 30, 145), NX));
+        float trunk = Mix(NX, QS(new int3(150, 30, 150), NX), QB(new int3(150, 30, 150), NX));
+        TestContext.WriteLine($"truth: trunk -x {trunk:F3}, wall -x behind it {wall:F3}");
+    }
+
+    [Test]
+    public void LowRes_OneFaceBlock_MatchesTheInlinePath()
+    {
+        // Inside one face every pixel took the SAME sample inline (the seed is the face's key), so a block of one face gets
+        // what each pixel had; the only change is the orphan frame (frame 0's sample folded twice: <= 1/16 off).
+        Fill(new int3(100, 80, 100), new int3(400, 99, 400), Materials.Stone);
+        Fill(new int3(220, 140, 220), new int3(292, 145, 292), Materials.Stone);
+        for (int x = 222; x < 292; x += 8)
+        for (int z = 222; z < 292; z += 8)
+            Fill(new int3(x, 140, z), new int3(x + 3, 145, z + 3), 0);
+        Fill(new int3(256, 100, 256), new int3(257, 139, 257), Materials.Stone);
+        foreach (var (v, n) in new[] { (new int3(250, 99, 250), Up), (new int3(257, 120, 256), PX), (new int3(236, 140, 236), Down) })
+        {
+            var px = new[] { P(v, n), P(v, n), P(v, n), P(v, n) };
+            float[] o = RunBlock(px, Frames);
+            float inline = Est(BOTH, v, n);
+            TestContext.WriteLine($"{v} {n}: low-res {o[0]:F3}, inline {inline:F3}");
+            for (int i = 0; i < 4; i++) Assert.AreEqual(inline, o[i], 1f / 16f, $"{v} {n} pixel {i}");
+        }
+    }
 }

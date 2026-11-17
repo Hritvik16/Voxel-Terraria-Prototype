@@ -8,7 +8,7 @@
 //   * KernelHealth's heartbeat state machine and decision (the loud path: one error, a magenta frame, NaN debug slots);
 //   * its kernel-name list = the shader's #pragma kernel lines;
 //   * the shader fix's shape: every non-diet-2 kernel reads the height pyramid through the read-only alias, the
-//     diet-2 play kernels keep the RW read and the old SkyHistFetch loop (their code must not change);
+//     diet-2 play kernels keep the RW read (task 227 gave every kernel the backwards SkyHistFetch loop);
 //   * SkyHistFetch's new loop (backwards, keep the last match) returns what the old one (forwards, first match)
 //     did, on every probe pattern;
 //   * RaymarchFeature binds the alias, checks every dispatched kernel, and paints the frame on a failure.
@@ -105,19 +105,21 @@ public class KernelHealthTests
     }
 
     [Test]
-    public void Shader_SkyHistFetch_NoReturnInsideTheLoop_OutsideDiet2()
+    public void Shader_SkyHistFetch_NoReturnInsideTheLoop()
     {
+        // Task 227: one loop for every kernel (the 12-byte record replaced diet 2's early-return copy); still no return
+        // inside the unrolled loop (task 206), backwards, a key match over a prior, the first probe in order wins.
         string src = File.ReadAllText(Shader);
-        var f = Regex.Match(src, @"uint2 SkyHistFetch\(.*?\n\}", RegexOptions.Singleline);
+        var f = Regex.Match(src, @"uint SkyHistFetch\(.*?\n\}", RegexOptions.Singleline);
         Assert.IsTrue(f.Success);
         string body = f.Value;
-        int ifd = body.IndexOf("#ifdef VE_DIET2"), els = body.IndexOf("#else"), end = body.IndexOf("#endif");
-        Assert.IsTrue(ifd >= 0 && els > ifd && end > els, "diet 2 keeps the old loop, the others get the new one");
-        string diet = body.Substring(ifd, els - ifd), other = body.Substring(els, end - els);
-        StringAssert.Contains("if (hv.y == key) return hv;", diet);
-        StringAssert.DoesNotContain("return hv", other);
-        StringAssert.Contains("for (int q = 3; q >= 0; q--)", other);
-        StringAssert.Contains("if (hv.y == key) found = hv;", other);
+        StringAssert.DoesNotContain("#ifdef VE_DIET2", body);
+        int loop = body.IndexOf("for (int q = 3; q >= 0; q--)");
+        Assert.IsTrue(loop > 0, "the backwards loop");
+        string inLoop = body.Substring(loop, body.LastIndexOf("return kind;") - loop);
+        StringAssert.DoesNotContain("return", inLoop);
+        StringAssert.Contains("if (ShadowOriginKey(hvV + hvN) == key) { found = hv; kind = 1u; }", inLoop);
+        StringAssert.Contains("else if (kind != 1u && shareT > 0.0 && SkyShareBad(fv, fn, hvV, hvN, shareT) == 0) { found = hv; kind = 2u; }", inLoop);
     }
 
     // The two loops as the shader has them: inBounds[q], keys[q] (the probe's stored key), vals[q].

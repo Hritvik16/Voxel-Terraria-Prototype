@@ -229,4 +229,110 @@ public static class SkyFillReference
         }
         return any ? Open(mode, n, r.s, r.cs, r.b, r.cb, ws, wb) : 0f;
     }
+
+    // ---------------------------------------------------------------------
+    // TASK 227: LOW-RES SKY FILL (Raymarch.compute block of that name, CSSkyFillTrace; `-skyfillres 2|4`)
+    // ---------------------------------------------------------------------
+
+    public const uint REQ_NONE = 0xFFFFFFFFu;
+    public const uint PRIOR_N = 8u;   // SKY_PRIOR_N: a neighbour's record counts as at most this many samples
+
+    public static uint NormalIndex(int3 n) => n.x > 0 ? 0u : n.x < 0 ? 1u : n.y > 0 ? 2u : n.y < 0 ? 3u : n.z > 0 ? 4u : 5u;
+
+    public static int3 NormalFromIndex(uint i)
+    {
+        int s = (i & 1u) != 0u ? -1 : 1;
+        return i < 2u ? new int3(s, 0, 0) : i < 4u ? new int3(0, s, 0) : new int3(0, 0, s);
+    }
+
+    /// SkyReqPack: the face (hit voxel, normal) in two words; x, z 21 bits, y 18 bits, normal in b's top nibble.
+    public static uint2 ReqPack(int3 v, int3 n)
+    {
+        uint a = ((uint)v.x & 0x1FFFFFu) | (((uint)v.y & 0x7FFu) << 21);
+        uint b = ((uint)v.z & 0x1FFFFFu) | ((((uint)v.y >> 11) & 0x7Fu) << 21) | (NormalIndex(n) << 28);
+        return new uint2(a, b);
+    }
+
+    public static void ReqUnpack(uint a, uint b, out int3 v, out int3 n)
+    {
+        v.x = ((int)(a << 11)) >> 11;
+        v.z = ((int)(b << 11)) >> 11;
+        uint y18 = (a >> 21) | (((b >> 21) & 0x7Fu) << 11);
+        v.y = ((int)(y18 << 14)) >> 14;
+        n = NormalFromIndex(b >> 28);
+    }
+
+    /// The plain rule: same normal, same plane (equal coordinate along the normal), tangential Chebyshev distance <= shareT.
+    public static bool ShareOk(int3 v, int3 n, int3 rv, int3 rn, float shareT)
+    {
+        if (math.any(rn != n)) return false;
+        int3 d = math.abs(rv - v);
+        int along = n.x != 0 ? d.x : n.y != 0 ? d.y : d.z;
+        int tang = n.x != 0 ? math.max(d.y, d.z) : n.y != 0 ? math.max(d.x, d.z) : math.max(d.x, d.y);
+        return along == 0 && tang <= shareT;
+    }
+
+    /// The shader's SkyShareBad (integer arithmetic only; 0 = ShareOk), line for line.
+    public static int ShareBad(int3 v, int3 n, int3 rv, int3 rn, float shareT)
+    {
+        int3 dn = math.abs(rn - n), d = math.abs(rv - v), an = math.abs(n);
+        int along = an.x * d.x + an.y * d.y + an.z * d.z;
+        int tang = math.max(math.max((1 - an.x) * d.x, (1 - an.y) * d.y), (1 - an.z) * d.z);
+        int over = math.max(0, tang - (int)math.floor(shareT));
+        return dn.x + dn.y + dn.z + along + over;
+    }
+
+    /// SkyShareT: 1 + 2 x block px x voxels per pixel at the face's distance (camera in voxels, pixel angle in rad).
+    public static float ShareT(int3 v, float3 camVox, float blockPx, float pixelAngle) =>
+        1f + 2f * blockPx * math.length(new float3(v) + 0.5f - camVox) * pixelAngle;
+
+    /// CSSkyFillTrace's first scan slot for block (bx, by) at `frame` (nPix a power of two).
+    public static int BlockStart(uint bx, uint by, uint frame, int nPix) =>
+        (int)(((frame >> 1) + SkyVisReference.Hash(bx * 0x9E3779B1u ^ by)) & (uint)(nPix - 1));
+
+    /// One pixel of a simulated frame: the face it shows (has = a tier-0 hit with sky fill) and its record.
+    public struct Pixel
+    {
+        public bool has;
+        public int3 v, n;
+        public Record rec;
+        public int samplesFromOtherFaces;   // test bookkeeping: samples folded in from another face of the plane
+    }
+
+    /// One frame of the low-res path over one bw x bw block (row-major `px`, a static view: every face keeps its record):
+    /// the primary kernel's part (a face with no record is an orphan and traces inline) and CSSkyFillTrace's (one face's
+    /// sample, folded into every pixel SkyShareOk accepts). Returns the representative's index, or -1.
+    public static int LowResFrame(int mode, ChunkStore store, Pixel[] px, int bw, uint bx, uint by, uint frame, float shareT,
+                                  float3 sunDir, float3 cameraPosM, float maxDistM)
+    {
+        for (int i = 0; i < px.Length; i++)
+        {
+            if (!px[i].has || (mode == SKY && px[i].n.y < 0)) continue;
+            uint key = SkyVisReference.OriginKey(px[i].v + px[i].n);
+            if (px[i].rec.key != key) px[i].rec = new Record { key = key };
+            if (px[i].rec.cs == 0 && px[i].rec.cb == 0)
+            {
+                int h0 = Half(mode, px[i].n, frame);
+                float3 d0 = Direction(mode, px[i].n, Seed(px[i].v, px[i].n), frame, h0);
+                px[i].rec.Accumulate(key, h0, Sample(h0, store, px[i].v, px[i].n, d0, sunDir, cameraPosM, maxDistM));
+            }
+        }
+        int nPix = bw * bw, start = BlockStart(bx, by, frame, nPix), rep = -1;
+        for (int k = 0; k < nPix && rep < 0; k++)
+        {
+            int j = (start + k) & (nPix - 1);
+            if (px[j].has && !(mode == SKY && px[j].n.y < 0)) rep = j;
+        }
+        if (rep < 0) return -1;
+        int3 v = px[rep].v, n = px[rep].n;
+        int half = Half(mode, n, frame);
+        float smp = Sample(half, store, v, n, Direction(mode, n, Seed(v, n), frame, half), sunDir, cameraPosM, maxDistM);
+        for (int i = 0; i < px.Length; i++)
+        {
+            if (!px[i].has || (mode == SKY && px[i].n.y < 0) || ShareBad(v, n, px[i].v, px[i].n, shareT) != 0) continue;
+            if (half == 0) Record.Fold(ref px[i].rec.s, ref px[i].rec.cs, smp); else Record.Fold(ref px[i].rec.b, ref px[i].rec.cb, smp);
+            if (math.any(px[i].v != v)) px[i].samplesFromOtherFaces++;
+        }
+        return rep;
+    }
 }

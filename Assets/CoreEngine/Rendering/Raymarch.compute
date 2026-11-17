@@ -157,6 +157,9 @@
 // a hit. Every task-168c line is under #ifdef VE_SUNDEFER, so every other kernel is unchanged.
 #pragma kernel CSMainFarShadeLeanSun VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
 #pragma kernel CSSunDeferLean VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
+// TASK 227: LOW-RES SKY FILL's trace pass (see that block): one sky-fill ray per 2x2 / 4x4 pixel block, after the
+// primary passes. VE_FAR_SHADE so its TraceShadowRay is the play kernels' (task 133's shell-continued distance cap).
+#pragma kernel CSSkyFillTrace VE_FAR_SHADE VE_SKYFILL_TRACE
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -4252,12 +4255,86 @@ float4 ShadeProbeColor(int mode, uint2 px, bool hit, uint mat, int3 n, int shell
     return o;
 }
 
-StructuredBuffer<uint2> SkyHistR;      // x = S 12b | B 12b << 12 | nS 4b << 24 | nB 4b << 28, y = key; 0xFFFFFFFF = none
-RWStructuredBuffer<uint2> SkyHistW;
+// ---- TASK 227 (performance, owner Q-AN 2026-11-16: "lower-resolution sky and bounce light, like Lumen's Low") ----
+// LOW-RES SKY FILL (`-skyfillres 2|4`, default 4, RaymarchFeature.SkyFillRes; 1 = task 193's inline path, for A/B). 212's cost
+// split put sky fill 2 at 40 ms of a 107 ms walk_near frame: one cosine ray per tier-0 pixel per frame (two legs on a
+// ground-half sample), most of them long, near-level rays that run to the window edge. What changes:
+//  * the primary kernel no longer traces: it shades with the face's history (the same running mean as before, now one
+//    frame old) and writes the record, which also carries the FACE (voxel + normal, SkyReqPack);
+//  * CSSkyFillTrace (after the primary passes) runs ONE thread per B x B pixel block (B = 2: a quarter of the rays;
+//    B = 4: a sixteenth), takes one face of the block (the scan starts at a slot that rotates every 2 frames, so a
+//    side face's lone pixel still gets both halves), traces that face's ray EXACTLY as the inline path did (same
+//    seed, same direction, same legs: SkyFillTraceSample) and folds the sample into every pixel of the block that
+//    shows THE SAME FACE PLANE: same normal, same coordinate along it, tangential distance within twice the block's
+//    footprint at that distance (SkyShareBad). A trunk side never takes a ground sample, a ledge top never the floor's
+//    below it, a wall behind a trunk (same normal, other plane) never the trunk's -- the depth/normal-aware filter.
+//    Pixels of one face already took the SAME sample inline (the seed is the face's key), so inside a face nothing
+//    changes but the cost;
+//  * a pixel whose face has no history (a disocclusion) takes a compatible neighbour's record from the reprojected
+//    probes (the same SkyShareBad; its counts capped at SKY_PRIOR_N), and only when none fits does it trace inline as
+//    before (an "orphan": exact, never a guessed value). The first frame after a reset is all orphans.
+// Record (12 B, was 8): v = S 12b | B 12b << 12 | nS 4b << 24 | nB 4b << 28; a, b = SkyReqPack(voxel, normal);
+// b == SKY_REQ_NONE = none. The key is DERIVED (ShadowOriginKey(voxel + normal)), so matching is task 193's exactly.
+struct SkyRec { uint v; uint a; uint b; };
+#define SKY_REQ_NONE 0xFFFFFFFFu
+#define SKY_PRIOR_N 8u
+StructuredBuffer<SkyRec> SkyHistR;
+RWStructuredBuffer<SkyRec> SkyHistW;
 int _SkyFill;            // 0 off (the vertical probe), 1 sky, 2 sky + ground bounce
 int _SkyHistValid;       // 0 = SkyHistR holds nothing usable (first frame, resize, mode change)
 int _SkyFrame;           // frame counter: the sample index
 float4x4 _SkyPrevViewProj;
+int _SkyFillLow;         // task 227: 0 = trace inline (task 193); 1 / 2 = CSSkyFillTrace with 2x2 / 4x4 blocks
+float4 _SkyLowParams;    // task 227: x, y = dispatch width, height; z = render pixel angle (rad); w unused
+
+// Task 227: the face a record holds. x, z 21 bits, y 18 bits (two's complement), normal index 0-5 in b's top nibble
+// (so b is never SKY_REQ_NONE). CPU twin SkyFillReference.ReqPack / ReqUnpack.
+uint SkyNormalIndex(int3 n) { return n.x > 0 ? 0u : (n.x < 0 ? 1u : (n.y > 0 ? 2u : (n.y < 0 ? 3u : (n.z > 0 ? 4u : 5u)))); }
+int3 SkyNormalFromIndex(uint i)
+{
+    int s = (i & 1u) != 0u ? -1 : 1;
+    return i < 2u ? int3(s, 0, 0) : (i < 4u ? int3(0, s, 0) : int3(0, 0, s));
+}
+uint2 SkyReqPack(int3 v, int3 n)
+{
+    uint a = ((uint)v.x & 0x1FFFFFu) | (((uint)v.y & 0x7FFu) << 21);
+    uint b = ((uint)v.z & 0x1FFFFFu) | ((((uint)v.y >> 11) & 0x7Fu) << 21) | (SkyNormalIndex(n) << 28);
+    return uint2(a, b);
+}
+void SkyReqUnpack(uint a, uint b, out int3 v, out int3 n)
+{
+    v.x = ((int)(a << 11)) >> 11;
+    v.z = ((int)(b << 11)) >> 11;
+    uint y18 = (a >> 21) | (((b >> 21) & 0x7Fu) << 11);
+    v.y = ((int)(y18 << 14)) >> 14;
+    n = SkyNormalFromIndex(b >> 28);
+}
+SkyRec SkyRecNone() { SkyRec r; r.v = 0u; r.a = 0u; r.b = SKY_REQ_NONE; return r; }
+
+// Task 227: may face (rv, rn) take a sample / estimate of face (v, n)? Same normal, same plane, and within shareT
+// voxels along the plane (Chebyshev): returns 0 then, else a positive number. INTEGER ARITHMETIC ONLY, no bool select
+// or early return: the first version (`return (along == 0 && tang <= shareT) ? 1u : 0u` after an `any(rn != n)` return)
+// came out of HLSLcc as `as_type<float>(bool)` in CSMainFarShadeFlood, which Metal rejects (the kernel never loaded in
+// the player; task 206's failure again). n is an axis unit vector. CPU twin SkyFillReference.ShareOk.
+int SkyShareBad(int3 v, int3 n, int3 rv, int3 rn, float shareT)
+{
+    int3 dn = abs(rn - n);
+    int3 d = abs(rv - v);
+    int3 an = abs(n);
+    int along = an.x * d.x + an.y * d.y + an.z * d.z;
+    int tang = max(max((1 - an.x) * d.x, (1 - an.y) * d.y), (1 - an.z) * d.z);
+    int over = max(0, tang - (int)floor(shareT));
+    return dn.x + dn.y + dn.z + along + over;
+}
+
+// Task 227: the plane distance two neighbouring faces of a B-pixel block may be apart: twice the block's footprint at
+// the face's distance (voxels per pixel = distance x pixel angle), plus one voxel. A face seen at a grazing angle has
+// a wider pixel footprint than this, so its far-apart pixels stop sharing (the edge stop).
+float SkyShareT(int3 v, float blockPx)
+{
+    float dist = length((float3)v + 0.5 - _CameraPos * 10.0);
+    return 1.0 + 2.0 * blockPx * dist * _SkyLowParams.z;
+}
 
 uint SkyFillHash(uint x)   // lowbias32, SkyVisReference.Hash
 {
@@ -4325,47 +4402,68 @@ int3 ShadowEntryNormal(int3 originCell, float3 dirIn, int3 v, float t)
 }
 
 // Last frame's record for this surface cell: the reprojected pixel, then its neighbours toward the
-// point (the sun history's probe set); the key decides. uint2(0, 0xFFFFFFFF) = none.
-uint2 SkyHistFetch(uint key, float3 hpVox, uint width, uint height)
+// point (the sun history's probe set); the key decides. Returns 0 = none, 1 = the key's record (`found`),
+// 2 (task 227, only with shareT > 0) = no key matched but a probe holds a compatible face (SkyShareBad 0): its
+// record, the disocclusion prior. The FIRST probe in order wins within a kind, a key match over any prior.
+// TASK 206: no return inside the unrolled loop (HLSLcc turned one into `as_type<float>(bool)`, which Metal
+// rejects at run time): the loop walks the probes BACKWARDS and keeps the last match = the first one.
+// Task 227: every kernel now uses this loop (diet 2's early-return copy is gone with the 8-byte record).
+uint SkyHistFetch(uint key, int3 fv, int3 fn, float shareT, float3 hpVox, uint width, uint height, out SkyRec found)
 {
-    uint2 none = uint2(0u, 0xFFFFFFFFu);
-    if (_SkyHistValid == 0) return none;
+    found = SkyRecNone();
+    if (_SkyHistValid == 0) return 0u;
     float4 pc = mul(_SkyPrevViewProj, float4(hpVox * 0.1, 1.0));
-    if (pc.w <= 1e-4) return none;
+    if (pc.w <= 1e-4) return 0u;
     float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
     int2 p0 = int2(floor(ppf));
     int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
     int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
-#ifdef VE_DIET2
-    [unroll]
-    for (int q = 0; q < 4; q++)
-    {
-        int2 pp = probes[q];
-        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
-        {
-            uint2 hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
-            if (hv.y == key) return hv;
-        }
-    }
-    return none;
-#else
-    // TASK 206: the same answer (the FIRST probe, in order, whose key matches) without a return inside
-    // the unrolled loop. In the non-diet kernels HLSLcc turned that early return into a select of a bool
-    // reinterpreted as float (`as_type<float>(bool)`), which Metal rejects at run time, so CSMainFarShade
-    // failed to load in a player. Walking the probes BACKWARDS and keeping the last match = the first one.
-    uint2 found = none;
+    uint kind = 0u;
     [unroll]
     for (int q = 3; q >= 0; q--)
     {
         int2 pp = probes[q];
         if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
         {
-            uint2 hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
-            if (hv.y == key) found = hv;
+            SkyRec hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.b != SKY_REQ_NONE)
+            {
+                int3 hvV, hvN;
+                SkyReqUnpack(hv.a, hv.b, hvV, hvN);
+                if (ShadowOriginKey(hvV + hvN) == key) { found = hv; kind = 1u; }
+                else if (kind != 1u && shareT > 0.0 && SkyShareBad(fv, fn, hvV, hvN, shareT) == 0) { found = hv; kind = 2u; }
+            }
         }
     }
-    return found;
-#endif
+    return kind;
+}
+
+// Task 227 (moved out of the primary kernel unchanged, so CSSkyFillTrace runs the very same rays): one sky-fill
+// sample of face (voxel, normal) along probeDir. A ground-half sample (fillHalf 1) takes a second leg, the sun
+// ray from where the first one landed. Also the vertical probe's trace (sky fill 0: fillHalf 0, one leg).
+float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf)
+{
+    float fillSample = 0.0;
+    int3 tv = voxel, tn = normal;
+    float3 td = probeDir;
+    int legs = (fillHalf != 0u) ? 2 : 1;
+    uint3 wdb = _WindowDimsBricksPacked.xyz;
+    [loop]
+    for (int leg = 0; leg < legs; leg++)
+    {
+        ShadowHit sky = TraceShadowRay(tv, tn, td,
+                                       wdb, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
+        fillSample = sky.sunVis;
+        if (leg == 0 && legs == 2)
+        {
+            if (sky.hitT < 0.0) break;                     // the ground ray found nothing: open
+            float3 sdn = normalize(_SunDir);
+            int3 en = ShadowEntryNormal(tv + tn, td, sky.hitV, sky.hitT);
+            if (sdn.y <= 0.0 || (en.x == 0 && en.y == 0 && en.z == 0)) { fillSample = 0.0; break; }
+            tv = sky.hitV; tn = en; td = sdn;               // one bounce: is the ground it landed on in sun?
+        }
+    }
+    return fillSample;
 }
 
 // One half's running mean (SkyFillReference.Fold): 12-bit value, 4-bit count (samples so far, capped 15).
@@ -5298,7 +5396,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
     float sunVis = 0.0;
     float skyVis = 1.0;
-    uint2 skyRec = uint2(0u, 0xFFFFFFFFu);   // task 193: this pixel's sky-fill record (none)
+    SkyRec skyRec = SkyRecNone();   // task 193: this pixel's sky-fill record (none); task 227: 12 B, carries the face
 #if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
     // Task 225 (DIAGNOSTIC, capture only): SHADE TERMS views 15-18 (ShadeProbeColor). -1 = not recorded.
     float spS = -1.0, spB = -1.0;                       // the sky-fill halves (history means after this frame)
@@ -5620,46 +5718,41 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             fillTrace = !(_SkyFill == 1 && normal.y < 0);   // mode 1: a down face has no sky half (0, as before)
             probeDir = SkyFillDirection(normal, SkyFillHash(fillKey), (uint)_SkyFrame, fillHalf);
         }
-        float fillSample = 0.0;
-        if (fillTrace)
+        // Task 227: the history first. With the low-res path (_SkyFillLow) a face that has one is NOT traced here:
+        // CSSkyFillTrace folds this frame's sample in after the primary passes (see LOW-RES SKY FILL). A face with
+        // none takes a compatible neighbour's record (hk 2), and only with neither is it traced here (an orphan).
+        SkyRec hv = SkyRecNone();
+        float hs = 0.0, hb = 0.0;
+        uint cs = 0u, cb = 0u;
+        if (_SkyFill != 0)
         {
-            int3 tv = voxel, tn = normal;
-            float3 td = probeDir;
-            int legs = (fillHalf != 0u) ? 2 : 1;
-            [loop]
-            for (int leg = 0; leg < legs; leg++)
+            uint hk = SkyHistFetch(fillKey, voxel, normal, _SkyFillLow != 0 ? SkyShareT(voxel, 2.0) : 0.0,
+                                   rayStart + rayDir * currentDist, width, height, hv);
+            if (hk != 0u)
             {
-                ShadowHit sky = TraceShadowRay(tv, tn, td,
-                                               _WindowDimsBricks, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
-                fillSample = sky.sunVis;
-                if (leg == 0 && legs == 2)
-                {
-                    if (sky.hitT < 0.0) break;                     // the ground ray found nothing: open
-                    float3 sdn = normalize(_SunDir);
-                    int3 en = ShadowEntryNormal(tv + tn, td, sky.hitV, sky.hitT);
-                    if (sdn.y <= 0.0 || (en.x == 0 && en.y == 0 && en.z == 0)) { fillSample = 0.0; break; }
-                    tv = sky.hitV; tn = en; td = sdn;               // one bounce: is the ground it landed on in sun?
-                }
+                hs = (float)(hv.v & 0xFFFu) / 4095.0;
+                hb = (float)((hv.v >> 12) & 0xFFFu) / 4095.0;
+                cs = (hv.v >> 24) & 0xFu;
+                cb = (hv.v >> 28) & 0xFu;
+                if (hk == 2u) { cs = min(cs, SKY_PRIOR_N); cb = min(cb, SKY_PRIOR_N); }
             }
         }
+        bool traceHere = fillTrace && (_SkyFill == 0 || _SkyFillLow == 0 || (cs == 0u && cb == 0u));
+        float fillSample = 0.0;
+        if (traceHere) fillSample = SkyFillTraceSample(voxel, normal, probeDir, fillHalf);
         skyVis = fillSample;
         if (_SkyFill != 0)
         {
-            uint2 hv = SkyHistFetch(fillKey, rayStart + rayDir * currentDist, width, height);
-            float hs = 0.0, hb = 0.0;
-            uint cs = 0u, cb = 0u;
-            if (hv.y == fillKey)
-            {
-                hs = (float)(hv.x & 0xFFFu) / 4095.0;
-                hb = (float)((hv.x >> 12) & 0xFFFu) / 4095.0;
-                cs = (hv.x >> 24) & 0xFu;
-                cb = (hv.x >> 28) & 0xFu;
-            }
-            if (fillTrace)
+            if (traceHere)
             {
                 if (fillHalf == 0u) SkyFillFold(hs, cs, fillSample);
                 else                SkyFillFold(hb, cb, fillSample);
-                skyRec = uint2((uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28), fillKey);
+            }
+            if (fillTrace)
+            {
+                uint2 face = SkyReqPack(voxel, normal);
+                skyRec.v = (uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28);
+                skyRec.a = face.x; skyRec.b = face.y;
             }
             skyVis = fillTrace ? SkyFillOpen(normal, hs, cs, hb, cb) : 0.0;
 #if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
@@ -6565,6 +6658,67 @@ void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
     {
         ResultTexture[tid.xy] = SunDeferB[tid.xy];
         if (_TemporalShadows != 0) ShadowHistW[idx].x = asuint(0.0);
+    }
+#endif
+}
+
+// TASK 227: LOW-RES SKY FILL's trace pass. One thread per B x B block (B = 2 << (_SkyFillLow - 1)): it picks one
+// face of the block (the first record with a face, scanning from a slot that rotates every 2 frames and differs per
+// block), traces that face's sample exactly as the inline path would (SkyFillTraceSample, its seed, this frame's
+// half and direction) and folds it into every record of the block that shows the same face plane (SkyShareBad 0).
+// Single writer: each record belongs to one block. Runs after both primary passes, so every record is this frame's.
+[numthreads(8, 8, 1)]
+void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID)
+{
+#ifdef VE_SKYFILL_TRACE
+    uint width = (uint)_SkyLowParams.x, height = (uint)_SkyLowParams.y;
+    uint bs = (uint)clamp(_SkyFillLow, 1, 2);
+    uint bw = 1u << bs, nPix = bw * bw;
+    uint2 o = tid.xy << bs;
+    if (o.x >= width || o.y >= height || _SkyFill == 0) return;   // no barrier in this kernel
+    uint frame = (uint)_SkyFrame;
+    uint start = ((frame >> 1) + SkyFillHash(tid.x * 0x9E3779B1u ^ tid.y)) & (nPix - 1u);
+    SkyRec rep = SkyRecNone();
+    [loop]
+    for (uint k = 0u; k < nPix; k++)
+    {
+        uint j = (start + k) & (nPix - 1u);
+        uint2 p = o + uint2(j & (bw - 1u), j >> bs);
+        if (rep.b == SKY_REQ_NONE && p.x < width && p.y < height)
+        {
+            SkyRec r = SkyHistW[p.y * width + p.x];
+            if (r.b != SKY_REQ_NONE) rep = r;
+        }
+    }
+    if (rep.b == SKY_REQ_NONE) return;
+    int3 v, n;
+    SkyReqUnpack(rep.a, rep.b, v, n);
+    uint key = ShadowOriginKey(v + n);
+    uint hf = SkyFillHalf(n, frame);
+    float smp = SkyFillTraceSample(v, n, SkyFillDirection(n, SkyFillHash(key), frame, hf), hf);
+    float shareT = SkyShareT(v, (float)bw);
+    [loop]
+    for (uint k2 = 0u; k2 < nPix; k2++)
+    {
+        uint2 p = o + uint2(k2 & (bw - 1u), k2 >> bs);
+        if (p.x < width && p.y < height)
+        {
+            uint idx = p.y * width + p.x;
+            SkyRec r = SkyHistW[idx];
+            if (r.b != SKY_REQ_NONE)
+            {
+                int3 rv, rn;
+                SkyReqUnpack(r.a, r.b, rv, rn);
+                if (SkyShareBad(v, n, rv, rn, shareT) == 0)
+                {
+                    float hs = (float)(r.v & 0xFFFu) / 4095.0, hb = (float)((r.v >> 12) & 0xFFFu) / 4095.0;
+                    uint cs = (r.v >> 24) & 0xFu, cb = (r.v >> 28) & 0xFu;
+                    if (hf == 0u) SkyFillFold(hs, cs, smp);
+                    else          SkyFillFold(hb, cb, smp);
+                    SkyHistW[idx].v = (uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28);
+                }
+            }
+        }
     }
 #endif
 }

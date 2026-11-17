@@ -160,6 +160,8 @@
 //            every path ends with a [mem] line (MemoryLedger.Step14Line: pools, GPU refusals, process peak).
 //   TASK 226 (look, stills only): arms lotl_off (the four look-polish pieces off = before 226), vary_only, crevice_only,
 //            aerial_only, bloom_only (one piece on), vary_off, crevice_off, aerial_off, bloom_off (all but one).
+//   TASK 227 (performance): arms sfres1 (task 193's inline sky fill, one ray per pixel), sfres2 / sfres4 (the low-res
+//            trace pass, 2x2 / 4x4 blocks); FULL keeps the launch's -skyfillres (default 4).
 //   TASK 225 (look, stills only): arms lookfix_off (= before 225), lookexact_off, skylinear_off; -shadeprobe 1 adds the
 //            SHADE TERMS stills shade15..18 (debug views 15-18; decoder Logs/overnight/225/probe.py, sim.py).
 using System.Collections;
@@ -304,7 +306,8 @@ public partial class PlaygroundCapture
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p95 {Pct(r.ms, 0.95f),6:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  >33ms {Over33(r.ms),5:F1}%  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
-                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}  " +
+                  $"skyfill {RaymarchFeature.SkyFill} res {(RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SkyFillResDrawnLastFrame + "x" + RaymarchFeature.SkyFillResDrawnLastFrame)}");   // task 227
                 if (RaymarchFeature.ShadowRoofSkip || RaymarchFeature.DebugRoofBuildOnly) L($"     {RaymarchFeature.RoofIncSummary()}");   // task 168
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
@@ -443,6 +446,8 @@ public partial class PlaygroundCapture
         bool floodWant = arm != "flood_off" && _costBaseFlood;
         if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
         RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
+        // Task 227: sfres1 = task 193's inline sky fill (one ray per pixel), sfres2 / sfres4 = the low-res trace pass.
+        RaymarchFeature.SkyFillRes = arm == "sfres1" ? 1 : arm == "sfres2" ? 2 : arm == "sfres4" ? 4 : _costBaseSkyFillRes;
         // Task 225: lookfix_off (both off = before 225), lookexact_off, skylinear_off (FULL keeps the launch's values).
         RaymarchFeature.LookExactSrgb = arm != "lookfix_off" && arm != "lookexact_off" && _costBaseLookExact;
         RaymarchFeature.SkyShareLinear = arm != "lookfix_off" && arm != "skylinear_off" && _costBaseSkyLinear;
@@ -479,6 +484,7 @@ public partial class PlaygroundCapture
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
     private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
+    private static int _costBaseSkyFillRes = 4;   // task 227
     private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
     private static bool _costBaseVary = true, _costBaseCrevice = true, _costBaseAerial = true, _costBaseBloom = true;   // task 226
     private static int _costBaseFarSteps = -1;
@@ -662,7 +668,7 @@ public partial class PlaygroundCapture
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
-                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill;   // task 212
+                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes;   // task 212
                                  _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
                                  _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
                                  _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom; }
