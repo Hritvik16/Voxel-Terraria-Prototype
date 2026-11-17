@@ -656,6 +656,18 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// The trace pass drawn last frame (capture lines): 0 = inline, 2 / 4 = the block size.
     public static int SkyFillResDrawnLastFrame;
 
+    /// TASK 232 (performance, owner Q-AN 2026-11-16; supervisor's (a) 2026-11-17): LOW-RES SUN, `-sunres 1|2|4` (last match;
+    /// default 1 = today's path, one exact sun ray per pixel inline). 2 / 4: the primary kernel shades with the face's sun
+    /// record (its own, at most a few frames old, or an agreeing same-plane neighbour's: a "prior") and traces inline only
+    /// where neighbours disagree (a shadow edge, its penumbra) or none fits; CSSunTrace re-traces one face per 2x2 / 4x4 block
+    /// per frame, exactly, into every record of that face (Raymarch.compute LOW-RES SUN). Only with a far-shading primary
+    /// kernel that is not the sun-defer one. Uses the temporal-shadow history (2 x W x H x 12 B; +8.0 MB at 768x432).
+    /// CPU twin SunLowReference (SunLowReferenceTests).
+    public static int SunRes = ValidSunRes(ReadIntArg("-sunres", 1));
+    public static int ValidSunRes(int v) => v == 2 || v == 4 ? v : 1;
+    /// The sun trace pass drawn last frame (capture lines): 0 = inline (today's path), 2 / 4 = the block size.
+    public static int SunResDrawnLastFrame;
+
     /// TASK 225 (look, owner Q-AN "why are the tree trunks pitch black"): two exact fixes to the look's
     /// display<->linear handling, both ON by default (Raymarch.compute _LookFix, LookToLinear / LookSkyOpen).
     /// `-lookexact 0`: LookToLinear back to pow 2.2 (not the inverse of URP's sRGB encode: crushed display < ~0.1).
@@ -700,6 +712,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     private static Matrix4x4 _sfPrevVP;
     private static int _tsW, _tsH;
     private static bool _tsValid;
+    private const int SHADOW_REC_STRIDE = 12;   // task 232: Raymarch.compute SunRec {v, a, b} (was uint2)
+    private static int _tsMode = -1;            // task 232: what last frame's history holds: -1 none, 0 task 56's keys, 1 / 2 low-res sun
     private static uint _tsFrame;
     private static Matrix4x4 _tsPrevVP;
 
@@ -817,6 +831,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         class ComputePassData
         {
             public int temporalShadows, tsValid, tsReuseMask;
+            public int sunLow, kSunTrace = -1;           // task 232: block shift (0 = today's path) and CSSunTrace, or -1
+            public Vector4 sunLowParams;                 // task 232: width, height, pixel angle
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
@@ -1093,21 +1109,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Temporal shadow reuse: ping-pong history, previous camera.
                 if (_tsDummyR == null)
                 {
-                    _tsDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
-                    _tsDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                    _tsDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SHADOW_REC_STRIDE);
+                    _tsDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SHADOW_REC_STRIDE);
                 }
                 passData.temporalShadows = TemporalShadows ? 1 : 0;
-                if (TemporalShadows)
+                // Task 232: the low-res sun keeps its records in the same history (12 B each).
+                if (TemporalShadows || ValidSunRes(SunRes) > 1)
                 {
                     if (_tsA == null || _tsW != dispatchW || _tsH != dispatchH)
                     {
                         _tsA?.Release(); _tsB?.Release();
-                        _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        // (sunVis, origin key) per pixel. A slot never written (the
-                        // checkerboard's other half) must never match a key: 0xFFFFFFFF.
-                        var fill = new uint[dispatchW * dispatchH * 2];
-                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SHADOW_REC_STRIDE);
+                        _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SHADOW_REC_STRIDE);
+                        // (sunVis, origin key, -) per pixel (task 56), or a low-res sun record (task 232). A slot never
+                        // written (the checkerboard's other half) must never match a key, nor hold a face: all 0xFFFFFFFF.
+                        var fill = new uint[dispatchW * dispatchH * 3];
+                        for (int i = 0; i < fill.Length; i++) fill[i] = 0xFFFFFFFFu;
                         _tsA.SetData(fill); _tsB.SetData(fill);
                         _tsW = dispatchW; _tsH = dispatchH; _tsValid = false;
                     }
@@ -1607,6 +1624,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.sfLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
                 }
                 SkyFillResDrawnLastFrame = passData.sfLow == 0 ? 0 : 1 << passData.sfLow;
+                // Task 232: the low-res sun's trace pass, with a far-shading primary kernel that is not the sun-defer one.
+                passData.sunLow = 0; passData.kSunTrace = -1;
+                if (ValidSunRes(SunRes) > 1 && passData.primaryFarShade && !diet2Sun && passData.tsRead != _tsDummyR
+                    && activeCompute.HasKernel("CSSunTrace"))
+                {
+                    passData.sunLow = SunRes == 4 ? 2 : 1;
+                    passData.kSunTrace = activeCompute.FindKernel("CSSunTrace");
+                    passData.sunLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
+                }
+                {
+                    // A history written by the other mode holds the other record kind: drop it for one frame.
+                    int tsMode = passData.sunLow != 0 ? passData.sunLow : (TemporalShadows ? 0 : -1);
+                    if (tsMode != _tsMode) passData.tsValid = 0;
+                    _tsMode = tsMode;
+                }
+                SunResDrawnLastFrame = passData.sunLow == 0 ? 0 : 1 << passData.sunLow;
                 // Task 206: a kernel that did not load at run time is LOUD (KernelHealth): one error per kernel,
                 // the frame painted magenta by the blit pass, DebugBuffer's ray slots NaN.
                 {
@@ -1619,6 +1652,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunDefer) ?? "#" + passData.kSunDefer;
                     else if (passData.kSkyTrace >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSkyTrace))
                         failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSkyTrace) ?? "#" + passData.kSkyTrace;
+                    else if (passData.kSunTrace >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSunTrace))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunTrace) ?? "#" + passData.kSunTrace;
                     KernelFailedLastFrame = failed;
                     PrimaryKernelLastFrame = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary);
                     _kernelFailedThisFrame = failed != null;
@@ -1825,6 +1860,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistW", data.sfWrite);
                         cmd.SetComputeIntParam(data.compute, "_SkyFillLow", data.sfLow);              // task 227
                         cmd.SetComputeVectorParam(data.compute, "_SkyLowParams", data.sfLowParams);
+                        cmd.SetComputeIntParam(data.compute, "_SunLow", data.sunLow);                 // task 232
+                        cmd.SetComputeVectorParam(data.compute, "_SunLowParams", data.sunLowParams);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
 
@@ -2092,6 +2129,36 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         int bx = (data.dispatchWidth + (1 << sfBs) - 1) >> sfBs, by = (data.dispatchHeight + (1 << sfBs) - 1) >> sfBs;
                         cmd.DispatchCompute(data.compute, kSky, (bx + 7) / 8, (by + 7) / 8, 1);
                         cmd.EndSample("VE.Raymarch.SkyFillTrace");
+                    }
+                    if (data.kSunTrace >= 0)
+                    {
+                        // Task 232: LOW-RES SUN -- one exact sun ray per 2x2 / 4x4 block, written into this frame's records of
+                        // that face (Raymarch.compute CSSunTrace). Binds what TraceShadowRay and ShellMarch read.
+                        int kSun = data.kSunTrace;
+                        cmd.BeginSample("VE.Raymarch.SunTrace");
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBuffer", data.clipmapBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBuffer", data.brickDataBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip1", data.airMip1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip2", data.airMip2);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip3", data.airMip3);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip4", data.airMip4);
+                        if (data.airMipPacked != null) cmd.SetComputeBufferParam(data.compute, kSun, "AirMipPacked", data.airMipPacked);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBufferTier1", data.clipmapTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBufferTier1", data.brickDataTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBufferTier2", data.clipmapTier2);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBufferTier2", data.brickDataTier2);
+                        if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSun, "HeightMipRO", data.heightMip);
+                        if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSun, "DebugOut", data.debugBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "FarResident", data.farResident);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShadowStats", data.shadowStats ?? _farDummy);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShadowHistW", data.tsWrite);
+                        int snBs = data.sunLow;
+                        int sbx = (data.dispatchWidth + (1 << snBs) - 1) >> snBs, sby = (data.dispatchHeight + (1 << snBs) - 1) >> snBs;
+                        cmd.DispatchCompute(data.compute, kSun, (sbx + 7) / 8, (sby + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.SunTrace");
                     }
                     if (data.kShellProbe >= 0)
                     {

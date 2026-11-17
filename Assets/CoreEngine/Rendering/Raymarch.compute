@@ -160,6 +160,9 @@
 // TASK 227: LOW-RES SKY FILL's trace pass (see that block): one sky-fill ray per 2x2 / 4x4 pixel block, after the
 // primary passes. VE_FAR_SHADE so its TraceShadowRay is the play kernels' (task 133's shell-continued distance cap).
 #pragma kernel CSSkyFillTrace VE_FAR_SHADE VE_SKYFILL_TRACE
+// TASK 232: LOW-RES SUN's trace pass (see that block): one exact sun ray per 2x2 / 4x4 pixel block, after the primary
+// passes, written into every record of the block that shows the same face.
+#pragma kernel CSSunTrace VE_FAR_SHADE VE_SUN_TRACE
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -309,8 +312,23 @@ int _CollectShadowStats;
 // history is keyed by the shadow-origin cell (hit voxel + normal), which is
 // everything TraceShadowRay's result depends on: a match reuses exactly the
 // value this pixel would trace (bar the sun's drift over a few frames).
-StructuredBuffer<uint2> ShadowHistR;      // x = asuint(sunVis), y = ShadowOriginKey; 0xFFFFFFFF = none
-RWStructuredBuffer<uint2> ShadowHistW;
+// Task 232: the record is 12 B (was uint2 {asuint(sunVis), key}): v = asuint(sunVis) with two flag bits (SUN_REC_PRIOR,
+// SUN_REC_SHELL; sunVis is in [0, 1], so bits 30-31 of its float are always 0), a, b = SkyReqPack(voxel, normal), the
+// FACE (b == SKY_REQ_NONE = none). The key is derived (ShadowOriginKey(voxel + normal)), so matching is unchanged; the
+// face lets CSSunTrace trace a record's ray (LOW-RES SUN, -sunres 2|4). CPU twin SunLowReference.
+struct SunRec { uint v; uint a; uint b; };
+#define SUN_REC_PRIOR 0x80000000u   // task 232: the value came from agreeing neighbours, not this face's own ray
+#define SUN_REC_SHELL 0x40000000u   // task 232: a shell hit (its ray is the shell march from the face)
+#define SUN_REC_VIS   0x3FFFFFFFu
+StructuredBuffer<SunRec> ShadowHistR;
+RWStructuredBuffer<SunRec> ShadowHistW;
+int _SunLow;            // task 232: 0 = today's sun path; 1 / 2 = LOW-RES SUN with CSSunTrace on 2x2 / 4x4 blocks
+float4 _SunLowParams;   // task 232: x, y = dispatch width, height; z = render pixel angle (rad); w unused
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+#define SUN_LOW_ON (_SunLow != 0)   // task 232: the far-shading primary kernels (and CSSunTrace) only
+#else
+#define SUN_LOW_ON false
+#endif
 float4x4 _PrevViewProj;
 int _TemporalShadows;
 int _ShadowHistValid;
@@ -4365,6 +4383,122 @@ float SkyShareT(int3 v, float blockPx)
     return 1.0 + 2.0 * blockPx * dist * _SkyLowParams.z;
 }
 
+// ---- TASK 232 (performance; owner Q-AN 2026-11-16, supervisor's (a) 2026-11-17): LOW-RES SUN ----
+// `-sunres 2|4` (RaymarchFeature.SunRes; 1 = today's path, the default until proven). 228 put the sun at 18-30 ms per
+// pose, and 124 found that HALVING the traced rays inside the big kernel saved nothing: a SIMD group waits for its
+// slowest lane, so a few scattered rays cost as much as all of them. So the low path takes the rays OUT of the big
+// kernel, as task 227 did for sky fill:
+//  * the primary kernel shades from a record: this face's own (key match: its exact value, at most a few frames old),
+//    else, when at least SUN_PRIOR_MIN reprojected neighbours on the SAME FACE PLANE (SkyShareBad, 1 px of footprint)
+//    hold it and AGREE (max - min <= SUN_AGREE), their value: a "prior", flagged SUN_REC_PRIOR. Neighbours that
+//    disagree mean a shadow edge (or its soft penumbra) is here: the pixel traces inline, exactly as today (an
+//    "orphan"); so are pixels with no compatible neighbour (disocclusions, small faces). Covers ALL the sun rays: the
+//    tier-0 ray, task 133's continuation, task 80's shell-hit ray (which today marches every frame, with no reuse).
+//  * CSSunTrace (after the primary passes) runs ONE thread per B x B pixel block (B = 2 / 4), compacted: every lane
+//    traces. It picks one record of the block (on even frames the first PRIOR one, else the rotating slot's), traces
+//    that face's ray exactly (SunTraceFace) and writes the value into every record of the block that shows THE SAME
+//    FACE (same voxel and normal: the same ray, so exact). A traced prior that was wrong (off by > SUN_AGREE) drops
+//    the block's other priors on that plane, so next frame they trace inline instead of guessing.
+//  * a shell hit's ray starts at its 0.1 m face's centre (just off the face) instead of the exact hit point, inline
+//    and in CSSunTrace alike, so every pixel of one face has the same ray (< 0.05 m off; the shells' cells are
+//    0.2 m or larger). Tier-0 rays are today's exactly. -sunfar is not used on this path (exact only).
+// Steady state: no ray in the big kernel; 1 / B^2 of the faces re-traced per frame (sun drift, edits: a record is
+// refreshed within ~2 B^2 frames). CPU twin SunLowReference (SunLowReferenceTests).
+#define SUN_AGREE (1.0 / 16.0)
+#define SUN_PRIOR_MIN 2u
+
+SunRec SunRecNone() { SunRec r; r.v = 0u; r.a = 0u; r.b = SKY_REQ_NONE; return r; }
+SunRec SunRecMake(float vis, int3 v, int3 n, uint flags)
+{
+    uint2 ab = SkyReqPack(v, n);
+    SunRec r; r.v = (asuint(saturate(vis)) & SUN_REC_VIS) | flags; r.a = ab.x; r.b = ab.y;
+    return r;
+}
+
+// The same-plane distance a prior may come from: one pixel's footprint at the face's distance, plus one voxel.
+float SunShareT(int3 v)
+{
+    float dist = length((float3)v + 0.5 - _CameraPos * 10.0);
+    return 1.0 + 2.0 * dist * _SunLowParams.z;
+}
+
+// Last frame's record for this face: 1 = its own (key match), 2 = a prior (>= SUN_PRIOR_MIN compatible probes, all
+// within SUN_AGREE of each other), 0 = none (trace inline). vis / flags = the value and the flags to carry on.
+// Task 206 / 227 rules: no return inside the unrolled loop (it walks the probes backwards and keeps the last match =
+// the first probe in order), and no bool select: plain ifs on uint / float. CPU twin SunLowReference.Fetch.
+uint SunHistFetch(uint key, int3 fv, int3 fn, float shareT, float3 hpVox, uint width, uint height, out float vis, out uint flags)
+{
+    vis = 1.0; flags = 0u;
+    if (_ShadowHistValid == 0) return 0u;
+    float4 pc = mul(_PrevViewProj, float4(hpVox * 0.1, 1.0));
+    if (pc.w <= 1e-4) return 0u;
+    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+    int2 p0 = int2(floor(ppf));
+    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+    uint kind = 0u, nComp = 0u, keyFlags = 0u;
+    float keyVis = 1.0, pFirst = 1.0, pMin = 2.0, pMax = -1.0;
+    [unroll]
+    for (int q = 3; q >= 0; q--)
+    {
+        int2 pp = probes[q];
+        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+        {
+            SunRec hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.b != SKY_REQ_NONE)
+            {
+                int3 hvV, hvN;
+                SkyReqUnpack(hv.a, hv.b, hvV, hvN);
+                float hvis = asfloat(hv.v & SUN_REC_VIS);
+                if (ShadowOriginKey(hvV + hvN) == key) { keyVis = hvis; keyFlags = hv.v & SUN_REC_PRIOR; kind = 1u; }
+                else if (SkyShareBad(fv, fn, hvV, hvN, shareT) == 0)
+                {
+                    pFirst = hvis; pMin = min(pMin, hvis); pMax = max(pMax, hvis); nComp += 1u;
+                }
+            }
+        }
+    }
+    if (kind == 1u) { vis = keyVis; flags = keyFlags; }
+    else if (nComp >= SUN_PRIOR_MIN && pMax - pMin <= SUN_AGREE) { vis = pFirst; flags = SUN_REC_PRIOR; kind = 2u; }
+    return kind;
+}
+
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+// One face's sun visibility, exactly as the primary kernel's sun block computes it for a hit on that face: a tier-0
+// face = TraceShadowRay + task 133's continuation through the shells; a shell face (shell != 0) = task 80's shell
+// march, started at the face's centre (see LOW-RES SUN). Used by CSSunTrace and by the primary kernel's orphans.
+float SunTraceFace(int3 v, int3 n, uint shell)
+{
+    float3 cam = _CameraPos * 10.0;
+    float3 sd = normalize(_SunDir);
+    float vis = 1.0;
+    if (shell != 0u)
+    {
+        float3 so = (float3)v + 0.5 + (float3)n * 0.51;
+        ShellHit ss = ShellMarch(so, sd, 0.0, true, cam, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
+        if (ss.end == SHELL_END_HIT) vis = 0.0;
+    }
+    else
+    {
+        bool soft = (_ShadowQualityLevel <= 1) && (_KSoft > 0.0);
+        bool cont = _NearShadowShells != 0 && _ShellCount > 1;
+#if defined(VE_DIET2_ROOF)
+        bool roof = false;
+#else
+        bool roof = !cont;
+#endif
+        ShadowHit sh = TraceShadowRay(v, n, _SunDir, _WindowDimsBricksPacked.xyz, soft, false, roof, SUN_COARSE_NEVER);
+        vis = sh.sunVis;
+        if (cont && sh.exitT >= 0.0 && sh.sunVis > 0.0)
+        {
+            ShellHit ns = ShellMarch((float3)(v + n) + 0.5, sd, sh.exitT, true, cam, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
+            if (ns.end == SHELL_END_HIT) vis = 0.0;
+        }
+    }
+    return vis;
+}
+#endif
+
 uint SkyFillHash(uint x)   // lowbias32, SkyVisReference.Hash
 {
     x ^= x >> 16; x *= 0x7FEB352Du;
@@ -5486,7 +5620,24 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // gsAnyShadowNeeded is now GROUP-UNIFORM, so this branch is scalar: a group
     // that is entirely sky skips instantiating the shadow path altogether,
     // which is the behaviour §6.5 asks for.
-    if (gsAnyShadowNeeded != 0u)
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+    // TASK 232: LOW-RES SUN (see that block). This face's record (its own, or an agreeing same-plane prior), else
+    // the exact ray inline (SunTraceFace: the tier-0 ray + task 133's continuation, or the shell-hit ray). The
+    // reuse / temporal block below and the shell-hit march are skipped (_SunLow is uniform: barriers stay uniform).
+    SunRec sunLowRec = SunRecNone();
+    if (SUN_LOW_ON && needsShadowRay)
+    {
+        uint slShell = shellAtHit > 0 ? SUN_REC_SHELL : 0u;
+        float slVis = 1.0;
+        uint slFlags = 0u;
+        uint slKind = SunHistFetch(ShadowOriginKey(voxel + normal), voxel, normal, SunShareT(voxel),
+                                   rayStart + rayDir * currentDist, width, height, slVis, slFlags);
+        if (slKind == 0u) { slVis = SunTraceFace(voxel, normal, slShell); slFlags = 0u; }
+        sunVis = slVis;
+        sunLowRec = SunRecMake(slVis, voxel, normal, slFlags | slShell);
+    }
+#endif
+    if (gsAnyShadowNeeded != 0u && !SUN_LOW_ON)
     {
         // §6.5 rung 1: "shadow rays beyond LOD1 drop to half resolution with
         // NEIGHBOUR REUSE (near shadows, the ones by the player, untouched)."
@@ -5587,8 +5738,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                         int2 pp = probes[q];
                         if (!histHit && pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
                         {
-                            uint2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                            if (hv.y == shadowKey) { histHit = true; histVis = asfloat(hv.x); }
+                            SunRec hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];   // task 232: 12 B; this path keeps the key in .a
+                            if (hv.a == shadowKey) { histHit = true; histVis = asfloat(hv.v); }
                         }
                     }
                 }
@@ -5680,7 +5831,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // 8.14 shells (task 80): a shell hit's sun ray marches the shells (the
     // tier-0 ray above left the window at once). Starts just off the hit face;
     // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
-    if (shellAtHit > 0 && needsShadowRay
+    if (shellAtHit > 0 && needsShadowRay && !SUN_LOW_ON   // task 232: the low path traced (or reused) it above
 #ifdef VE_SHELL_DIAG
         && (_DebugShellSkip & 1) == 0   // task 93b4: the shellshadow_off arm
 #endif
@@ -5703,10 +5854,18 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 
     // Temporal reuse: every pixel records what it used, for the next frame.
+    // Task 232: the record is a SunRec; this (task 56) path keeps {asuint(sunVis), key, 0} as the uint2 was.
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+    if (SUN_LOW_ON && inBounds) ShadowHistW[id.y * width + id.x] = sunLowRec;
+    else
+#endif
     if (_TemporalShadows != 0 && inBounds)
-        ShadowHistW[id.y * width + id.x] = needsShadowRay
-            ? uint2(asuint(sunVis), ShadowOriginKey(voxel + normal))
-            : uint2(0u, 0xFFFFFFFFu);
+    {
+        SunRec tr;
+        tr.v = 0u; tr.a = 0xFFFFFFFFu; tr.b = 0u;
+        if (needsShadowRay) { tr.v = asuint(sunVis); tr.a = ShadowOriginKey(voxel + normal); }
+        ShadowHistW[id.y * width + id.x] = tr;
+    }
 
     // -----------------------------------------------------------------------
     // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")
@@ -6690,7 +6849,7 @@ void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
     if (ss.end == SHELL_END_HIT)
     {
         ResultTexture[tid.xy] = SunDeferB[tid.xy];
-        if (_TemporalShadows != 0) ShadowHistW[idx].x = asuint(0.0);
+        if (_TemporalShadows != 0) ShadowHistW[idx].v = asuint(0.0);
     }
 #endif
 }
@@ -6749,6 +6908,75 @@ void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID)
                     if (hf == 0u) SkyFillFold(hs, cs, smp);
                     else          SkyFillFold(hb, cb, smp);
                     SkyHistW[idx].v = (uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28);
+                }
+            }
+        }
+    }
+#endif
+}
+
+// TASK 232: LOW-RES SUN's trace pass. One thread per B x B block (B = 2 << (_SunLow - 1)). It picks one record of the
+// block: on even frames the first PRIOR one (a value borrowed from neighbours: check it), else / otherwise the first with
+// a face, scanning from a slot that rotates every 2 frames and differs per block. It traces that face's ray exactly
+// (SunTraceFace) and writes the value into every record of the block with the SAME face (same voxel, normal and shell
+// flag: the same ray), flags cleared. If the face held a prior that was wrong (off by > SUN_AGREE), the block's other
+// priors on that face plane (SkyShareBad 0) are dropped, so next frame they trace inline instead of guessing.
+// Single writer: each record belongs to one block. Runs after both primary passes, so every record is this frame's.
+// No bool selects in shared expressions (task 227's Metal bug): plain ifs on uint. CPU twin SunLowReference.Pick.
+[numthreads(8, 8, 1)]
+void CSSunTrace(uint3 tid : SV_DispatchThreadID)
+{
+#ifdef VE_SUN_TRACE
+    uint width = (uint)_SunLowParams.x, height = (uint)_SunLowParams.y;
+    uint bs = (uint)clamp(_SunLow, 1, 2);
+    uint bw = 1u << bs, nPix = bw * bw;
+    uint2 o = tid.xy << bs;
+    if (o.x >= width || o.y >= height || _SunLow == 0) return;   // no barrier in this kernel
+    uint frame = (uint)_ShadowFrame;
+    uint start = ((frame >> 1) + SkyFillHash(tid.x * 0x9E3779B1u ^ tid.y)) & (nPix - 1u);
+    uint wantPrior = (frame & 1u) == 0u ? 1u : 0u;
+    SunRec rep = SunRecNone(), repP = SunRecNone();
+    [loop]
+    for (uint k = 0u; k < nPix; k++)
+    {
+        uint j = (start + k) & (nPix - 1u);
+        uint2 p = o + uint2(j & (bw - 1u), j >> bs);
+        if (p.x < width && p.y < height)
+        {
+            SunRec r = ShadowHistW[p.y * width + p.x];
+            if (r.b != SKY_REQ_NONE)
+            {
+                if (rep.b == SKY_REQ_NONE) rep = r;
+                if (repP.b == SKY_REQ_NONE && (r.v & SUN_REC_PRIOR) != 0u) repP = r;
+            }
+        }
+    }
+    if (wantPrior != 0u && repP.b != SKY_REQ_NONE) rep = repP;
+    if (rep.b == SKY_REQ_NONE) return;
+    int3 v, n;
+    SkyReqUnpack(rep.a, rep.b, v, n);
+    uint shellF = rep.v & SUN_REC_SHELL;
+    float vis = SunTraceFace(v, n, shellF);
+    uint priorBad = 0u;
+    if ((rep.v & SUN_REC_PRIOR) != 0u && abs(asfloat(rep.v & SUN_REC_VIS) - vis) > SUN_AGREE) priorBad = 1u;
+    SunRec traced = SunRecMake(vis, v, n, shellF);
+    float shareT = SunShareT(v);
+    [loop]
+    for (uint k2 = 0u; k2 < nPix; k2++)
+    {
+        uint2 p = o + uint2(k2 & (bw - 1u), k2 >> bs);
+        if (p.x < width && p.y < height)
+        {
+            uint idx = p.y * width + p.x;
+            SunRec r = ShadowHistW[idx];
+            if (r.b != SKY_REQ_NONE)
+            {
+                if (r.a == rep.a && r.b == rep.b && (r.v & SUN_REC_SHELL) == shellF) ShadowHistW[idx] = traced;
+                else if (priorBad != 0u && (r.v & SUN_REC_PRIOR) != 0u)
+                {
+                    int3 rv, rn;
+                    SkyReqUnpack(r.a, r.b, rv, rn);
+                    if (SkyShareBad(v, n, rv, rn, shareT) == 0) ShadowHistW[idx] = SunRecNone();
                 }
             }
         }

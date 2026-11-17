@@ -2044,3 +2044,19 @@ by its spread over the 6 originals. One low-sun (12 deg) launch with existing fl
 Script `Logs/overnight/231/ablate.py` (run `python3 -I Logs/overnight/231/ablate.py` from the repo root), report
 `Logs/overnight/231/ablation.txt`, launch `Logs/overnight/231/run.sh`; sheets + `viewer.html` in `Screenshots/231/sheets/`.
 Result (HANDOFF 231): sky > grade > the rest; the time of day (low sun) alone equals all five at forest_eye; all five close only ~30 %.
+
+**Task 232 (performance, owner Q-AN 2026-11-16; supervisor's (a) 2026-11-17): LOW-RES SUN, `-sunres 1|2|4` (last match; DEFAULT 1 =
+today's path; kept OFF: no saving measured).** Raymarch.compute block LOW-RES SUN: with a far-shading primary kernel that is not the
+sun-defer one, the primary kernel shades with the face's sun record (`SunRec` {v, a, b}: vis + flags PRIOR / SHELL, the face as
+`SkyReqPack`; the temporal-shadow history, now 12 B per record, was uint2): its own (key match), else a PRIOR (>= 2 reprojected
+probes on the SAME face plane, `SkyShareBad` 0, agreeing within 1/16), else the exact ray inline (`SunTraceFace`: tier-0 ray + task
+133's continuation, or the shell-hit ray from the 0.1 m face centre). New kernel `CSSunTrace` (VE_FAR_SHADE VE_SUN_TRACE) traces one
+face per 2x2 / 4x4 block per frame (even frames: a prior first) into every record of that face; a wrong prior drops the block's other
+priors on its plane. Exact rays only, no coarse bricks (228's defect cannot occur). Task 56's -tshadow path keeps {vis, key} in the
+same struct. Capture arms `sunres_off|sunres2|sunres4`; the cost-split run line prints `sunres inline|2x2|4x4`. CPU twin
+`SunLowReference` (Make, Fetch, TraceBlock, Frame); tests `SunLowReferenceTests` (shader pins, two agreeing same-plane probes, slot
+floor never takes the ledge's light, steep slope exact under 3 suns, thin pole exact near, far edge error within 1 voxel; a far
+sub-pixel pole line is missed in ~1.7 % of pixels, all within 1 voxel of its edge). Memory: +2.65 MB whenever the history exists
+(8 -> 12 B x 2 x 768x432; play has temporal shadows ON via the preset). Result (warm ABBA, noon, 432 rows, p50): walk_near 62.1 ->
+60.6 ms (noise 1.3), forest_eye 95.8 -> 98.3 (noise 8.9), jungle_eye 70.5 -> 69.3 (noise 27); sun off 42.3 / 78.0 / 54.7. Runner
+`Logs/overnight/232/run.sh`, plan `PLAN.md`, pictures `sheets.py` -> `Screenshots/232/sheets/`. Result: HANDOFF 232.
