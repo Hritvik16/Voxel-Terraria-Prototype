@@ -1,60 +1,47 @@
-# 231-look-why-lotl-looks-cinematic: DONE (offline). Sky matters most, then the colour grade. A low sun alone helps as much as all five post factors at forest_eye. All five together close only ~30 % of the gap. Commit f1de235
+# 232-perf-sun-lowres-share: DONE, switch kept OFF. Exact low-res sun (`-sunres 4`) is built and correct but saves ~0 ms. Commits e70c1a9 (code + tests), 52e51b9 (runner, plan, reports)
 
-## What was done
-- `Logs/overnight/231/ablate.py` (python3 -I, run from the repo root; no input images in its folder). Ours: 226's forest_eye / jungle_eye /
-  walk_near (noon) + 3 low-sun stills (below). Theirs: the 3 Steam shots cropped from `Screenshots/222/side_by_side.png` (640x360).
-  Factors, each alone and then all five: a warm sun / cool shade (luma mask), b pale hazy sky + soft clouds (soft blueness sky mask,
-  sky pixels only), c grade (greens -28 %, warm mids, 30 % S-curve, vignette), d coloured shade floor (luma < 0.18), e 1/4-voxel grain.
-  Reverse test on theirs: grade flattened / sky made our blue / warm-cool split killed / shade crushed / sub-voxel texture smoothed.
-- Ranking comes from 8 image metrics: sky chroma, sky luma, warm-cool split, shade p10, chroma, green chroma, contrast, detail.
-  Each metric is scaled by its spread over the 6 original shots. I judged every sheet by eye too.
-  Report: `Logs/overnight/231/ablation.txt`. "Distance": ours = 1.00, lower = closer to theirs.
-- Step 3 used existing flags only (`run.sh`: `-costsun 12 -costfixed forest_eye,jungle_eye,redwood_far1 -costarms none`). The sun is at
-  yaw -77 and the camera at 180, so the light comes from the side. **The launch took 24 min, over the 10-min budget.** Four paths each
-  had a 60 s shell wait plus load. Shells were still missing at every pose: 2,705-3,283 of ~8,000 (s3-s7). No frame time was used.
-
-## Ranking (noon mean / low-sun mean distance; cost class per rule 12)
-1. **b sky: 0.78 / 0.77. The best single factor.** Reverse test: making THEIR sky our saturated blue is the removal that makes them
-   most like ours (0.60). Engine: sky zenith/horizon colour constants plus 2-octave cloud noise on sky pixels only. Per-pixel ALU on sky,
-   no new pass, 0 B (or a 256 KB noise texture). Caveat: the sky colour also feeds the sky fill ambient, so a paler sky changes shade colour.
-2. **Low sun / time of day (not one of a-e; this launch shows it).** forest_eye 0.93 -> 0.62 with no post work: as far as all five
-   factors move it at noon (0.57-0.70). jungle_eye did not change (1.67 -> 1.69). Engine: constants only (play's start time, shot poses).
-3. **c grade: 0.85 / 0.93.** Reverse test: flattening their grade does NOT make them look like ours (1.09). The grade polishes, it is not
-   the difference. Engine: constants in the existing final pass (render res, before FSR), or a 32^3 LUT (128 KB). No new pass.
-4. **a warm/cool split: 1.10 / 0.89, mixed.** Our noon forest already has a stronger split than theirs (R-B 0.148 vs 0.093), so adding
-   more overshoots. It helps only at low sun. Killing their split barely changes them (0.96). Engine: sun / ambient colour constants.
-5. **d lifted shade: 0.99 / 1.08 on the numbers.** By eye it is the only factor that fixes the black jungle trunks. But their forest shade
-   is just as dark (p10 0.045 vs ours 0.105-0.04); what their shade has is coloured light GRADIENTS (GI), not a floor. Engine: one
-   ambient-floor constant or the sky fill's ground-bounce share.
-6. **e grain: 0.99 / 0.99. Barely matters.** 226's per-voxel variation already covers the voxel level. A screen-space stand-in reads as
-   noise on far hills. Smoothing THEIR sub-voxel texture moves them 0.85 toward ours, so real per-voxel texture matters a little.
-   Engine: a 2nd hash at 4x frequency in `LotlVoxelVary`. ALU only, 0 B.
-- **All five: 0.70 / 0.71.** By eye, their shots with all five removed still look clearly like theirs. **Most of the "cinematic" gap is
-  NOT in these post factors.** INFERRED from the sheets, not tested: content and shape (big hand-shaped trees with dense round canopies,
-  houses, paths, props), framing (a subject plus foreground framing), and GI light gradients across surfaces. That is the placement
-  phase and GI work, not post.
-- Memory n/a (no engine change); launch ledger for the record: GPU pool full at jungle_eye (1,027 refusals, known issue). No EditMode run:
-  nothing under `Assets/` changed. Nothing queued or implemented: the look is the owner's call.
-
-## Images (git-ignored; `Screenshots/231/sheets/`; `viewer.html` = arrows pick the pose, Space flips ours / all five, 1-7 pick a factor, Z = full size)
-- `grid_forest_eye.png`, `grid_jungle_eye.png`: the main two grids. Top row ours, +a, +b, +c; bottom row +d, +e, ALL FIVE, theirs. Look at the sky
-  (b: pale with clouds) and the grass (c: olive instead of lime). In jungle, d is the only tile where the trunks stop being black.
-- `grid_lowsun_redwood_far1.png`, `grid_lowsun_forest_eye.png`: the same at a 12 deg sun. In the redwood vista, the raw still (top-left)
-  already has a warm horizon and a side-lit mountain. In low-sun forest, c and all five go too dark: the grade needs lighter settings at low sun.
-- `reverse_forest.png`, `reverse_canyon.png`, `reverse_swamp.png`: their shot with each factor removed. Only "sky made our blue" changes
-  the feel. "ALL REMOVED" (bottom row, 3rd tile) still looks like their game.
-- `full_forest_eye_ours.png` / `full_forest_eye_all.png`: the full-size flip pair. Compare the grass colour, the sky, and the far mountain
-  (grain shows there as fine noise, a weakness of the stand-in).
-- `Screenshots/231/raw/redwood_far1_full_clean.png`: the most "screenshot-like" still we have. It uses no post work, only a low sun.
-
-## Next
-Owner decision. Cheapest first: low-sun start time / shot poses, sky colour + clouds, grade. Shade and texture are GI / content work.
+## What changed
+- `-sunres 1|2|4` (default 1 = today's path; the preset is unchanged). This only applies with a far-shading primary kernel that is not the sun-defer one.
+  How it works: the primary kernel shades from the face's sun record (its own, or a PRIOR = at least 2 reprojected probes on the SAME face plane that agree
+  within 1/16). Where neighbours disagree (shadow edge, penumbra) or nothing fits, it traces the exact ray inline. New kernel `CSSunTrace`
+  re-traces one face per 4x4 block per frame, exactly. A prior that tracing proves wrong drops that block's other priors on that plane. Every value
+  comes from some face's EXACT ray, with no coarse bricks, so 228's triangle field cannot happen.
+- Efficient design (rule 11): no new G-buffer or UAV. It reuses task 56's temporal-shadow history (record 8 -> 12 B, to carry the face). The trace pass
+  has one thread per block, and all its lanes trace. Shell-hit rays start at the face centre (< 0.05 m off), so one face = one ray.
+- Arms `sunres_off|sunres2|sunres4`; the run line prints `sunres inline|4x4`. CPU twin `SunLowReference`, tests `SunLowReferenceTests`; `KernelHealth` lists CSSunTrace.
+## Evidence
+- Fast suite `PASS 1099 FAIL 0 SKIP 25` (`Logs/overnight/232/fast.txt`; 13 new cases). Twin: a slot floor never takes the ledge's light. A steep slope
+  is exact under 3 suns (0 wrong on the slope). A thin pole near the camera is exact. Far shadow edges are wrong only within 1 voxel of the true edge
+  (the straight wall: 0 wrong). A FAR sub-pixel pole line is missed in 1.7 % of pixels (all at its edge): a known trade.
+- Timing, WARM steady state (warm-up `Logs/tg2world_20261117_134511.txt`), one cost split, ABBA, noon, High, 432 rows, play flags
+  (`Logs/overnight/232/costsplit_day.txt`; plan written first: `PLAN.md`). The run lines confirm `sunres 4x4` on FULL and `inline` on sunres_off. p50 ms:
+  pose         before (sunres_off)  sunres 4   sun off   noise(FULL range)  -> sun cost now / saved
+  walk_near          62.1             60.6       42.3        1.3            -> 19.8 / 1.5
+  forest_eye         95.8             98.3       78.0        8.9            -> 17.8 / -2.5
+  jungle_eye         70.5             69.3       54.7       27.4 (a 90 ms pass)  -> 15.8 / ~0
+  Per the plan: under 5 ms at walk_near, so the default stays 1. That is not a STOP. FULL is about equal to before, which the plan names as the "orphans" outcome.
+  INFERRED, not measured: inline orphans still make whole SIMD groups wait (124's finding). They come from every shadow edge, the canopy dapple and
+  far steep slopes, where FSR3 jitter shows new faces each frame and each step is its own plane: the twin's steep-slope case traces 78 % of
+  pixels inline. Shrinking the rays per pixel does not cut time while one lane per group still traces.
+- Pictures (`Logs/overnight/232/diff.txt`): clean mean|d| vs before 2.03 / 1.88 / 1.72, at the 228 noise floor (0.90 / 2.06 / 0.67).
+  sunvis 1.91 / 2.76 / 0.53 (228's coarse: 15.3 / 6.9 / 1.5). The 228 hillside crop shows zero difference.
+- Rule 11/12: P1 +2.65 MB whenever the history exists (play has it: the preset turns temporal shadows on; record 8 -> 12 B x 2 x 768x432), with the switch
+  ON or OFF. -sunres 4 adds nothing more. Launch peak 2,566.3 MB (228: 2,639.0; 227: 2,564.9). GPU refusals 0 / 0 / 2,859 (228: 0 / 0 / 4,797). CPU pool
+  peak 494,866 (228: 496,530). All arms run in one process, so ON and OFF share one ledger. P2 pass card, CSSunTrace: render rows (768x432), every
+  frame, 1 thread per 4x4 block, 1 sun ray (tier 0 + shell continuation, step caps unchanged), <= 32 record reads/writes per thread, 0 new bytes
+  beyond the history. 8.17 step S2 (sun), inside the sun's share. Only with -sunres 2|4. P5: no counter in the stripped build. Not HEAVY.
+- Night torch_camp was not launched: the sun is below the horizon there (0 sun rays), so the picture is identical by construction (PLAN.md).
+## Left / next
+- Not committed (not mine): `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`. Images git-ignored (`Screenshots/232/`).
+- Next (owner/supervisor): the sun's ~16-20 ms is not in ray COUNT: 124 (halving), 228 (coarse far) and 232 (1/16 + reuse) all saved ~0-6 ms.
+  Suggest measuring the inline-orphan share (a counter in a VE_ALL_KERNELS build) before any further sun-ray work. Another option is moving ALL sun rays
+  out of the big kernel (sunres with no inline path, accepting 1-2 frames of lag at edges), which would need the owner's OK on look.
 
 ## For the doc
-- Distance to their look (ours = 1.00, `Logs/overnight/231/ablation.txt`): sky 0.78, grade 0.85, shade 0.99, grain 0.99, warm/cool 1.10, all five 0.70 (noon mean).
-- Low sun alone, no post: forest_eye 0.93 -> 0.62 (as much as all five at noon); jungle_eye unchanged.
-- Reverse: their shot with our blue sky 0.60 toward ours (the strongest single removal); flattening their grade 1.09 (no closer).
-- Cost: sky and grade are constants or ALU on pixels already drawn, no new pass, 0-128 KB; memory n/a (no engine change).
-- Image: `Screenshots/231/sheets/grid_forest_eye.png`. Top row ours / +warm-cool / +pale sky / +grade; bottom +shade / +grain / ALL FIVE / theirs. Look at the sky and the grass colour.
-- Image: `Screenshots/231/sheets/reverse_swamp.png`. Their swamp with each factor removed. Only the blue sky (top row, 3rd) makes it look like ours.
-- Image: `Screenshots/231/raw/redwood_far1_full_clean.png`. Our redwood vista at a 12 deg sun with no post work: warm horizon, side-lit mountain.
+- Low-res sun (`-sunres 4`, OFF by default), warm ABBA p50: walk_near 62.1 -> 60.6 ms (noise 1.3), forest_eye 95.8 -> 98.3 (noise 8.9), jungle_eye 70.5 -> 69.3 (noise 27). No real saving (`Logs/overnight/232/costsplit_day.txt`).
+- What the sun costs now (before minus sun off): 19.8 / 17.8 / 15.8 ms.
+- Look: unchanged. Clean diff vs before 2.03 / 1.88 / 1.72, at the noise floor; no false shadows (228's coarse sunvis diff was 15.3 at walk_near).
+- Memory: +2.65 MB (the history record 8 -> 12 B); peak 2,566 MB; refusals 2,859 at jungle (228: 4,797).
+- `Screenshots/232/sheets/sheet_sunvis.png`: rows walk_near / forest / jungle; columns before | low-res 4x4 | sun off (white = lit, black = shadow). Columns 1 and 2 look the same: the canopy dapple and trunk shadows are in the same places.
+- `Screenshots/232/sheets/walk_far_hill_sunvis.png`: 228's broken hillside at 3x, before | low-res | |d| x4. The right panel is black (no difference), with no triangle field.
+- `Screenshots/232/sheets/zoom_forest_eye_sunvis.png`: forest at 3x around the biggest difference. The white block in |d| is a far patch streamed differently between arms (sky-blue = not drawn), not a shadow change; canopy edges match.
