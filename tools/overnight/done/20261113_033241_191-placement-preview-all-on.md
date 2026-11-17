@@ -15,3 +15,7 @@ Approval: owner, 2026-11-12 (chat): "yes" to "one picture task with all placemen
 
 ## End
 Done. HANDOFF: the picture pairs with captions, the memory/pool table, a per-switch "looks ready / needs work" line, and the owner question "which switches should become default ON?" (one option per switch).
+
+## Supervisor note (2026-11-13 03:35): restart after an auth failure
+The first run died at 01:51 on "Failed to authenticate. API Error: 403" (a login problem, not the task). Its one uncommitted edit (a `[mem]` line in the world-survey pose loop, `PlaygroundCapture.WorldSurvey.cs`) was saved to `tools/overnight/blocked/191-placement-preview-all-on.patch` -- apply it with `git apply` first if you still want that line.
+Its detached shot script kept running and FINISHED at 02:21 (`Logs/overnight/191/shots.out` "=== ALL DONE", logs `look_{on,off}{42,7}.out`, `look_trees42.out`, `look_towns42.out`, player logs beside them; the LookReview folders those .out files name). That build included the patch. If those shots and logs are complete and look right, reuse them instead of relaunching (launch budget); otherwise rerun only what is missing. Then do the rest of the task as written.

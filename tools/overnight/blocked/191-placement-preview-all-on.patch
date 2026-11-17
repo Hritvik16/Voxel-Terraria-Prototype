@@ -1,0 +1,12 @@
+diff --git a/Assets/Game/PlaygroundCapture.WorldSurvey.cs b/Assets/Game/PlaygroundCapture.WorldSurvey.cs
+index d2c0718..bdff622 100644
+--- a/Assets/Game/PlaygroundCapture.WorldSurvey.cs
++++ b/Assets/Game/PlaygroundCapture.WorldSurvey.cs
+@@ -404,6 +404,7 @@ public partial class PlaygroundCapture
+             }
+             yield return FsrLiveShellWait(sh, wait);
+             if (sh != null) L($"  [pools] {ShellPoolLine(sh)}");   // task 190: task 188's pool line in the survey too
++            L($"  [mem] {MemoryLedger.Step14Line().Trim()}");      // task 191: CPU / GPU pools + process footprint now / peak
+             var rot = Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up);
+             var poseArms = new List<string>(arms);
+             if (p.scan == 2) poseArms.Add("native_lit");   // a sealed cave is black at noon: add a SHAPE light (capture only)

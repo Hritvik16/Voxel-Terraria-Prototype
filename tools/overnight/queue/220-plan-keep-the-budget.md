@@ -24,3 +24,8 @@ PLAN ONLY plus doc: no engine code. May edit ONE Claude Doc (a new tab in "Queue
 
 ## End
 HANDOFF with `## For the doc` (the options in plain words).
+
+## Owner answer to Q-AN (2026-11-16, chat + doc)
+Keep the look and move toward Lay of the Land's look: cheap look polish now, lower-resolution sky/bounce light, coarse far shadows. Torches are too important to turn off.
+Lighting being cheaper by design is "the main issue to solve". Tasks 225-229 carry this out. Your budget guard must therefore track the LIGHTING cost
+(sky fill, sun shadows, torch flood) at the milestone checks, and say how a look task that adds a pass (polish, haze, bloom) must be costed.

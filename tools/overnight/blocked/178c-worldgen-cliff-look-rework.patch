@@ -1,0 +1,1151 @@
+diff --git a/Assets/Game/PlaygroundCapture.WorldSurvey.cs b/Assets/Game/PlaygroundCapture.WorldSurvey.cs
+index 60ab78e..f5bd20b 100644
+--- a/Assets/Game/PlaygroundCapture.WorldSurvey.cs
++++ b/Assets/Game/PlaygroundCapture.WorldSurvey.cs
+@@ -282,12 +282,18 @@ public partial class PlaygroundCapture
+ 
+         // ---------------- cliff ----------------
+         {
++            // Task 178c: also "cliff_<biome>" -- the same search kept to one biome's cells, shot from 110 m out.
++            for (int want = -1; want < 6; want++)
++            {
++            string cname = want < 0 ? "cliff" : "cliff_" + bn[want];
++            if (want >= 0 && (onlySet == null || !onlySet.Contains(cname))) continue;
+             int fx = -1, fz = -1; float best = 0f; float2 down = 0f;
+             for (int cz = 4; cz < cells - 4; cz += 2)
+             for (int cx = 4; cx < cells - 4; cx += 2)
+             {
+                 var c = R(cx, cz);
+                 if (c.IsSea || c.MoveBand != 3) continue;
++                if (want >= 0 && c.Biome != want) continue;
+                 float2 g = new float2(MapH(cx + 1, cz) - MapH(cx - 1, cz), MapH(cx, cz + 1) - MapH(cx, cz - 1));
+                 if (math.lengthsq(g) < 1e-4f) continue;
+                 float2 dn = -math.normalize(g);           // downhill = where the camera stands
+@@ -298,10 +304,12 @@ public partial class PlaygroundCapture
+             if (fx >= 0)
+             {
+                 var at = CellM(fx, fz); at.y = Ground(at.x, at.z);
+-                var e = at + new Vector3(down.x, 0f, down.y) * 70f;
++                float back = want < 0 ? 70f : 110f;
++                var e = at + new Vector3(down.x, 0f, down.y) * back;
+                 float g0 = Ground(e.x, e.z);
+                 e.y = math.max(g0 + 1.6f, g0 + best * 0.4f);
+-                poses.Add(new WsPose { name = "cliff", eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from 70 m out" });
++                poses.Add(new WsPose { name = cname, eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from {back:F0} m out" });
++            }
+             }
+         }
+ 
+diff --git a/Assets/Scenes/Playground.unity b/Assets/Scenes/Playground.unity
+index d1dce3e..418f536 100644
+--- a/Assets/Scenes/Playground.unity
++++ b/Assets/Scenes/Playground.unity
+@@ -119,7 +119,7 @@ NavMeshSettings:
+     debug:
+       m_Flags: 0
+   m_NavMeshData: {fileID: 0}
+---- !u!1 &176163472
++--- !u!1 &458628357
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -127,8 +127,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 176163474}
+-  - component: {fileID: 176163473}
++  - component: {fileID: 458628359}
++  - component: {fileID: 458628358}
+   m_Layer: 0
+   m_Name: Playground
+   m_TagString: Untagged
+@@ -136,13 +136,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &176163473
++--- !u!114 &458628358
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 176163472}
++  m_GameObject: {fileID: 458628357}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 71fe7c5e5588044ad9ca2930a5d5efb9, type: 3}
+@@ -153,7 +153,7 @@ MonoBehaviour:
+   _slotCapacity: 750000
+   _maxOpsPerFrame: 65536
+   _outputRootFolderName: PlaygroundShots
+-  _player: {fileID: 421469464}
++  _player: {fileID: 639720044}
+   _bombRadiusVoxels: 46
+   _activeRadiusVoxels: 1280
+   _waterBudget: 60000
+@@ -162,13 +162,13 @@ MonoBehaviour:
+   _ventEdge: 5
+   _ventSpread: 40
+   _tilePoolCap: 480
+---- !u!4 &176163474
++--- !u!4 &458628359
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 176163472}
++  m_GameObject: {fileID: 458628357}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -177,7 +177,7 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &421469463
++--- !u!1 &558076195
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -185,8 +185,53 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 421469465}
+-  - component: {fileID: 421469464}
++  - component: {fileID: 558076197}
++  - component: {fileID: 558076196}
++  m_Layer: 0
++  m_Name: PlaygroundCapture
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!114 &558076196
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 558076195}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: f4a68c7c3b14b47a9963168d600406fd, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Assembly-CSharp::PlaygroundCapture
++  _outputRootFolderName: PlaygroundShots
++--- !u!4 &558076197
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 558076195}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 0, y: 0, z: 0}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 0}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &639720043
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 639720045}
++  - component: {fileID: 639720044}
+   m_Layer: 0
+   m_Name: Player
+   m_TagString: Untagged
+@@ -194,32 +239,32 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &421469464
++--- !u!114 &639720044
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 421469463}
++  m_GameObject: {fileID: 639720043}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: a1fa763bfc47146ad87d6cce1dedac25, type: 3}
+   m_Name: 
+   m_EditorClassIdentifier: CoreEngine::PlayerController
+-  _camera: {fileID: 701346583}
++  _camera: {fileID: 1368011384}
+   _spawnM: {x: 1280, y: 9.5, z: 1268}
+   _resolveSpawnUpward: 1
+   _eyeHeightM: 1.6
+   _mouseSensitivity: 2.2
+   _captureMouse: 0
+   _hotReload: 1
+---- !u!4 &421469465
++--- !u!4 &639720045
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 421469463}
++  m_GameObject: {fileID: 639720043}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
+@@ -228,7 +273,57 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &701346581
++--- !u!1 &1053282762
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 1053282764}
++  - component: {fileID: 1053282763}
++  m_Layer: 0
++  m_Name: Phase4Bootstrapper
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!114 &1053282763
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1053282762}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: Assembly-CSharp::Phase4Bootstrapper
++  _loadRadiusChunks: 0
++  _fillWindowOnStart: 1
++  _clearDeltasOnStart: 1
++  _overrideCameraOnStart: 0
++  _cameraSpawnPosition: {x: 0, y: 0, z: 0}
++  _cameraSpawnEuler: {x: 10, y: 0, z: 0}
++--- !u!4 &1053282764
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1053282762}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 0, y: 0, z: 0}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 0}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &1368011382
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -236,9 +331,9 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 701346582}
+-  - component: {fileID: 701346583}
+-  - component: {fileID: 701346584}
++  - component: {fileID: 1368011383}
++  - component: {fileID: 1368011384}
++  - component: {fileID: 1368011385}
+   m_Layer: 0
+   m_Name: Main Camera
+   m_TagString: MainCamera
+@@ -246,13 +341,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!4 &701346582
++--- !u!4 &1368011383
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 1368011382}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0.12186935, y: 0, z: 0, w: 0.99254614}
+   m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
+@@ -261,13 +356,13 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!20 &701346583
++--- !u!20 &1368011384
+ Camera:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 1368011382}
+   m_Enabled: 1
+   serializedVersion: 2
+   m_ClearFlags: 2
+@@ -312,13 +407,13 @@ Camera:
+   m_OcclusionCulling: 1
+   m_StereoConvergence: 10
+   m_StereoSeparation: 0.022
+---- !u!114 &701346584
++--- !u!114 &1368011385
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 1368011382}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 3ecb2bd4414304f209e136df1bd51e77, type: 3}
+@@ -329,7 +424,7 @@ MonoBehaviour:
+   _lookSensitivity: 2.4
+   _minSpeed: 2
+   _maxSpeed: 120
+---- !u!1 &967495830
++--- !u!1 &1905509938
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -337,8 +432,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 967495832}
+-  - component: {fileID: 967495831}
++  - component: {fileID: 1905509940}
++  - component: {fileID: 1905509939}
+   m_Layer: 0
+   m_Name: LightingDriver
+   m_TagString: Untagged
+@@ -346,28 +441,28 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &967495831
++--- !u!114 &1905509939
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 967495830}
++  m_GameObject: {fileID: 1905509938}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: c194c612ac0e846ddb9e41a2a2770ca9, type: 3}
+   m_Name: 
+   m_EditorClassIdentifier: CoreEngine::VoxelEngine.Rendering.LightingDriver
+-  _centre: {fileID: 701346582}
++  _centre: {fileID: 1368011383}
+   _runClock: 1
+   _hotReload: 1
+---- !u!4 &967495832
++--- !u!4 &1905509940
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 967495830}
++  m_GameObject: {fileID: 1905509938}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -376,7 +471,7 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &1175250210
++--- !u!1 &1969888206
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -384,58 +479,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 1175250212}
+-  - component: {fileID: 1175250211}
+-  m_Layer: 0
+-  m_Name: Phase4Bootstrapper
+-  m_TagString: Untagged
+-  m_Icon: {fileID: 0}
+-  m_NavMeshLayer: 0
+-  m_StaticEditorFlags: 0
+-  m_IsActive: 1
+---- !u!114 &1175250211
+-MonoBehaviour:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1175250210}
+-  m_Enabled: 1
+-  m_EditorHideFlags: 0
+-  m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
+-  m_Name: 
+-  m_EditorClassIdentifier: Assembly-CSharp::Phase4Bootstrapper
+-  _loadRadiusChunks: 0
+-  _fillWindowOnStart: 1
+-  _clearDeltasOnStart: 1
+-  _overrideCameraOnStart: 0
+-  _cameraSpawnPosition: {x: 0, y: 0, z: 0}
+-  _cameraSpawnEuler: {x: 10, y: 0, z: 0}
+---- !u!4 &1175250212
+-Transform:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1175250210}
+-  serializedVersion: 2
+-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+-  m_LocalPosition: {x: 0, y: 0, z: 0}
+-  m_LocalScale: {x: 1, y: 1, z: 1}
+-  m_ConstrainProportionsScale: 0
+-  m_Children: []
+-  m_Father: {fileID: 0}
+-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &1513279052
+-GameObject:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  serializedVersion: 6
+-  m_Component:
+-  - component: {fileID: 1513279054}
+-  - component: {fileID: 1513279053}
++  - component: {fileID: 1969888208}
++  - component: {fileID: 1969888207}
+   m_Layer: 0
+   m_Name: PlaygroundHud
+   m_TagString: Untagged
+@@ -443,13 +488,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &1513279053
++--- !u!114 &1969888207
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1513279052}
++  m_GameObject: {fileID: 1969888206}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 10e115e7430d04bac96fef228acd5c68, type: 3}
+@@ -458,58 +503,13 @@ MonoBehaviour:
+   _visible: 0
+   _minimalVisible: 1
+   _toggleKey: 282
+---- !u!4 &1513279054
+-Transform:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1513279052}
+-  serializedVersion: 2
+-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+-  m_LocalPosition: {x: 0, y: 0, z: 0}
+-  m_LocalScale: {x: 1, y: 1, z: 1}
+-  m_ConstrainProportionsScale: 0
+-  m_Children: []
+-  m_Father: {fileID: 0}
+-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &2018342972
+-GameObject:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  serializedVersion: 6
+-  m_Component:
+-  - component: {fileID: 2018342974}
+-  - component: {fileID: 2018342973}
+-  m_Layer: 0
+-  m_Name: PlaygroundCapture
+-  m_TagString: Untagged
+-  m_Icon: {fileID: 0}
+-  m_NavMeshLayer: 0
+-  m_StaticEditorFlags: 0
+-  m_IsActive: 1
+---- !u!114 &2018342973
+-MonoBehaviour:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 2018342972}
+-  m_Enabled: 1
+-  m_EditorHideFlags: 0
+-  m_Script: {fileID: 11500000, guid: f4a68c7c3b14b47a9963168d600406fd, type: 3}
+-  m_Name: 
+-  m_EditorClassIdentifier: Assembly-CSharp::PlaygroundCapture
+-  _outputRootFolderName: PlaygroundShots
+---- !u!4 &2018342974
++--- !u!4 &1969888208
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 2018342972}
++  m_GameObject: {fileID: 1969888206}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -522,10 +522,10 @@ Transform:
+ SceneRoots:
+   m_ObjectHideFlags: 0
+   m_Roots:
+-  - {fileID: 701346582}
+-  - {fileID: 1175250212}
+-  - {fileID: 176163474}
+-  - {fileID: 421469465}
+-  - {fileID: 967495832}
+-  - {fileID: 1513279054}
+-  - {fileID: 2018342974}
++  - {fileID: 1368011383}
++  - {fileID: 1053282764}
++  - {fileID: 458628359}
++  - {fileID: 639720045}
++  - {fileID: 1905509940}
++  - {fileID: 1969888208}
++  - {fileID: 558076197}
+diff --git a/Assets/TerrainGen/DetailField.cs b/Assets/TerrainGen/DetailField.cs
+index dd471a3..b70fb2f 100644
+--- a/Assets/TerrainGen/DetailField.cs
++++ b/Assets/TerrainGen/DetailField.cs
+@@ -566,7 +566,7 @@ namespace TerrainGen
+                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
+                     if (ore != 0) return ore;
+                 }
+-                return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder, gLayer);
++                return LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, true);
+             }
+ 
+             if (spec.CoverSlots)
+@@ -592,7 +592,7 @@ namespace TerrainGen
+                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
+                 if (ore != 0) return ore;
+             }
+-            return LayerRock(in spec, c.surfBiome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
++            return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, true);
+         }
+ 
+         // ------------------------------------------------------------------
+@@ -684,14 +684,17 @@ namespace TerrainGen
+             else
+             {
+                 dHi = GEO_DEEP_AMP * GEO_OFFSET_MARGIN; cHi = GEO_CAVERN_AMP * GEO_OFFSET_MARGIN; uHi = GEO_UNDER_AMP * GEO_OFFSET_MARGIN;
+-                lHi = spec.Cliffs ? LAYER_WAVE_BOUND * GEO_OFFSET_MARGIN : 0f;
+-                dLo = -dHi; cLo = -cHi; uLo = -uHi; lLo = -lHi;
++                dLo = -dHi; cLo = -cHi; uLo = -uHi;
++                // 178c: the fine brick's layer offset is LayerWave at its centre, within
++                // 4 sqrt 2 voxels of this column: the column's own offset +- Lipschitz x that.
++                float lr = spec.Cliffs ? LAYER_WAVE_LIP * 5.66f + 0.5f : 0f;
++                lLo = cd.layerOffset - lr; lHi = cd.layerOffset + lr;
+             }
+             int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
+             if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
+                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
+                 return 255;
+-            return LayerRockRange(in spec, c.surfBiome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi);
++            return LayerRockRange(in spec, RockA(in c), RockB(in c), gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi, x, z, yLo, yStep, count);
+         }
+ 
+         /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
+@@ -721,7 +724,7 @@ namespace TerrainGen
+             if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
+                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
+                 return 255;
+-            return LayerRockRange(in spec, c.surfBiome, yLo, yHi, d, d, cv, cv, u, u, l, l);
++            return LayerRockRange(in spec, RockA(in c), RockB(in c), yLo, yHi, d, d, cv, cv, u, u, l, l, x, z, yLo, yStep, count);
+         }
+ 
+         /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
+@@ -769,8 +772,10 @@ namespace TerrainGen
+ 
+         /// LayerRock for every y in [yLo, yHi] and every offset in its range, or
+         /// 255 when that is not one material.
+-        private static byte LayerRockRange(in TerrainSpec spec, byte biome, int yLo, int yHi,
+-                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, float lLo, float lHi)
++        /// 178c: (x, z, sLo, sStep, sCount) are the samples, for the per-brick mix.
++        private static byte LayerRockRange(in TerrainSpec spec, byte biome, byte biomeB, int yLo, int yHi,
++                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, float lLo, float lHi,
++                                           int x, int z, int sLo, int sStep, int sCount)
+         {
+             float lo = yLo, hi = yHi;
+             float gLo = lo + uLo, gHi = hi + uHi;
+@@ -793,8 +798,14 @@ namespace TerrainGen
+                 // sample's layer lies in [kLo, kHi]; one rock across them proves it.
+                 int kLo = LayerIndex(spec.seed, lo + lLo), kHi = LayerIndex(spec.seed, hi + lHi);
+                 if (kHi - kLo > 4) return 255;
+-                byte m0 = LayerMaterial(spec.seed, biome, kLo);
+-                for (int k = kLo + 1; k <= kHi; k++) if (LayerMaterial(spec.seed, biome, k) != m0) return 255;
++                // 178c: every sample's brick mixed, or none (else 255); then one rock
++                // across the layers, each with its own side's biome.
++                int ms = MixState(spec.seed, x, z, sLo, sStep, sCount);
++                if (ms == 2) return 255;
++                bool mixed = ms == 1;
++                byte m0 = LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, kLo), kLo, mixed);
++                for (int k = kLo + 1; k <= kHi; k++)
++                    if (LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, k), k, mixed) != m0) return 255;
+                 return m0;
+             }
+             return BiomeRock(biome, 0);   // 177b: badlands too (its 3.2 m bands are gone with -cliffs 0 as well)
+@@ -828,10 +839,10 @@ namespace TerrainGen
+             if (spec.CoverSlots)
+             {
+                 byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // task 177 (Material at depth 0)
+-                if (cm == Cover.BARE || stepAtTop > SHEER_STEP) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
++                if (cm == Cover.BARE || stepAtTop > SHEER_STEP) return Strata(in spec, in o, in c, x, c.height, z);
+                 return Cover.Settle(cm, stepAtTop);
+             }
+-            if (stepAtTop > 1.5f) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
++            if (stepAtTop > 1.5f) return Strata(in spec, in o, in c, x, c.height, z);
+             return Surface(in spec, in c, stepAtTop);
+         }
+ 
+@@ -883,16 +894,33 @@ namespace TerrainGen
+         public static byte Strata(in TerrainSpec spec, in Offsets o, byte biome, int x, int y, int z)
+         {
+             var cd = PrepareGeology(in o, x, z, spec.Cliffs);
+-            return LayerRock(in spec, biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
++            return LayerRock(in spec, biome, biome, x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, false);
+         }
+ 
+-        private static byte LayerRock(in TerrainSpec spec, byte biome, float y, float deepOff, float cavernOff, float underOff,
+-                                      float layerOff)
++        /// Task 178c: the column's layer rock at y (its rockA / rockB), WITHOUT the
++        /// per-brick mix -- the far band's top colour, band-limited like the cover.
++        public static byte Strata(in TerrainSpec spec, in Offsets o, in ColumnSample c, int x, int y, int z)
++        {
++            var cd = PrepareGeology(in o, x, z, spec.Cliffs);
++            return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, false);
++        }
++
++        /// Task 178c: the biomes of the column's rock (ColumnSample.rockA / rockB, else surfBiome).
++        public static byte RockA(in ColumnSample c) => c.rockA != 0 ? (byte)(c.rockA - 1) : c.surfBiome;
++        public static byte RockB(in ColumnSample c) => c.rockB != 0 ? (byte)(c.rockB - 1) : c.surfBiome;
++
++        private static byte LayerRock(in TerrainSpec spec, byte biome, byte biomeB, int x, float y, int z, float deepOff, float cavernOff,
++                                      float underOff, float layerOff, bool mix)
+         {
+             if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
+             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
+             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+-            if (spec.Cliffs) return LayerMaterial(spec.seed, biome, LayerIndex(spec.seed, y + layerOff));
++            if (spec.Cliffs)
++            {
++                int k = LayerIndex(spec.seed, y + layerOff);
++                return LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, k), k,
++                                     mix && MixBrick(spec.seed, x, (int)math.floor(y), z));
++            }
+             return BiomeRock(biome, 0);   // 177b: no thin badlands stripes even with -cliffs 0 (owner, 2026-11-06)
+         }
+ 
+@@ -916,27 +944,43 @@ namespace TerrainGen
+         // ------------------------------------------------------------------
+         public const float LAYER_THICK = 240f;        // voxels: 24 m nominal
+         public const float LAYER_JITTER = 0.3f;       // each boundary moves +-30 % (layers 9.6-38.4 m)
+-        public const float LAYER_WAVE_AMP = 40f, LAYER_WAVE = 900f, LAYER_RIPPLE_AMP = 15f, LAYER_RIPPLE = 260f;
++        // TASK 178c (owner 2026-11-06: 178's faces were flat colour fields with
++        // drips and hooks, the steps between layers far too strong). Layers are
++        // now MOSTLY HORIZONTAL: the wave is +-1.5 m / 90 m and +-0.5 m / 26 m
++        // (was +-4 / +-1.5 m), plus a DIP -- a +-25 m offset over ~4 km, i.e.
++        // strata tilted ~1-3 deg, one way over a whole hillside. The rows of
++        // LAYER_ROCKS are now each biome's CLOSE tones (CIE dE 7-24 between
++        // roles, was 22-63; tools/cliff178c.py prints them), and every layer
++        // mixes in its partner rock per 0.8 m BRICK in lens-shaped patches
++        // (MixBrick), so no layer is a flat field.
++        public const float LAYER_WAVE_AMP = 15f, LAYER_WAVE = 900f, LAYER_RIPPLE_AMP = 5f, LAYER_RIPPLE = 260f;
++        public const float LAYER_DIP_AMP = 250f, LAYER_DIP = 40000f;
+         /// |LayerWave| <= this (|snoise| <= 1).
+-        public const float LAYER_WAVE_BOUND = LAYER_WAVE_AMP + LAYER_RIPPLE_AMP;
++        public const float LAYER_WAVE_BOUND = LAYER_WAVE_AMP + LAYER_RIPPLE_AMP + LAYER_DIP_AMP;
++        /// |LayerWave(p) - LayerWave(q)| <= LAYER_WAVE_LIP * |p - q| (|grad snoise| <= ShapeField.SNOISE_GRAD_BOUND).
++        public const float LAYER_WAVE_LIP = (LAYER_WAVE_AMP / LAYER_WAVE + LAYER_RIPPLE_AMP / LAYER_RIPPLE + LAYER_DIP_AMP / LAYER_DIP)
++                                            * ShapeField.SNOISE_GRAD_BOUND;
+ 
+         /// Rock per (biome, role): main, light accent, dark accent. Row order = GenBiome ids.
++        /// 178c: close tones per biome (178's rows put cream on orange, blue slate on schist,
++        /// moss green on karst: the "painted map"). CIE dE main-light / main-dark in palette D.
+         private static readonly byte[] LAYER_ROCKS = {
+-            GenMat.Granite, GenMat.Limestone, GenMat.Slate,                       // forest
+-            GenMat.OrangeSandstone, GenMat.CreamSandstone, GenMat.RedSandstone,   // desert
+-            GenMat.SilverSchist, GenMat.Marble, GenMat.BlueSlate,                 // snow
+-            GenMat.KarstLimestone, GenMat.Laterite, GenMat.MossRock,              // jungle
+-            GenMat.KopjeGranite, GenMat.Gneiss, GenMat.Ironstone,                 // savanna
+-            GenMat.RedBand, GenMat.CreamBand, GenMat.OchreBand,                   // badlands
++            GenMat.Granite, GenMat.KopjeGranite, GenMat.Gneiss,                    // forest    13 / 14
++            GenMat.OrangeSandstone, GenMat.OchreBand, GenMat.Laterite,             // desert    17 / 19
++            GenMat.SilverSchist, GenMat.Marble, GenMat.Granite,                    // snow      22 / 18
++            GenMat.KarstLimestone, GenMat.CreamSandstone, GenMat.KopjeGranite,     // jungle    13 / 17
++            GenMat.KopjeGranite, GenMat.Limestone, GenMat.PinkSiltstone,           // savanna   15 / 14
++            GenMat.RedBand, GenMat.OrangeSandstone, GenMat.RedSandstone,           // badlands  21 /  7
+         };
+ 
+         /// The wavy offset added to y before the layer lookup (voxels).
+         public static float LayerWave(in Offsets o, float2 p)
+             => LAYER_WAVE_AMP * noise.snoise(p / LAYER_WAVE + o.strata + new float2(29.3f, -77.1f))
+-             + LAYER_RIPPLE_AMP * noise.snoise(p / LAYER_RIPPLE + o.strata + new float2(-51.9f, 13.7f));
++             + LAYER_RIPPLE_AMP * noise.snoise(p / LAYER_RIPPLE + o.strata + new float2(-51.9f, 13.7f))
++             + LAYER_DIP_AMP * noise.snoise(p / LAYER_DIP + o.strata + new float2(7.9f, 41.3f));
+ 
+         /// Boundary k's height: layer k is [LayerBoundary(k), LayerBoundary(k + 1)).
+-        private static float LayerBoundary(uint seed, int k)
++        public static float LayerBoundary(uint seed, int k)
+             => (k + LAYER_JITTER * (2f * Noise.Hash01(k, 0, 0, seed + 1781u) - 1f)) * LAYER_THICK;
+ 
+         /// The layer holding height g (= y + layerOffset). Monotone in g.
+@@ -958,6 +1002,66 @@ namespace TerrainGen
+         public static byte LayerMaterial(uint seed, byte biome, int k)
+             => LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k)];
+ 
++        /// Task 178c: layer k's rock in a MIXED brick: the partner role (main <-> light;
++        /// dark -> main), so the patches stay in the layer's own close tones.
++        public static byte LayerMaterial(uint seed, byte biome, int k, bool mixed)
++        {
++            int role = LayerRole(seed, k);
++            if (mixed) role = role == 0 ? 1 : 0;
++            return LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + role];
++        }
++
++        /// Task 178c: layer k takes the column's rockB (else rockA): interfingering at a border.
++        public static bool LayerSideB(uint seed, int k) => Noise.Hash01(k, 2, 0, seed + 1789u) < 0.5f;
++
++        /// The biome of layer k's rock in a column whose rock biomes are (bA, bB).
++        public static byte LayerBiome(uint seed, byte bA, byte bB, int k) => bA == bB ? bA : (LayerSideB(seed, k) ? bB : bA);
++
++        // TASK 178c: WITHIN-LAYER VARIATION. One decision per 8^3 BRICK (so a brick
++        // stays uniform and the whole-brick proofs still hold): a value noise on a
++        // MIX_CELL_XZ x MIX_CELL_Y x MIX_CELL_XZ lattice (4 m x 1.6 m: flat lenses,
++        // like beds of a slightly different stone), sampled at the brick centre;
++        // above MIX_THRESHOLD the brick wears the layer's partner rock. ~1/4 of the
++        // bricks. A function of the brick's coordinates and the seed only.
++        public const int MIX_CELL_XZ = 40, MIX_CELL_Y = 16;
++        public const float MIX_THRESHOLD = 0.6f;
++
++        public static float MixValue(uint seed, int bx, int by, int bz)
++        {
++            float fx = (bx * BRICK + BRICK / 2) / (float)MIX_CELL_XZ, fy = (by * BRICK + BRICK / 2) / (float)MIX_CELL_Y,
++                  fz = (bz * BRICK + BRICK / 2) / (float)MIX_CELL_XZ;
++            int ix = (int)math.floor(fx), iy = (int)math.floor(fy), iz = (int)math.floor(fz);
++            float tx = fx - ix, ty = fy - iy, tz = fz - iz;
++            tx = tx * tx * (3f - 2f * tx); ty = ty * ty * (3f - 2f * ty); tz = tz * tz * (3f - 2f * tz);
++            uint sd = seed + 1787u;
++            float c00 = math.lerp(Noise.Hash01(ix, iy, iz, sd), Noise.Hash01(ix + 1, iy, iz, sd), tx);
++            float c10 = math.lerp(Noise.Hash01(ix, iy + 1, iz, sd), Noise.Hash01(ix + 1, iy + 1, iz, sd), tx);
++            float c01 = math.lerp(Noise.Hash01(ix, iy, iz + 1, sd), Noise.Hash01(ix + 1, iy, iz + 1, sd), tx);
++            float c11 = math.lerp(Noise.Hash01(ix, iy + 1, iz + 1, sd), Noise.Hash01(ix + 1, iy + 1, iz + 1, sd), tx);
++            return math.lerp(math.lerp(c00, c10, ty), math.lerp(c01, c11, ty), tz);
++        }
++
++        /// The brick holding voxel (x, y, z) wears its layer's partner rock.
++        public static bool MixBrick(uint seed, int x, int y, int z)
++            => MixValue(seed, x >> BRICK_SHIFT_MIX, y >> BRICK_SHIFT_MIX, z >> BRICK_SHIFT_MIX) > MIX_THRESHOLD;
++        private const int BRICK_SHIFT_MIX = 3;   // BRICK = 8
++
++        /// MixBrick over the samples y = yLo + j * yStep (j < count) of column (x, z):
++        /// 0 none mixed, 1 all mixed, 2 some.
++        private static int MixState(uint seed, int x, int z, int yLo, int yStep, int count)
++        {
++            int any = 0, all = 1, last = int.MinValue;
++            for (int j = 0; j < count; j++)
++            {
++                int by = (yLo + j * yStep) >> BRICK_SHIFT_MIX;
++                if (by == last) continue;
++                last = by;
++                if (MixValue(seed, x >> BRICK_SHIFT_MIX, by, z >> BRICK_SHIFT_MIX) > MIX_THRESHOLD) any = 1; else all = 0;
++                if (any == 1 && all == 0) return 2;
++            }
++            return any == 0 ? 0 : 1;
++        }
++
+         // Task 177b (owner, 2026-11-06, "Badlands: no stripes"): BadlandsBand (B10's
+         // 3.2 m red/cream/ochre bands by y >> 5) is removed. With cliffs on (178)
+         // badlands rock is LAYER_ROCKS' thick layers; with -cliffs 0 it is
+diff --git a/Assets/TerrainGen/ShapeField.cs b/Assets/TerrainGen/ShapeField.cs
+index 72ad58f..e8542fa 100644
+--- a/Assets/TerrainGen/ShapeField.cs
++++ b/Assets/TerrainGen/ShapeField.cs
+@@ -30,6 +30,13 @@ namespace TerrainGen
+         /// blend band (ShapeField.SurfaceBiome); ores, pocket liquids, crystals,
+         /// danger and the world record keep `biome`.
+         public byte surfBiome;
++        /// Task 178c: the biomes whose ROCK this column's thick layers wear, + 1
++        /// (0 = surfBiome, e.g. cliffs off or no border blend). Each layer takes
++        /// rockA or rockB by a hash of its index (DetailField.LayerSideB), so at a
++        /// biome border the layers interfinger. Both come from the border's SMOOTH
++        /// warp only (ShapeField.RockBiomes): surfBiome's 10-40 m patch octaves,
++        /// projected onto a steep face, drew 178's vertical "drips".
++        public byte rockA, rockB;
+         public float rough;      // map detail scale at this column
+         /// Absolute Y of the still-water surface over this column (lake or
+         /// river, map v2), or NO_WATER_Y. Water fills (height, water].
+@@ -144,13 +151,14 @@ namespace TerrainGen
+             var c = new ColumnSample();
+             float hRel = macro + detail * rough;
+             bool scree = false;
+-            if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, p, macro, hRel, texelVoxels, out scree);   // task 178
++            if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, spec.seed, spec.seaLevelY, p, macro, hRel, texelVoxels, out scree);   // task 178
+             c.height = spec.seaLevelY + (int)math.floor(hRel);
+             c.height = math.max(c.height, spec.worldBottomY + 1);
+             if (o.biomeBlend != 0 && surfaceBiome)
+             {
+                 c.biome = BiomeAndBorder(in o, p, true, out float border);
+                 c.surfBiome = SurfaceBiome(in o, p, c.biome, border);
++                if (spec.Cliffs) RockBiomes(in o, p, c.biome, border, ref c);   // task 178c
+             }
+             else c.surfBiome = c.biome = Biome(in o, p);
+             c.rough = rough;
+@@ -234,16 +242,27 @@ namespace TerrainGen
+         // itself reads the map only, so every footprint gets the same apron.
+         // ------------------------------------------------------------------
+         public const float FACE_FROM_DEG = Danger.CLIMB_DEG - 5f, FACE_FULL_DEG = Danger.CLIMB_DEG + 10f;
+-        public const float FLUTE_WAVE = 50f, FLUTE_DEPTH = 8f, FACE_SLOPE_CAP = 4f;
++        // TASK 178c: the fluting was a RIDGED noise (1 - 2|n|) of 5 m: sharp creases
++        // every few metres that read as fine vertical hatching on every face
++        // (178's coast_cliff). Now plain snoise of 9 m, 0.5 m deep: broad
++        // buttresses and gullies. The 4 m ledges read as horizontal hatching;
++        // now ONE bench at each rock layer's base (LayerBench), so the shape
++        // follows the strata (a resistant layer top stands out as a shelf).
++        public const float FLUTE_WAVE = 90f, FLUTE_DEPTH = 5f, FACE_SLOPE_CAP = 4f;
+         /// Fluting ramps in from FACE_FULL_DEG to FLUTE_FULL_DEG: a plan noise reads as a
+         /// VERTICAL flute only where one feature spans more height than width (s >~ 2);
+         /// on a 40-55 deg slope it read as crumpled noise (178's first top views).
+         public const float FLUTE_FULL_DEG = 70f;
+-        public const float LEDGE_SPACING = 40f, LEDGE_TREAD = 0.35f;
++        /// Task 178c: the bench is the lowest LEDGE_TREAD of each rock layer
++        /// (DetailField.LayerBoundary; 9.6-38.4 m thick), flattened into a tread.
++        /// LEDGE_SPACING = the thinnest layer (the band-limit gate), LEDGE_MAX the
++        /// thickest (the bound).
++        public const float LEDGE_SPACING = DetailField.LAYER_THICK * (1f - 2f * DetailField.LAYER_JITTER), LEDGE_TREAD = 0.2f;
++        public const float LEDGE_MAX = DetailField.LAYER_THICK * (1f + 2f * DetailField.LAYER_JITTER);
+         public const float SCREE_PROBE = 200f, SCREE_KNEE = 1f, SCREE_SHARE = 0.2f, SCREE_CAP = 100f, SCREE_MIN = 5f;
+         public const float RUBBLE_WAVE = 15f, RUBBLE_AMP = 3f;
+         /// Most a footprint's dropped relief can move a column (flutes + ledge + rubble).
+-        public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_SPACING + RUBBLE_AMP;
++        public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_MAX + RUBBLE_AMP;
+         /// Map cells round the column checked for lake / river water (+-2 = ~20 m).
+         public const int RELIEF_DRY_CELLS = 2;
+         /// Task 178b: the relief fades in over this many map cells beyond a route
+@@ -253,7 +272,7 @@ namespace TerrainGen
+         /// The column's height (voxels rel. sea) with the face relief; `h` is
+         /// macro + detail, `macro` the map at p. scree: the apron covers p by at
+         /// least SCREE_MIN (a function of the map alone).
+-        public static float FaceRelief(in MapView map, in Offsets o, float2 p, float macro, float h, int texel, out bool scree)
++        public static float FaceRelief(in MapView map, in Offsets o, uint seed, int seaY, float2 p, float macro, float h, int texel, out bool scree)
+         {
+             scree = false;
+             if (h <= 0f || WetNear(in map, p)) return h;
+@@ -269,14 +288,18 @@ namespace TerrainGen
+                 if (wf > 0f && FLUTE_WAVE >= 2f * texel)
+                 {
+                     float n = noise.snoise(p / FLUTE_WAVE + o.detail + new float2(-31.7f, 57.3f));
+-                    h += wf * FLUTE_DEPTH * math.min(s, FACE_SLOPE_CAP) * (1f - 2f * math.abs(n));
++                    h += wf * FLUTE_DEPTH * math.min(s, FACE_SLOPE_CAP) * n;   // 178c: smooth, not ridged
+                 }
+                 if (LEDGE_SPACING >= 2f * texel)
+                 {
+-                    float t = (h + DetailField.LayerWave(in o, p)) / LEDGE_SPACING;
+-                    float f = t - math.floor(t);
++                    // 178c: the layer holding the column top, in the layers' own frame
++                    // (absolute y + LayerWave); f = how far up that layer the top is.
++                    float gl = seaY + h + DetailField.LayerWave(in o, p);
++                    int k = DetailField.LayerIndex(seed, gl);
++                    float b0 = DetailField.LayerBoundary(seed, k), span = DetailField.LayerBoundary(seed, k + 1) - b0;
++                    float f = (gl - b0) / span;
+                     float tf = f < LEDGE_TREAD ? 0f : (f - LEDGE_TREAD) / (1f - LEDGE_TREAD);
+-                    h -= w * LEDGE_SPACING * (f - tf);
++                    h -= w * span * (f - tf);
+                 }
+             }
+             float fill = ScreeFill(in map, p, macro);
+@@ -709,6 +732,34 @@ namespace TerrainGen
+             return Biome(in o, p + BlendOffset(in o, p));
+         }
+ 
++        // ------------------------------------------------------------------
++        // TASK 178c (owner 2026-11-06 on 178's shots: "what's with all the stripes
++        // ... we should rework it"). THE ROCK'S BIOME. 178's layers wore the
++        // column's surfBiome, whose border jitter has a 40 m clump and a 10 m
++        // patch octave. Those are 2-D (plan) patterns: on a steep face, where a
++        // few metres of plan span tens of metres of height, every patch edge
++        // became a VERTICAL streak ("drips", hooks and blobs) cutting through
++        // the horizontal layers -- also in the pre-178 faces. The rock now takes
++        // the biome at p + the border's two SMOOTH warp octaves (800 m / 150 m)
++        // only, shifted by +-ROCK_SPLIT (29 m): rockA at +, rockB at -.
++        // Each layer picks one side by a hash of its index, so at a border the
++        // layers interfinger by up to ~2 x 29 m and one layer's cut is a single
++        // smooth line, not a patch edge. |J| stays within BLEND_REACH, so the
++        // early-out is the surface blend's own (exact).
++        // ------------------------------------------------------------------
++        public const float ROCK_SPLIT_X = 250f, ROCK_SPLIT_Z = 150f;   // voxels: |split| 29 m
++
++        public static void RockBiomes(in Offsets o, float2 p, byte biome, float border, ref ColumnSample c)
++        {
++            if (border > BlendClimateReach(in o)) { c.rockA = c.rockB = (byte)(biome + 1); return; }
++            float2 a = o.tempA.yx + new float2(31.7f, -12.9f), b = o.moistA.yx + new float2(-57.1f, 44.3f);
++            float2 j = BLEND_WARP1_AMP * new float2(noise.snoise(p / BLEND_WARP1_WAVE + a), noise.snoise(p / BLEND_WARP1_WAVE + b));
++            j += BLEND_WARP2_AMP * new float2(noise.snoise(p / BLEND_WARP2_WAVE + b + 9.1f), noise.snoise(p / BLEND_WARP2_WAVE + a - 7.3f));
++            float2 sp = new float2(ROCK_SPLIT_X, ROCK_SPLIT_Z);
++            c.rockA = (byte)(Biome(in o, p + j + sp) + 1);
++            c.rockB = (byte)(Biome(in o, p + j - sp) + 1);
++        }
++
+         /// Still-water level (voxels rel. sea) at (x, z): the highest level among
+         /// the 2x2 cells around the point, so a lake's water reaches every
+         /// column its basin holds (the terrain, not the cell edge, is the
+diff --git a/Assets/TerrainGen/Tests/CliffTests.cs b/Assets/TerrainGen/Tests/CliffTests.cs
+index 927a9b7..c705352 100644
+--- a/Assets/TerrainGen/Tests/CliffTests.cs
++++ b/Assets/TerrainGen/Tests/CliffTests.cs
+@@ -12,6 +12,10 @@
+ //   - on v4 face columns: the far-band footprints stay within the spec-aware
+ //     band-limit bound, and the LOD-0 contract holds (the column's height is
+ //     its top solid voxel, air or fluid above).
++// Task 178c (owner 2026-11-06, "rework it"): the rock's biome comes from the
++// border's smooth warp only (no patch-scale streaks on faces), layers interfinger
++// at borders, each layer mixes its partner rock per brick (~1/4), the layer
++// boundaries are nearly flat (RockBiome_*, Mix_*, Layers_NearlyFlat).
+ // Report_Cliffs (REPORTS=1) dumps a section and a top view at 173's three cliff
+ // poses, cliffs on and off, for tools/cliff178.py, plus mixed-brick counts and
+ // the Sample cost (Mono, rough).
+@@ -126,6 +130,109 @@ namespace TerrainGen.Tests
+             Debug.Log("[Cliffs] layers seed 42\n" + sb);
+         }
+ 
++        /// 178c: along 200 m lines through border columns, the rock biome (rockA) switches
++        /// far less often than the surface biome (whose 10-40 m patches drew the drips)
++        /// and at most twice per line; and the two sides are biomes of the border.
++        [Test]
++        public void RockBiome_IsSmooth_NoPatchStreaks()
++        {
++            var w = Get(42);
++            var rng = new Unity.Mathematics.Random(0x178c1);
++            int lines = 0, surfSw = 0, rockSw = 0, worst = 0, split = 0, cols = 0;
++            int n = w.spec.mapCells, cv = w.spec.mapCellVoxels;
++            for (int guard = 0; lines < 300 && guard < 200000; guard++)
++            {
++                var p0 = new int2(rng.NextInt(4 * cv, (n - 4) * cv), rng.NextInt(4 * cv, (n - 4) * cv));
++                var c0 = S(in w.spec, in w, p0.x, p0.y);
++                if (c0.height <= w.spec.seaLevelY || c0.rockA == c0.rockB && c0.surfBiome == c0.biome && c0.rockA == c0.biome + 1) continue;
++                float2 d = rng.NextFloat2Direction();
++                lines++;
++                byte ps = 255, pr = 255; int lineSw = 0;
++                for (int i = -1000; i <= 1000; i += 10)
++                {
++                    var q = (int2)math.floor(new float2(p0) + d * i);
++                    var c = S(in w.spec, in w, q.x, q.y);
++                    cols++;
++                    if (c.rockA != c.rockB) split++;
++                    Assert.AreNotEqual(0, c.rockA, "cliffs on: every land column has a rock biome");
++                    if (ps != 255 && c.surfBiome != ps) surfSw++;
++                    if (pr != 255 && c.rockA != pr) { rockSw++; lineSw++; }
++                    ps = c.surfBiome; pr = c.rockA;
++                }
++                worst = math.max(worst, lineSw);
++            }
++            string msg = $"{lines} lines of 200 m: surface-biome switches {surfSw}, rock-biome switches {rockSw}, worst line {worst}; " +
++                         $"columns with two rock sides {split} of {cols}";
++            Debug.Log("[Cliffs] rock biome " + msg);
++            Assert.Greater(lines, 100, msg);
++            Assert.Greater(surfSw, 0, msg);
++            Assert.LessOrEqual(rockSw * 4, surfSw, msg);
++            Assert.LessOrEqual(worst, 3, msg);
++            Assert.Greater(split, 0, "no interfingering at all: " + msg);
++            // Cliffs off: rock = the surface biome, as before 178.
++            var off = S(in w.off, in w, 40000, 40000);
++            Assert.AreEqual(0, off.rockA);
++        }
++
++        /// 178c: ~1/4 of bricks wear the partner rock; a mixed brick is uniform and its
++        /// rock is in the biome's row; the mix is a pure function of the brick.
++        [Test]
++        public void Mix_ShareAndPartnerRock()
++        {
++            var w = Get(42);
++            var rng = new Unity.Mathematics.Random(0x178c2);
++            int mixed = 0, total = 20000;
++            for (int i = 0; i < total; i++)
++            {
++                int x = rng.NextInt(0, 80000), y = rng.NextInt(5000, 9000), z = rng.NextInt(0, 80000);
++                bool m = DetailField.MixBrick(w.spec.seed, x, y, z);
++                Assert.AreEqual(m, DetailField.MixBrick(w.spec.seed, (x & ~7) | ((x + 5) & 7), (y & ~7) | ((y + 3) & 7), (z & ~7) | ((z + 1) & 7)), "per brick");
++                if (m) mixed++;
++            }
++            float share = mixed / (float)total;
++            Debug.Log($"[Cliffs] mixed bricks {share:P1}");
++            Assert.That(share, Is.InRange(0.12f, 0.38f), $"mixed share {share:P1}");
++            for (byte b = 0; b < GenBiome.Count; b++)
++            {
++                var row = new HashSet<byte>();
++                for (int k = -40; k < 40; k++) row.Add(DetailField.LayerMaterial(w.spec.seed, b, k));
++                for (int k = -40; k < 40; k++)
++                {
++                    byte pm = DetailField.LayerMaterial(w.spec.seed, b, k, true);
++                    Assert.AreNotEqual(DetailField.LayerMaterial(w.spec.seed, b, k), pm, $"biome {b} layer {k}: partner = itself");
++                    Assert.IsTrue(row.Contains(pm) || RowHas(w.spec.seed, b, pm), $"biome {b}: partner rock {pm} is not in its row");
++                }
++            }
++        }
++
++        private static bool RowHas(uint seed, byte b, byte m)
++        {
++            for (int k = -200; k < 200; k++) if (DetailField.LayerMaterial(seed, b, k) == m) return true;
++            return false;
++        }
++
++        /// 178c: layer boundaries are nearly flat: over 10 m the offset moves < 1 m at the
++        /// 99th percentile and never more than the Lipschitz bound.
++        [Test]
++        public void Layers_NearlyFlat()
++        {
++            var w = Get(42);
++            var rng = new Unity.Mathematics.Random(0x178c3);
++            var d = new List<float>();
++            for (int i = 0; i < 20000; i++)
++            {
++                var p = rng.NextFloat2(new float2(0f), new float2(80000f));
++                var q = p + rng.NextFloat2Direction() * 100f;
++                float dv = math.abs(DetailField.LayerWave(in w.o, p) - DetailField.LayerWave(in w.o, q));
++                Assert.LessOrEqual(dv, DetailField.LAYER_WAVE_LIP * 100f + 1e-3f);
++                d.Add(dv);
++            }
++            d.Sort();
++            float p99 = d[(int)(d.Count * 0.99f)];
++            Debug.Log($"[Cliffs] layer boundary rise over 10 m: p50 {d[d.Count / 2] / 10f:F2} m, p99 {p99 / 10f:F2} m, max {d[d.Count - 1] / 10f:F2} m");
++            Assert.Less(p99, 10f, "p99 boundary rise over 10 m >= 1 m");
++        }
++
+         [Test]
+         public void Relief_OnlyOnFacesAndScree_GentleGroundUnchanged()
+         {
+@@ -360,7 +467,7 @@ namespace TerrainGen.Tests
+                 sw.Stop();
+                 log.AppendLine($"Sample (Mono, chunk footprint) {arm}: {sw.Elapsed.TotalMilliseconds * 1000.0 / pts.Count:F1} us/column ({acc & 1})");
+             }
+-            File.WriteAllText(Path.Combine(OUT_DIR, "cliffs178.txt"), log.ToString());
++            File.WriteAllText(Path.Combine(OUT_DIR, "cliffs178c.txt"), log.ToString());
+             Debug.Log("[Cliffs] report\n" + log);
+         }
+ 
+diff --git a/Assets/TerrainGen/Tests/CoverTests.cs b/Assets/TerrainGen/Tests/CoverTests.cs
+index e81b167..8151bc4 100644
+--- a/Assets/TerrainGen/Tests/CoverTests.cs
++++ b/Assets/TerrainGen/Tests/CoverTests.cs
+@@ -102,7 +102,7 @@ namespace TerrainGen.Tests
+                 byte top = DetailField.TopMaterial(in w.spec, in c, st, in w.o, p.x, p.y);
+                 byte cell = Cover.Material(Cover.Row(c.surfBiome), c.cover);
+                 byte expect = cell == Cover.BARE || st > DetailField.SHEER_STEP
+-                    ? DetailField.Strata(in w.spec, in w.o, c.surfBiome, p.x, c.height, p.y)
++                    ? DetailField.Strata(in w.spec, in w.o, in c, p.x, c.height, p.y)
+                     : Cover.Settle(cell, st);
+                 Assert.AreEqual(expect, top, $"top at {p} (biome {BIOME[c.surfBiome]}, slot {Cover.SlotName(Cover.Slot(c.cover))})");
+                 checkedN++;
+diff --git a/Screenshots/178/pairs.json b/Screenshots/178/pairs.json
+index 3c3f57b..0c881cb 100644
+--- a/Screenshots/178/pairs.json
++++ b/Screenshots/178/pairs.json
+@@ -1,9 +1 @@
+-[["shot_cliff_after.png","shot_cliff_before.png","cliff: the 167 m face, looking up from 84 m. Space flips BEFORE (-cliffs 0) | AFTER. Right half: badlands' thin red/cream/ochre stripes become thick red layers; bottom: a dark blue-grey and a dark brown layer (24 m nominal) cross both biomes at the same height."],
+-["shot_coast_cliff_after.png","shot_coast_cliff_before.png","coast_cliff: lake + cliff from 223 m. Look at the face: one grey wall becomes grey with a red and a green (moss rock) layer with wavy boundaries; vertical fluting replaces the stepped 'contour' ripples."],
+-["shot_forest_breaks_after.png","shot_forest_breaks_before.png","forest_breaks: canyon wall from 163 m. Thick dark-brown, grey and (right, badlands) yellow/cream layers; check the small white dashes at mid-height near the centre (173's issue, still present)."],
+-["section_cliff.png","","cliff: vertical section through the face, 1 voxel = 1 px, uphill right. Left = before, right = after. Look at the face: small ledge steps, the wavy thick layers inside, the scree mound at the foot."],
+-["section_coast_cliff.png","","coast_cliff section, before | after."],
+-["section_forest_breaks.png","","forest_breaks section, before | after."],
+-["top_cliff.png","","cliff top view (0.4 m/px, north up), before | after: fluting along the face, scree apron at the foot."],
+-["top_coast_cliff.png","","coast_cliff top view, before | after."],
+-["top_forest_breaks.png","","forest_breaks top view, before | after."]]
++[["shot_cliff_after.png", "shot_cliff_before.png", "cliff: the 167 m face, looking up from 84 m. Space flips BEFORE (-cliffs 0) | AFTER. Right half: badlands' thin red/cream/ochre stripes become thick red layers; bottom: a dark blue-grey and a dark brown layer (24 m nominal) cross both biomes at the same height."], ["shot_coast_cliff_after.png", "shot_coast_cliff_before.png", "coast_cliff: lake + cliff from 223 m. Look at the face: one grey wall becomes grey with a red and a green (moss rock) layer with wavy boundaries; vertical fluting replaces the stepped 'contour' ripples."], ["shot_forest_breaks_after.png", "shot_forest_breaks_before.png", "forest_breaks: canyon wall from 163 m. Thick dark-brown, grey and (right, badlands) yellow/cream layers; check the small white dashes at mid-height near the centre (173's issue, still present)."], ["section_cliff.png", "", "cliff: vertical section through the face, 1 voxel = 1 px, uphill right. Left = before, right = after. Look at the face: small ledge steps, the wavy thick layers inside, the scree mound at the foot."], ["section_coast_cliff.png", "", "coast_cliff section, before | after."], ["section_forest_breaks.png", "", "forest_breaks section, before | after."], ["top_cliff.png", "", "cliff top view (0.4 m/px, north up), before | after: fluting along the face, scree apron at the foot."], ["top_coast_cliff.png", "", "coast_cliff top view, before | after."], ["top_forest_breaks.png", "", "forest_breaks top view, before | after."]]
+\ No newline at end of file
+diff --git a/Screenshots/178/viewer.html b/Screenshots/178/viewer.html
+index 58cca44..7decf60 100644
+--- a/Screenshots/178/viewer.html
++++ b/Screenshots/178/viewer.html
+@@ -6,7 +6,9 @@ img{display:block;image-rendering:pixelated}b{color:#ffcc55}</style></head><body
+ Keys: left/right = image, Space = BEFORE | AFTER, 1-4 = zoom (1 = fit width). Question: <b>keep these cliffs?</b></div>
+ <div id="wrap"><img id="im"></div>
+ <script>
+-const S=[["shot_cliff_after.png", "shot_cliff_before.png", "cliff: the 167 m face, looking up from 84 m. Space flips BEFORE (-cliffs 0) | AFTER. Right half: badlands' thin red/cream/ochre stripes become thick red layers; bottom: a dark blue-grey and a dark brown layer (24 m nominal) cross both biomes at the same height."], ["shot_coast_cliff_after.png", "shot_coast_cliff_before.png", "coast_cliff: lake + cliff from 223 m. Look at the face: one grey wall becomes grey with a red and a green (moss rock) layer with wavy boundaries; vertical fluting replaces the stepped 'contour' ripples."], ["shot_forest_breaks_after.png", "shot_forest_breaks_before.png", "forest_breaks: canyon wall from 163 m. Thick dark-brown, grey and (right, badlands) yellow/cream layers; check the small white dashes at mid-height near the centre (173's issue, still present)."], ["section_cliff.png", "", "cliff: vertical section through the face, 1 voxel = 1 px, uphill right. Left = before, right = after. Look at the face: small ledge steps, the wavy thick layers inside, the scree mound at the foot."], ["section_coast_cliff.png", "", "coast_cliff section, before | after."], ["section_forest_breaks.png", "", "forest_breaks section, before | after."], ["top_cliff.png", "", "cliff top view (0.4 m/px, north up), before | after: fluting along the face, scree apron at the foot."], ["top_coast_cliff.png", "", "coast_cliff top view, before | after."], ["top_forest_breaks.png", "", "forest_breaks top view, before | after."]];let i=0,after=true,zoom=1;
++// 178c: pairs.json rows are ARRAYS [after, before, caption]; 178 read s.after / s.before
++// (undefined on an array), so every <img> got src="undefined" and the page showed black.
++const S=[["shot_cliff_after.png", "shot_cliff_before.png", "cliff: the 167 m face, looking up from 84 m. Space flips BEFORE (-cliffs 0) | AFTER. Right half: badlands' thin red/cream/ochre stripes become thick red layers; bottom: a dark blue-grey and a dark brown layer (24 m nominal) cross both biomes at the same height."], ["shot_coast_cliff_after.png", "shot_coast_cliff_before.png", "coast_cliff: lake + cliff from 223 m. Look at the face: one grey wall becomes grey with a red and a green (moss rock) layer with wavy boundaries; vertical fluting replaces the stepped 'contour' ripples."], ["shot_forest_breaks_after.png", "shot_forest_breaks_before.png", "forest_breaks: canyon wall from 163 m. Thick dark-brown, grey and (right, badlands) yellow/cream layers; check the small white dashes at mid-height near the centre (173's issue, still present)."], ["section_cliff.png", "", "cliff: vertical section through the face, 1 voxel = 1 px, uphill right. Left = before, right = after. Look at the face: small ledge steps, the wavy thick layers inside, the scree mound at the foot."], ["section_coast_cliff.png", "", "coast_cliff section, before | after."], ["section_forest_breaks.png", "", "forest_breaks section, before | after."], ["top_cliff.png", "", "cliff top view (0.4 m/px, north up), before | after: fluting along the face, scree apron at the foot."], ["top_coast_cliff.png", "", "coast_cliff top view, before | after."], ["top_forest_breaks.png", "", "forest_breaks top view, before | after."]].map(r=>Array.isArray(r)?{after:r[0],before:r[1]||r[0],caption:r[2]||'',name:r[0]}:r);let i=0,after=true,zoom=1;
+ function show(){const s=S[i];const im=document.getElementById('im');im.src=after?s.after:s.before;
+ document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+s.name+'  ['+(after?'AFTER':'BEFORE')+']';
+ document.getElementById('c').textContent=s.caption;
+diff --git a/tools/cliff178.py b/tools/cliff178.py
+index f929f9a..fed4488 100644
+--- a/tools/cliff178.py
++++ b/tools/cliff178.py
+@@ -80,7 +80,7 @@ def label(img, text, xy=(10, 8), sz=22):
+     d.text(xy, text, fill=(255, 255, 255), font=font(sz))
+ 
+ 
+-def sheets(dump, out):
++def sheets(dump, out, after_label="AFTER (task 178)"):
+     os.makedirs(out, exist_ok=True)
+     for p in POSES:
+         b, ylo_b, hb = section(os.path.join(dump, f"{p}_before_section.bin"))
+@@ -93,7 +93,7 @@ def sheets(dump, out):
+         sheet.paste(b, (0, top_y - (ylo_b + hb)))
+         sheet.paste(a, (b.width + 20, top_y - (ylo_a + ha)))
+         label(sheet, f"{p}: BEFORE (-cliffs 0)", (10, 8))
+-        label(sheet, f"{p}: AFTER (task 178)", (b.width + 30, 8))
++        label(sheet, f"{p}: {after_label}", (b.width + 30, 8))
+         sheet.save(os.path.join(out, f"section_{p}.png"))
+         tb = top(os.path.join(dump, f"{p}_before_top.bin"))
+         ta = top(os.path.join(dump, f"{p}_after_top.bin"))
+@@ -101,7 +101,7 @@ def sheets(dump, out):
+         sheet.paste(tb, (0, 0))
+         sheet.paste(ta, (tb.width + 20, 0))
+         label(sheet, f"{p} from above, 160 m: BEFORE", (10, 8))
+-        label(sheet, "AFTER", (tb.width + 30, 8))
++        label(sheet, after_label, (tb.width + 30, 8))
+         sheet.save(os.path.join(out, f"top_{p}.png"))
+         print("wrote", p)
+ 
+@@ -114,7 +114,9 @@ img{display:block;image-rendering:pixelated}b{color:#ffcc55}</style></head><body
+ Keys: left/right = image, Space = BEFORE | AFTER, 1-4 = zoom (1 = fit width). Question: <b>keep these cliffs?</b></div>
+ <div id="wrap"><img id="im"></div>
+ <script>
+-const S=%s;let i=0,after=true,zoom=1;
++// 178c: pairs.json rows are ARRAYS [after, before, caption]; 178 read s.after / s.before
++// (undefined on an array), so every <img> got src="undefined" and the page showed black.
++const S=%s.map(r=>Array.isArray(r)?{after:r[0],before:r[1]||r[0],caption:r[2]||'',name:r[0]}:r);let i=0,after=true,zoom=1;
+ function show(){const s=S[i];const im=document.getElementById('im');im.src=after?s.after:s.before;
+ document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+s.name+'  ['+(after?'AFTER':'BEFORE')+']';
+ document.getElementById('c').textContent=s.caption;
