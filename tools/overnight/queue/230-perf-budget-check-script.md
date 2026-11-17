@@ -1,6 +1,6 @@
 # 230-perf-budget-check-script
 Model: opus
-Requires: 229-perf-torch-flood-only-when-torches
+Requires: 232-perf-sun-lowres-share, 229-perf-torch-flood-only-when-torches
 Approval: OWNER 2026-11-16 (Q-AO): "b" = milestone check: after every 5 drawing/content tasks, at once after any heavy task, and before every merge to `main`.
 Performance task (timing allowed, owner rule 10; warm steady state, interleaved arms; outcomes written first).
 ## Do

@@ -1,6 +1,6 @@
 # 231-look-why-lotl-looks-cinematic
 Model: opus
-Requires: 230-perf-budget-check-script
+Requires: 227-perf-sky-fill-lowres
 Approval: OWNER 2026-11-17 (chat, "yes"): "I can't really tell why [Lay of the Land] looks 'production quality' and 'cinematic' but ours doesn't." Find out which factors matter most, BEFORE any engine work.
 CAPTURE-ONLY / OFFLINE EXPERIMENT. No engine, shader, or generator change. No frame timing, no rig. Python image work uses `python3 -I` and runs from a script directory that holds no input images.
 ## Do

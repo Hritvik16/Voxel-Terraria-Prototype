@@ -1,6 +1,6 @@
 # 229-perf-torch-flood-only-when-torches
 Model: opus
-Requires: 228-perf-sun-shadow-coarse-far
+Requires: 227-perf-sky-fill-lowres
 Approval: OWNER 2026-11-16 (Q-AN doc): "Torches are too important to turn off." Task 221 found that torch flood off changes NOTHING by day, yet 212 measured the flood twin at 27.8 ms at walk_near, noon, with no torches in view.
 Performance task (timing allowed, warm steady, ABBA, outcomes written first).
 ## Do
