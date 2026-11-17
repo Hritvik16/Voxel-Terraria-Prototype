@@ -11,8 +11,7 @@
   Report: `Logs/overnight/231/ablation.txt`. "Distance": ours = 1.00, lower = closer to theirs.
 - Step 3 used existing flags only (`run.sh`: `-costsun 12 -costfixed forest_eye,jungle_eye,redwood_far1 -costarms none`). The sun is at
   yaw -77 and the camera at 180, so the light comes from the side. **The launch took 24 min, over the 10-min budget.** Four paths each
-  had a 60 s shell wait plus load. Shells were still missing at every pose: 2,705-3,283 of ~8,000 (s3-s7).
-  It ran no timing arm and I used no frame time.
+  had a 60 s shell wait plus load. Shells were still missing at every pose: 2,705-3,283 of ~8,000 (s3-s7). No frame time was used.
 
 ## Ranking (noon mean / low-sun mean distance; cost class per rule 12)
 1. **b sky: 0.78 / 0.77. The best single factor.** Reverse test: making THEIR sky our saturated blue is the removal that makes them
@@ -34,9 +33,8 @@
   NOT in these post factors.** INFERRED from the sheets, not tested: content and shape (big hand-shaped trees with dense round canopies,
   houses, paths, props), framing (a subject plus foreground framing), and GI light gradients across surfaces. That is the placement
   phase and GI work, not post.
-- Memory: no engine change, so n/a. From the launch, for the record (known issue, not this task): the GPU body pool filled at jungle_eye
-  (254,399 of 254,400, 1,027 refusals); CPU pool peak 493,082.
-- No EditMode run: nothing under `Assets/` changed (script + text only). Nothing queued or implemented: the look is the owner's call.
+- Memory n/a (no engine change); launch ledger for the record: GPU pool full at jungle_eye (1,027 refusals, known issue). No EditMode run:
+  nothing under `Assets/` changed. Nothing queued or implemented: the look is the owner's call.
 
 ## Images (git-ignored; `Screenshots/231/sheets/`; `viewer.html` = arrows pick the pose, Space flips ours / all five, 1-7 pick a factor, Z = full size)
 - `grid_forest_eye.png`, `grid_jungle_eye.png`: the main two grids. Top row ours, +a, +b, +c; bottom row +d, +e, ALL FIVE, theirs. Look at the sky
@@ -50,8 +48,7 @@
 - `Screenshots/231/raw/redwood_far1_full_clean.png`: the most "screenshot-like" still we have. It uses no post work, only a low sun.
 
 ## Next
-Owner decision: which to try in the engine. Cheapest first: low-sun start time and shot poses (constants), sky colour + clouds
-(sky pixels only), grade (final-pass constants). Shade and texture would be GI / content work.
+Owner decision. Cheapest first: low-sun start time / shot poses, sky colour + clouds, grade. Shade and texture are GI / content work.
 
 ## For the doc
 - Distance to their look (ours = 1.00, `Logs/overnight/231/ablation.txt`): sky 0.78, grade 0.85, shade 0.99, grain 0.99, warm/cool 1.10, all five 0.70 (noon mean).
