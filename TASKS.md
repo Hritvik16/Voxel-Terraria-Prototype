@@ -1929,3 +1929,8 @@ Gotchas found: `-shadowlevel 3` on the launch line is NOT applied in a `-costspl
 `-costpaths torch` turns the torch flood OFF in every arm except `tf_on` (task 158), so the play look at night is arm `tf_on`
 (sky fill 0 + flood = launch `-skyfill 0` + arm `tf_on`); the jungle_eye still pose is not repeatable across arms (camera came out at
 minimap alt 18 / 20 / 33 m in different runs). Result: HANDOFF 221.
+**Task 222 (research, no code: Lay of the Land).** Public web only (Steam store/news/forum APIs, YouTube watch pages + storyboard frames,
+search snippets for X). Findings, table and options: `RESEARCH_LAY_OF_THE_LAND.md`. Side-by-side picture `Screenshots/222/side_by_side.png`
+(ours High 219 vs 3 official Steam shots; git-ignored; Steam images are linked, not committed). Dev devlogs carry no captions (music-only);
+`yt-dlp` not installed. Key: 10 cm voxels (QUOTED), UE5 Lumen, meshed terrain (INFERRED), finite pre-generated world, MIN GTX 1660 Ti 1080p
+Low 30 fps (~2.1x M1's 2.6 TF). Result: HANDOFF 222.
