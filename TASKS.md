@@ -1953,3 +1953,10 @@ side gets `TerrainGenChunkSource.ShellScratch` (fill arrays + voxel skip stats, 
 Tests: `GenScratchHashTests.VoxelReuseIsExact_DenseThenSparse` (fast) and `ShellScratchReuseIsExact_DenseThenSparse` (Slow): dense chunk
 first, then sparser ones, also with the scratch `Scribble`d with junk, against fresh scratch (bytes, brick table, skip/fill stats). The
 Explicit hash probe now also hashes the reused path: both = 223's `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF`. Result: HANDOFF 224.
+**Task 220 -- keep the budget (plan only, owner 2026-11-16).** `PERF_BUDGET_GUARD.md` (the guard: options strict / milestone every
+5 drawing tasks + at once after a HEAVY task (recommended) / merge-only; the milestone check `run-budget-check.sh`, NOT written yet,
+owner picks first; lighting tracked as sky fill / sun / torch flood deltas at walk_near day + flood at the night torch path; failure
+-> one switch-arm bisect launch, no new drawing tasks until resolved), `PERF_BUDGET.json` (provisional ratchet baseline from 212/219:
+walk_near p50 107 ms, sky fill 40.4 / sun 28.1 / flood 27.8 / shells 8.4 ms, peak 2,607 MB; targets reported as distance only;
+tolerances from 212's F-pass noise), PREAMBLE rule 12 (per-task proxies P1-P5: memory, pass card, cold ms only if shown, counts,
+ray-work counters; `HEAVY` marker). Supervisor's `Cost:` line text: guard sec. 7. No code, no launch. Result: HANDOFF 220.

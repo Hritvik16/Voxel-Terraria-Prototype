@@ -93,3 +93,13 @@ You are running UNATTENDED in a fresh headless session started by
    (c) must not make any of those worse beyond its task file's budget (default: refusals not up, memory peak at most +50 MB).
    Over budget = fix it inside the task or STOP_FOR_OWNER. "Leave it for the performance stage" is not an option.
    This is not frame timing: rule 10 still forbids frame-time arms outside performance tasks.
+12. **Keep the budget: cost proxies** (owner, 2026-11-16, task 220; full plan `PERF_BUDGET_GUARD.md`, numbers `PERF_BUDGET.json`).
+   Every task that adds or changes drawing or content reports in HANDOFF, from the launches it already does (no extra launch,
+   no frame-time arm; rule 10 stands): P1 memory (rule 11); P2 a "pass card" for each GPU pass added or changed (resolution:
+   render rows / output 1080p / fixed; every frame or 1 in K; rays, march step cap, texture taps per pixel; GPU bytes added;
+   the AMENDMENT_8_17 step it belongs to and the share it takes); P3 `step <name>: +a ms (cold capture, est.) vs share b ms`
+   ONLY if its launch already prints frame time at a pose (`OVER SHARE` when a > b); P4 for content, instance / tree / body
+   counts at its poses vs OFF (limit +10 % unless density is the task); P5 when a ray march changes, the rays/steps-per-frame
+   counter lines vs OFF (flag at +25 %). A new pass gets its own switch AND a capture-only `-costarms <name>_off` arm.
+   Without approval in the task file: no new pass at OUTPUT resolution, no new per-pixel ray march. Write `HEAVY` in HANDOFF
+   if the task adds either, prints `OVER SHARE`, or crosses a P1/P4 limit: the supervisor then runs the budget check next.
