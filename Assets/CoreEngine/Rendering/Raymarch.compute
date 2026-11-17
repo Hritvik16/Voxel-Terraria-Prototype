@@ -495,6 +495,25 @@ float _MaterialVariationAmount;
 // =====================================================================
 float _ShadowTravelLOD;
 
+// TASK 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"; RaymarchFeature.SunFarM, `-sunfar <m>`):
+// COARSE FAR SUN SHADOWS. 0 = off (every sun ray exact, the old path). > 0: a sun ray whose RECEIVER (the primary
+// hit) is at least this many voxels from the camera is a FAR ray. Once a far ray has climbed two bricks of the grid
+// it marches above its origin (SunCoarseY: 16 << k voxels, k = 0 tier 0, 1 the task-133 continuation, the hit's
+// shell for a shell hit), a DENSE brick counts as solid: one handle read, no per-voxel steps, no near-miss scans.
+// The coarse copy is the brick directory the march already reads (no new data). A near receiver's ray takes the
+// old path byte for byte (coarseY = SUN_COARSE_NEVER). The rule only ADDS occlusion: every exact hit is still a hit
+// (a solid voxel lies in a uniform-solid or a dense brick), and an added hit lies within one brick of solid, so a
+// far shadow can widen by at most one brick (0.8 m tier 0, 1.6 m shell 1 ...). The climb guard keeps a far
+// receiver's own surface bricks exact (no self-shadow). CPU twin: ShadowRayReference.Trace(coarseY).
+// Why no cascade tier here: with the shells on, tiers 1/2 are not drawn (_ShadowTravelLOD has nothing to read).
+float _SunFarVoxels;
+#define SUN_COARSE_NEVER 2147483647
+int SunCoarseY(float receiverDistVox, int originY, int k)
+{
+    if (_SunFarVoxels <= 0.0 || receiverDistVox < _SunFarVoxels) return SUN_COARSE_NEVER;
+    return originY + (16 << k);
+}
+
 
 // §6.5's fallback ladder, from EngineConfig.SHADOW_QUALITY_LEVEL:
 //   0 full penumbra | 1 half-res beyond LOD1 | 2 hard only | 3 off
@@ -2120,8 +2139,9 @@ int ShadowClipmapFlatIndex(int3 voxel, uint3 windowDimsBricks)
 // only for a caller that does not read r.exitT: the sky probe, and a sun ray with no task-133 shell
 // continuation after it. Task 168's first walk_open stills: the sun ray WITH the continuation came out
 // 1,648 px brighter on the sea at the window edge (the shell march started from another exitT).
+// coarseY (task 228, SunCoarseY): at voxel.y >= coarseY a dense tier-0 brick counts as solid. SUN_COARSE_NEVER = exact.
 ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
-                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof)
+                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof, int coarseY)
 {
     bool roofSkip = _ShadowRoofSkip != 0 && allowRoof;
     ShadowHit r;
@@ -2301,6 +2321,8 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
 
             if ((handle & 0x80000000) != 0)
             {
+                // Task 228: a far ray above its climb guard: the dense brick is the coarse occluder.
+                if (voxel.y >= coarseY) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
                 uint poolIdx = handle & 0x3FFFFFFF;
                 uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
                 uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
@@ -3556,7 +3578,8 @@ bool ShellHoleBox(int3 voxel, int3 step, float3 org, int skyY, out int3 lo, out 
 /// it holds there is leapt (0 = off: shadow rays). ShellRayReference.March, line for line.
 /// skyY (task 99): a rising ray (step.y > 0) at voxel.y >= skyY ends SHELL_END_SKY (no hit);
 /// SHELL_SKY_NEVER = off. ShellSkyY: primary / shadow.
-ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY)
+// coarseY (task 228, SunCoarseY): a shadow ray at voxel.y >= coarseY counts a dense shell brick as solid. SUN_COARSE_NEVER = exact.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY, int coarseY)
 {
     dir = FarSafeDir(dir);
     int3 step = int3(sign(dir));
@@ -3671,6 +3694,12 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
 #ifdef VE_SHELL_DIAG
                 r.pageReads++;
 #endif
+            }
+            // Task 228: a far sun ray above its climb guard: the dense brick is the coarse occluder.
+            if ((pcH & 0x80000000u) != 0u && voxel.y >= coarseY && t >= (float)(3 << k))
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = 1u; r.inside = false; r.normal = normal;
+                return r;
             }
             mat = ShellLookupHandle(k, pcH, voxel, sh);
         }
@@ -4452,7 +4481,7 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
     for (int leg = 0; leg < legs; leg++)
     {
         ShadowHit sky = TraceShadowRay(tv, tn, td,
-                                       wdb, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
+                                       wdb, false, false, true, SUN_COARSE_NEVER);   // task 168: exitT unused, so the roof skip is exact here
         fillSample = sky.sunVis;
         if (leg == 0 && legs == 2)
         {
@@ -5231,7 +5260,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // so the one-pass march is dead; the diet-2 kernel runs only with the pre-pass (KernelDiet2Rule.Settings + the caller).
         { shr = (ShellHit)0; shr.end = SHELL_END_CAP; shr.t = tTier0; shr.shell = -1; }
 #else
-        shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
+        shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true), SUN_COARSE_NEVER);
 #endif
 #ifdef VE_SHELL_DIAG
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
@@ -5583,7 +5612,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
         bool sunRoof = true;
 #endif
-        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof);
+        // Task 228: a far receiver's ray goes coarse above its climb guard (SunCoarseY); near receivers stay exact.
+        int sunCoarseY0 = SunCoarseY(currentDist, voxel.y + normal.y, 0);
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof, sunCoarseY0);
 #ifdef VE_FAR_SHADE
         // TASK 133 (see _NearShadowShells): a tier-0 sun ray that left the window or the band ceiling
         // unblocked goes on through the shells from where it left, as a shell hit's sun ray does
@@ -5596,7 +5627,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // Task 168c: blocked -> 0, else sh.sunVis stays: the same march in CSSunDeferLean.
             sdPending = true; sdStart = nso; sdT0 = sh.exitT;
 #else
-            ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+            ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),
+                                     SunCoarseY(currentDist, voxel.y + normal.y, 1));   // task 228
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
             if (SHADOW_STATS_ON)
@@ -5660,7 +5692,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         sdPending = true; sdStart = so; sdT0 = 0.0;
         sunVis = 1.0;
 #else
-        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),
+                                 SunCoarseY(currentDist, (int)floor(so.y), shellAtHit));   // task 228
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
 #endif
 #if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
@@ -6653,7 +6686,7 @@ void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
     ShellPre[idx].e = 0u;
     float3 rayStart = _CameraPos * 10.0;
     float3 so = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
-    ShellHit ss = ShellMarch(so, normalize(_SunDir), asfloat(q.d), true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+    ShellHit ss = ShellMarch(so, normalize(_SunDir), asfloat(q.d), true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
     if (ss.end == SHELL_END_HIT)
     {
         ResultTexture[tid.xy] = SunDeferB[tid.xy];
@@ -6779,13 +6812,13 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
         rayDir.z = abs(rayDir.z) < 1e-6 ? (rayDir.z >= 0 ? 1e-6 : -1e-6) : rayDir.z;
         float3 rayStart = _CameraPos * 10.0;
         int skyY = ShellSkyY(true);
-        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, skyY);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, skyY, SUN_COARSE_NEVER);
         uint keep = shr.mat + (uint)shr.end + (uint)shr.shell + (uint)shr.iters + (shr.inside ? 1u : 0u)
                   + (uint)(shr.voxel.x ^ shr.voxel.y ^ shr.voxel.z) + (uint)(shr.normal.x + 3 * shr.normal.y + 9 * shr.normal.z);
         float outT = shr.t;
         if ((_DebugShellSkip & 64) != 0)
         {
-            ShellHit sh2 = ShellMarch(rayStart, rayDir, salt, false, rayStart, _ShellIterCap, tTier0 + salt, skyY);
+            ShellHit sh2 = ShellMarch(rayStart, rayDir, salt, false, rayStart, _ShellIterCap, tTier0 + salt, skyY, SUN_COARSE_NEVER);
             keep += sh2.mat + (uint)sh2.end + (uint)sh2.shell + (uint)sh2.iters + (sh2.inside ? 1u : 0u)
                   + (uint)(sh2.voxel.x ^ sh2.voxel.y ^ sh2.voxel.z) + (uint)(sh2.normal.x + 3 * sh2.normal.y + 9 * sh2.normal.z);
             outT = min(outT, sh2.t);
@@ -6857,7 +6890,7 @@ void ShellPrepassBody(uint3 tid)
     if ((q.e & 3u) != 2u) return;
     float3 rayDir = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
     float3 rayStart = _CameraPos * 10.0;
-    ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, asfloat(q.d), ShellSkyY(true));
+    ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, asfloat(q.d), ShellSkyY(true), SUN_COARSE_NEVER);
     q.a = asuint(shr.t); q.b = (uint)shr.voxel.x; q.c = (uint)shr.voxel.y; q.d = (uint)shr.voxel.z;
     q.e = ShellPrePack(shr);
     ShellPre[idx] = q;

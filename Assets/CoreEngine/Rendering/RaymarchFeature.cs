@@ -637,6 +637,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// visible bleed, Logs/overnight/227/costsplit_day.txt, Screenshots/227/sheets/).
     public static int SkyFillRes = ValidSkyFillRes(ReadIntArg("-skyfillres", 4));
     public static int ValidSkyFillRes(int v) => v == 1 || v == 2 ? v : 4;
+
+    /// TASK 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"): COARSE FAR SUN SHADOWS, `-sunfar <metres>`
+    /// (default 0 = off, every sun ray exact as before). > 0: a sun ray whose receiver is at least this far from the camera
+    /// counts a DENSE brick as solid once it has climbed two bricks above its origin (Raymarch.compute _SunFarVoxels /
+    /// SunCoarseY; tier 0, the task-133 continuation and the shell-hit sun ray). Near receivers: the old path byte for
+    /// byte. Only adds occlusion, at most one brick wider. No memory. CPU twin ShadowRayReference.Trace(coarseY).
+    public static float SunFarM = ValidSunFar(ReadFloatArg("-sunfar", 0f));
+    public static float ValidSunFar(float m) => m > 0f && m < 100000f ? m : 0f;
     /// The trace pass drawn last frame (capture lines): 0 = inline, 2 / 4 = the block size.
     public static int SkyFillResDrawnLastFrame;
 
@@ -1814,6 +1822,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowTravelLOD", data.shadowTravelLod);
+                        cmd.SetComputeFloatParam(data.compute, "_SunFarVoxels", SunFarM * 10f);   // task 228
                         cmd.SetComputeIntParam(data.compute, "_MaterialVariation", data.materialVariation);
                         cmd.SetComputeFloatParam(data.compute, "_MaterialVariationAmount", data.materialVariationAmount);
                         cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);

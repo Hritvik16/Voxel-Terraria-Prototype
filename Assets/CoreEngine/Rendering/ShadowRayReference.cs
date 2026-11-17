@@ -297,9 +297,12 @@ public static class ShadowRayReference
     /// of being one implementation giving up before the other. Mirrors
     /// RaymarchReference.TracerRaycast's own `maxDist` parameter, which exists
     /// for the same reason.
+    /// `coarseY` (task 228, the shader's TraceShadowRay coarseY): at voxel.y >= coarseY a tier-0 brick that holds
+    /// any solid voxel counts as solid (the GPU's dense-or-uniform-solid handle; the one difference: a dense brick
+    /// whose voxels are all air, which the GPU would count). int.MaxValue = exact (the default).
     public static ShadowResult Trace(ChunkStore store, int3 hitVoxel, int3 hitNormal,
                                      float3 sunDir, float3 cameraPosM, float kSoft,
-                                     float maxDistM = 0f)
+                                     float maxDistM = 0f, int coarseY = int.MaxValue)
     {
         var r = new ShadowResult
         {
@@ -339,6 +342,7 @@ public static class ShadowRayReference
 
         float t = 0f;
         bool first = true;
+        int3 cbrick = new int3(int.MinValue, 0, 0); bool cSolid = false;   // task 228: last coarse brick asked
 
         while (t < maxVox && r.steps < MaxSteps)
         {
@@ -351,7 +355,8 @@ public static class ShadowRayReference
             int tier = SelectLODTier(camDistVox);
             if (first) { r.firstSampleTier = tier; first = false; }
 
-            if (SolidAtTier(store, voxel, tier))
+            if (SolidAtTier(store, voxel, tier)
+                || (tier == 0 && voxel.y >= coarseY && CoarseSolid(store, voxel, ref cbrick, ref cSolid)))   // task 228
             {
                 // Occlusion-only early exit: first hit is the whole answer.
                 r.occluded = true;
@@ -395,6 +400,29 @@ public static class ShadowRayReference
             ? 1f
             : math.smoothstep(0f, kSoft, r.minClearanceRatio);
         return r;
+    }
+
+    /// TASK 228: the shader's SunCoarseY. A sun ray whose receiver is at least `sunFarVox` from the camera (> 0 = on)
+    /// goes coarse once it is two bricks of its march grid (16 << k voxels) above its origin cell's y.
+    public static int SunCoarseY(float receiverDistVox, float sunFarVox, int originY, int k)
+        => (sunFarVox <= 0f || receiverDistVox < sunFarVox) ? int.MaxValue : originY + (16 << k);
+
+    private static bool CoarseSolid(ChunkStore store, int3 voxel, ref int3 cbrick, ref bool cSolid)
+    {
+        int3 b = new int3(voxel.x >> 3, voxel.y >> 3, voxel.z >> 3);
+        if (!b.Equals(cbrick)) { cbrick = b; cSolid = BrickHoldsSolid(store, voxel); }
+        return cSolid;
+    }
+
+    /// TASK 228: does the tier-0 brick holding `voxel` hold any solid voxel (the coarse occluder)?
+    public static bool BrickHoldsSolid(ChunkStore store, int3 voxel)
+    {
+        int3 b0 = new int3(voxel.x >> 3, voxel.y >> 3, voxel.z >> 3) * 8;
+        for (int z = 0; z < 8; z++)
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+            if (SampleAtTier(store, b0 + new int3(x, y, z), 0) != 0) return true;
+        return false;
     }
 
     /// Iteration guard -- DERIVED FROM THE DISTANCE CLAMP, not chosen.

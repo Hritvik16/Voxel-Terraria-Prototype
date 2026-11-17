@@ -2005,3 +2005,15 @@ tests in `SkyFillReferenceTests` (LowRes_*: pack round trip + shader pins, share
 block == inline path within 1/16), `KernelHealthTests` (one backwards fetch loop for every kernel). Memory: history 2 x W x H x 12 B
 (+2.65 MB at 768x432). Runner `Logs/overnight/227/run.sh day|night`, pictures `sheets.py`, `zoom4.py` -> `Screenshots/227/sheets/`.
 Result (warm, ABBA, walk_near p50): 106.8 ms inline -> 78.0 (2x2) -> 72.3 (4x4); sky fill off 66.3. Result: HANDOFF 227.
+
+**Task 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"): COARSE FAR SUN SHADOWS, `-sunfar <m>` (default 0 = OFF, presets
+unchanged).** A sun ray whose receiver is at least <m> from the camera counts a DENSE brick as solid once it has climbed two bricks of
+its march grid above its origin (`Raymarch.compute` `_SunFarVoxels` / `SunCoarseY`, `SUN_COARSE_NEVER`; `TraceShadowRay(..., coarseY)`
+tier 0, `ShellMarch(..., coarseY)` for the task-133 continuation (k 1) and the shell-hit sun ray (k = its shell); the sky probe, the
+primary marches and CSSunDeferLean pass NEVER). No new data (the brick directory is the coarse copy), 0 bytes. Capture arms
+`sunfar_off` / `sunfarNN`; the cost-split run line prints `sunfar N m`. CPU twin `ShadowRayReference.Trace(coarseY)`, `SunCoarseY`,
+`BrickHoldsSolid`; tests `SunFarCoarseTests` (near/off exact, only adds occlusion, bumpy ground no self-shadow, thin pole and tall wall
+widen by at most their own bricks); `SunDeferTests` pin updated. Result (warm ABBA, noon, 432 rows): walk_near 72.0 -> 70.0 ms, forest_eye
+102.0 -> 95.9, jungle_eye 66.8 -> ~66.2 (sun off 49.3 / 72.0 / 48.9). DEFECT, why it stays OFF: the vertical climb guard fails on a steep
+bare slope (a ray two bricks up is still inside the slope's surface bricks): brick-shaped false shadows (`Screenshots/228/sheets/walk_far_hill.png`);
+far forest interiors lose their sun patches. Runner `Logs/overnight/228/run.sh`, pictures `sheets.py`. Result: HANDOFF 228.
