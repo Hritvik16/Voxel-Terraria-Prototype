@@ -192,7 +192,7 @@ namespace VoxelEngine.WorldGen
         private int _shellColumnPasses;
 
         /// Generation alone (rows 12-13, exact); returns the sample offset used.
-        private int GenerateShellChunkRaw(int shell, int3 coord, ShellChunk output, int sampleIndex)
+        private int GenerateShellChunkRaw(int shell, int3 coord, ShellChunk output, int sampleIndex, ShellScratch scratch = null)
         {
             if (shell < 0 || shell > MAX_SHELL) throw new ArgumentOutOfRangeException(nameof(shell));
             if (sampleIndex >= (1 << shell)) throw new ArgumentOutOfRangeException(nameof(sampleIndex));
@@ -240,10 +240,9 @@ namespace VoxelEngine.WorldGen
                 return half;
             }
 
-            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
-            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
-            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
-            var stats = new NativeArray<int>(4, Allocator.Persistent);
+            // Task 223: Persistent, not TempJob. Task 224: the worker's reused stats (zeroed = a fresh one), or one-shot.
+            var stats = scratch != null ? scratch.voxStats : new NativeArray<int>(4, Allocator.Persistent);
+            if (scratch != null) ShellScratch.Zero(stats);
             try
             {
                 new ShellVoxelJob
@@ -257,7 +256,7 @@ namespace VoxelEngine.WorldGen
                 }.Run();
                 AddSkipStats(stats, 4);
             }
-            finally { stats.Dispose(); }
+            finally { if (scratch == null) stats.Dispose(); }
             output.VoxelMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return half;
         }
@@ -276,8 +275,14 @@ namespace VoxelEngine.WorldGen
         /// go after every op, as before.
         public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops,
                                       VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
+            => GenerateShellChunk(shell, coord, output, ops, summaries, null);
+
+        /// Task 224: the same, with the calling worker's reused scratch (null = one-shot scratch per call, the old way).
+        /// Same bytes either way (GenScratchHashTests).
+        public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops,
+                                      VoxelEngine.Streaming.EditSummarySnapshot summaries, ShellScratch scratch)
         {
-            int half = GenerateShellChunkRaw(shell, coord, output, -1);
+            int half = GenerateShellChunkRaw(shell, coord, output, -1, scratch);
             long tr = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = ops != null ? ops.Count : 0, done = 0, applied = 0;
             if (summaries != null && n > 0)
@@ -291,7 +296,7 @@ namespace VoxelEngine.WorldGen
             output.OpsApplied = n;
             if (summaries != null) applied += VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries, n);
             output.SummariesApplied = applied;
-            FillShellChunk(output, half, ops, false, output.SummariesApplied > 0 ? summaries : null);
+            FillShellChunk(output, half, ops, false, output.SummariesApplied > 0 ? summaries : null, scratch);
             output.RestMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tr) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return n;
         }

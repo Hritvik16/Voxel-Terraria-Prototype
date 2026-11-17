@@ -407,6 +407,13 @@ namespace VoxelEngine.WorldGen
             internal NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             internal NativeArray<int> top;
             internal TreeScratch trees;   // task 180
+            // Task 224: Generate's voxel-pass scratch (mats 128^3, brick uniform/material, skip stats; ~2.06 MB), made on
+            // the first chunk that needs a voxel pass and REUSED by every later one of this owner, instead of a malloc +
+            // free per chunk. Same single owner as the column arrays. See EnsureVoxelScratch for what is cleared per use.
+            internal NativeArray<byte> mats, brickMat;
+            internal NativeArray<bool> brickUniform;
+            internal NativeArray<int> voxStats;
+            private Allocator _alloc;
             internal bool valid;
             internal int cx, cz;
             /// ColumnJob runs into this pass (diagnostics).
@@ -420,7 +427,44 @@ namespace VoxelEngine.WorldGen
                 colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, a, NativeArrayOptions.UninitializedMemory);
                 top = new NativeArray<int>(1, a);
                 trees = new TreeScratch(ChunkMaxTrees, a);
+                _alloc = a;
             }
+
+            /// Task 224: makes the voxel-pass scratch on first use; on reuse, sets it to exactly what a fresh allocation
+            /// gave the old per-chunk code: brickMat / brickUniform / voxStats zero (they were ClearMemory), mats left as
+            /// it is (it was UninitializedMemory: VoxelJob writes every voxel of each brick it does not prove uniform, and
+            /// every overlay expands a uniform brick into mats before its first write, so no unwritten byte is ever read).
+            /// VoxelReuseIsExact_DenseThenUniform checks this against a fresh pass.
+            internal unsafe void EnsureVoxelScratch()
+            {
+                if (mats.IsCreated)
+                {
+                    UnsafeUtility.MemClear(brickMat.GetUnsafePtr(), brickMat.Length);
+                    UnsafeUtility.MemClear(brickUniform.GetUnsafePtr(), brickUniform.Length * UnsafeUtility.SizeOf<bool>());
+                    UnsafeUtility.MemClear(voxStats.GetUnsafePtr(), voxStats.Length * sizeof(int));
+                    return;
+                }
+                const int E = EngineConfig.CHUNK_EDGE_VOXELS;
+                mats = new NativeArray<byte>(E * E * E, _alloc, NativeArrayOptions.UninitializedMemory);
+                brickMat = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
+                brickUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
+                voxStats = new NativeArray<int>(4, _alloc);
+            }
+
+            /// Tests (task 224): makes the voxel-pass scratch and fills all of it with `v`, a worst-case stale state.
+            public unsafe void Scribble(byte v)
+            {
+                EnsureVoxelScratch();
+                UnsafeUtility.MemSet(mats.GetUnsafePtr(), v, mats.Length);
+                UnsafeUtility.MemSet(brickMat.GetUnsafePtr(), v, brickMat.Length);
+                UnsafeUtility.MemSet(brickUniform.GetUnsafePtr(), (byte)(v & 1), brickUniform.Length);
+                UnsafeUtility.MemSet(voxStats.GetUnsafePtr(), v, voxStats.Length * sizeof(int));
+            }
+
+            /// Bytes of the voxel-pass scratch (held once the owner has built one non-air chunk).
+            public static long VoxelScratchBytes
+                => (long)EngineConfig.CHUNK_EDGE_VOXELS * EngineConfig.CHUNK_EDGE_VOXELS * EngineConfig.CHUNK_EDGE_VOXELS
+                   + EngineConfig.BRICKS_PER_CHUNK * (1 + UnsafeUtility.SizeOf<bool>()) + 4 * sizeof(int);
 
             public bool Holds(int3 coord) => valid && cx == coord.x && cz == coord.z;
 
@@ -433,7 +477,8 @@ namespace VoxelEngine.WorldGen
                     return (long)E * E * (UnsafeUtility.SizeOf<TerrainGen.ColumnSample>() + sizeof(float)
                                           + UnsafeUtility.SizeOf<TerrainGen.DetailField.ColumnDetail>()) + sizeof(int)
                          + (long)ChunkMaxTrees * (UnsafeUtility.SizeOf<TerrainGen.Tree>()
-                                                  + TerrainGen.Trees.MAX_PRIMS * UnsafeUtility.SizeOf<TerrainGen.TreePrim>()) + 2 * sizeof(int);
+                                                  + TerrainGen.Trees.MAX_PRIMS * UnsafeUtility.SizeOf<TerrainGen.TreePrim>()) + 2 * sizeof(int)
+                         + VoxelScratchBytes;   // task 224
                 }
             }
 
@@ -445,6 +490,10 @@ namespace VoxelEngine.WorldGen
                 if (colCd.IsCreated) colCd.Dispose();
                 if (top.IsCreated) top.Dispose();
                 trees?.Dispose();
+                if (mats.IsCreated) mats.Dispose();
+                if (brickMat.IsCreated) brickMat.Dispose();
+                if (brickUniform.IsCreated) brickUniform.Dispose();
+                if (voxStats.IsCreated) voxStats.Dispose();
             }
         }
 
@@ -482,14 +531,11 @@ namespace VoxelEngine.WorldGen
                 return;
             }
 
-            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
-            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
-            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
+            // Task 223: Persistent, not TempJob (a streaming worker holds it for a whole chunk build, > 4 frames).
+            // Task 224: the voxel-pass scratch lives in the pass (one per worker, reused per chunk; EnsureVoxelScratch);
+            // a null pass = a one-shot private pass, freed below, as before.
             ColumnPass own = pass == null ? new ColumnPass(Allocator.Persistent) : null;
             var cp = pass ?? own;
-            NativeArray<byte> mats = default, uniform = default;
-            NativeArray<bool> isUniform = default;
-            NativeArray<int> stats = default;
             try
             {
                 if (!shared)
@@ -524,10 +570,8 @@ namespace VoxelEngine.WorldGen
                 if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
                 else chunk.bricks = allocator.Alloc();
 
-                mats = new NativeArray<byte>(E * E * E, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-                uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
-                isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
-                stats = new NativeArray<int>(4, Allocator.Persistent);
+                cp.EnsureVoxelScratch();
+                var mats = cp.mats; var uniform = cp.brickMat; var isUniform = cp.brickUniform; var stats = cp.voxStats;
                 new VoxelJob
                 {
                     toEngine = _toEngine, spec = Spec, o = O, origin = coord * E,
@@ -560,10 +604,6 @@ namespace VoxelEngine.WorldGen
             finally
             {
                 own?.Dispose();
-                if (mats.IsCreated) mats.Dispose();
-                if (uniform.IsCreated) uniform.Dispose();
-                if (isUniform.IsCreated) isUniform.Dispose();
-                if (stats.IsCreated) stats.Dispose();
             }
         }
 

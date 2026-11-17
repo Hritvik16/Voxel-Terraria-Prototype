@@ -1942,3 +1942,14 @@ single `IJob` is made once per `Execute`; nothing has a peak above 50 MB. The "o
 `FillShellChunk`); no logged stack ever named TorchFloodBuild. Fix: those 16 allocations -> `Allocator.Persistent` (same sizes, freed in
 the same `finally`). Explicit probe `GenScratchHashTests.GeneratorOutput_Hash` (`HASH_TAG=<tag>`, writes `Logs/TerrainGen/temp223/hash_<tag>.txt`):
 identical hashes before/after. Launch pair `Logs/overnight/223_pair.sh`: warnings 169 + 68 -> 0 + 0, peak 2,528 -> 2,516 MB. Result: HANDOFF 223.
+
+**Task 224 (perf: reuse the generator's scratch per worker; no switch, no look change).** Follow-up to 223. `Generate`'s voxel-pass
+scratch (`mats` 128^3, brick material/uniform, skip stats; 2.06 MB) now lives in the worker's `ColumnPass` (made on its first non-air chunk,
+`EnsureVoxelScratch` zeroes the three ClearMemory arrays per chunk; `mats` stays unwritten as before, it was UninitializedMemory). The shell
+side gets `TerrainGenChunkSource.ShellScratch` (fill arrays + voxel skip stats, ~0.46 MB), one per `ShellStreamer` worker thread (made in
+`WorkerLoop`) plus one for the synchronous path; `ResetFill` zeroes every array a fresh one had zeroed and empties the lists. It is NOT kept in
+`ShellChunk` (2 x workers + 2 of those wait for upload, so it would be held ~2.7x over). New overload
+`GenerateShellChunk(shell, coord, output, ops, summaries, scratch)`; a null pass / scratch = one-shot scratch per call (the old way).
+Tests: `GenScratchHashTests.VoxelReuseIsExact_DenseThenSparse` (fast) and `ShellScratchReuseIsExact_DenseThenSparse` (Slow): dense chunk
+first, then sparser ones, also with the scratch `Scribble`d with junk, against fresh scratch (bytes, brick table, skip/fill stats). The
+Explicit hash probe now also hashes the reused path: both = 223's `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF`. Result: HANDOFF 224.

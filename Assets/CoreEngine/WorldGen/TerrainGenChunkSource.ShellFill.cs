@@ -51,6 +51,7 @@
 //
 // THREADING: runs inside GenerateShellChunk on the caller's thread and writes
 // only the ShellChunk the caller owns (single-writer, CLAUDE.md).
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -105,28 +106,96 @@ namespace VoxelEngine.WorldGen
             FillShellChunk(output, (1 << (output.Shell - 1)) - 1, null, true);
         }
 
+        /// Task 224: a shell WORKER's reused scratch -- the fill's arrays (~0.46 MB) and the voxel pass's skip stats --
+        /// allocated once per worker thread (ShellStreamer.WorkerLoop, or the synchronous streamer's main thread) and
+        /// reused by every shell chunk it builds, instead of a malloc + free per chunk. OWNED BY ONE THREAD, never shared
+        /// (single-writer). Not part of ShellChunk on purpose: a ShellChunk waits on the main thread for upload (2 per
+        /// worker + 2 exist), so the scratch there would be held ~2.7x over. Reset() gives exactly what a fresh one holds.
+        public sealed class ShellScratch : IDisposable
+        {
+            internal NativeList<int3> boxes;
+            internal NativeArray<int> stats, voxStats;
+            internal NativeArray<byte> pass, dirty;
+            internal NativeArray<ulong> open;
+            internal NativeArray<int> lyOpen, halo, head, scanLo;
+            internal NativeList<int> cand, next;
+
+            public ShellScratch(Allocator a = Allocator.Persistent)
+            {
+                boxes = new NativeList<int3>(a);
+                stats = new NativeArray<int>(8, a);
+                voxStats = new NativeArray<int>(4, a);
+                pass = new NativeArray<byte>(256, a);
+                open = new NativeArray<ulong>(128 * 128 * 128 / 64, a);
+                lyOpen = new NativeArray<int>(128 * 128, a);
+                halo = new NativeArray<int>(4 * 128, a);
+                dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, a);
+                head = new NativeArray<int>(128 * 128, a);
+                cand = new NativeList<int>(1024, a);
+                next = new NativeList<int>(1024, a);
+                scanLo = new NativeArray<int>(128 * 128, a, NativeArrayOptions.UninitializedMemory);   // written before read (fast)
+            }
+
+            /// The fill's arrays back to a fresh allocation's state: every ClearMemory array zero, the lists empty
+            /// (capacity kept: the job reads Length only), scanLo as it is (it was UninitializedMemory; phase 0 writes it).
+            internal unsafe void ResetFill()
+            {
+                boxes.Clear(); cand.Clear(); next.Clear();
+                Zero(stats); Zero(pass); Zero(open); Zero(lyOpen); Zero(halo); Zero(dirty); Zero(head);
+            }
+
+            internal static unsafe void Zero<T>(NativeArray<T> a) where T : struct
+                => UnsafeUtility.MemClear(a.GetUnsafePtr(), (long)a.Length * UnsafeUtility.SizeOf<T>());
+
+            /// Tests (task 224): fills every array with `v` and the lists with junk, a worst-case stale state.
+            public unsafe void Scribble(byte v)
+            {
+                foreach (var arr in new[] { lyOpen, halo, head, scanLo, stats, voxStats })
+                    UnsafeUtility.MemSet(arr.GetUnsafePtr(), v, (long)arr.Length * sizeof(int));
+                UnsafeUtility.MemSet(pass.GetUnsafePtr(), v, pass.Length);
+                UnsafeUtility.MemSet(dirty.GetUnsafePtr(), v, dirty.Length);
+                UnsafeUtility.MemSet(open.GetUnsafePtr(), v, (long)open.Length * sizeof(ulong));
+                for (int i = 0; i < 37; i++) { boxes.Add(new int3(v, i, v)); cand.Add(v * i); next.Add(-i); }
+            }
+
+            /// Bytes one scratch holds at its starting capacities.
+            public static long Bytes
+                => 12 * 4 + 256 + 128 * 128 * 128 / 8 + 3 * 128 * 128 * 4 + 4 * 128 * 4 + EngineConfig.BRICKS_PER_CHUNK
+                   + 128L * 128 * 4 + 2 * 1024 * 4;
+
+            public void Dispose()
+            {
+                if (boxes.IsCreated) boxes.Dispose();
+                if (stats.IsCreated) stats.Dispose();
+                if (voxStats.IsCreated) voxStats.Dispose();
+                if (pass.IsCreated) pass.Dispose();
+                if (open.IsCreated) open.Dispose();
+                if (lyOpen.IsCreated) lyOpen.Dispose();
+                if (halo.IsCreated) halo.Dispose();
+                if (dirty.IsCreated) dirty.Dispose();
+                if (head.IsCreated) head.Dispose();
+                if (cand.IsCreated) cand.Dispose();
+                if (next.IsCreated) next.Dispose();
+                if (scanLo.IsCreated) scanLo.Dispose();
+            }
+        }
+
         /// The pass over a generated (and edited) shell chunk. `half` is the
-        /// sample offset generation used.
+        /// sample offset generation used. `scratch`: the worker's reused scratch (task 224), or null = a one-shot one.
         private void FillShellChunk(ShellChunk output, int half, VoxelEngine.Streaming.EditOpSnapshot ops, bool force = false,
-                                    VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
+                                    VoxelEngine.Streaming.EditSummarySnapshot summaries = null, ShellScratch scratch = null)
         {
             if ((!ShellFill && !force) || !FillsShell(output.Shell) || output.IsUniformAir) return;
             int k = output.Shell;
             int3 origin = output.Coord << (CHUNK_SHIFT + k);
-            // Task 223: Persistent, not TempJob. This runs on a streaming worker thread and holds the scratch for one
-            // whole chunk build (often > 4 frames on a warm M1), past TempJob's 4-frame lifetime: every such Dispose logged
-            // "deleting an allocation older than its permitted lifetime" and pinned TempJob blocks. Same bytes, freed below.
-            var boxes = new NativeList<int3>(Allocator.Persistent);
-            var stats = new NativeArray<int>(8, Allocator.Persistent);
-            var pass = new NativeArray<byte>(256, Allocator.Persistent);
-            var open = new NativeArray<ulong>(128 * 128 * 128 / 64, Allocator.Persistent);
-            var lyOpen = new NativeArray<int>(128 * 128, Allocator.Persistent);
-            var halo = new NativeArray<int>(4 * 128, Allocator.Persistent);
-            var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
-            var head = new NativeArray<int>(128 * 128, Allocator.Persistent);
-            var cand = new NativeList<int>(1024, Allocator.Persistent);
-            var next = new NativeList<int>(1024, Allocator.Persistent);
-            var scanLo = new NativeArray<int>(128 * 128, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+            // Task 223: Persistent, not TempJob (a shell worker holds it for a whole chunk build, > 4 frames).
+            // Task 224: the worker's reused scratch, reset to a fresh one's state; null = one-shot, freed below.
+            ShellScratch own = scratch == null ? new ShellScratch(Allocator.Persistent) : null;
+            var sx = scratch ?? own;
+            if (scratch != null) scratch.ResetFill();
+            var boxes = sx.boxes; var stats = sx.stats; var pass = sx.pass; var open = sx.open; var lyOpen = sx.lyOpen;
+            var halo = sx.halo; var dirty = sx.dirty; var head = sx.head; var cand = sx.cand; var next = sx.next;
+            var scanLo = sx.scanLo;
             try
             {
                 if (ops != null)
@@ -171,11 +240,7 @@ namespace VoxelEngine.WorldGen
                 }
                 for (int i = 0; i < 8; i++) System.Threading.Interlocked.Add(ref FillStats[i], stats[i]);
             }
-            finally
-            {
-                boxes.Dispose(); stats.Dispose(); pass.Dispose(); open.Dispose(); lyOpen.Dispose(); halo.Dispose();
-                dirty.Dispose(); head.Dispose(); cand.Dispose(); next.Dispose(); scanLo.Dispose();
-            }
+            finally { own?.Dispose(); }
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]

@@ -74,3 +74,15 @@ Peak = size x copies alive at once. "Per job" = allocated once per `Execute`, no
   Pictures: walk1 4 px differ; jungle_high 42,922 px, all in the far top band (rows 0-317), as 218b's pair (36 k px there).
 - `-diag-job-temp-memory-leak-validation` (passed to both launches) printed no callstacks in this release player; the
   attribution comes from the Dispose stacks and the two warnings arriving in pairs.
+
+## Task 224 follow-up: the scratch is reused per worker (2026-11-16)
+
+- `Generate`'s voxel scratch (`mats`, brick material/uniform, stats; 2.06 MB) now lives in the worker's `ColumnPass` (made once, on the
+  first non-air chunk); `GenerateShellChunkRaw`'s stats and `FillShellChunk`'s arrays (~0.46 MB) in a `ShellScratch`, one per
+  `ShellStreamer` worker thread. No malloc/free per chunk any more. Per-use reset = a fresh allocation's state (ClearMemory arrays zeroed,
+  lists emptied; `mats` / `scanLo` were UninitializedMemory and are written before they are read).
+- Bit-identical: the hash probe gives 223's `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF` on BOTH the one-shot and the reused path
+  (`Logs/TerrainGen/temp223/hash_after224.txt`); adversarial tests `GenScratchHashTests.*ReuseIsExact_DenseThenSparse` (dense chunk, then
+  sparser ones, also with junk-filled scratch) match fresh scratch byte for byte.
+- Launch pair (`Logs/overnight/224_pair.sh`, same flags/poses as 223, run back to back): process peak 2,602.2 -> 2,582.8 MB, GPU refusals
+  58/70 -> 57/69, CPU pool peak 494,808 -> 494,485, aged-TempJob warnings 0 -> 0.
