@@ -1,41 +1,43 @@
-# 222-research-lay-of-the-land: DONE -- research only; findings + table + options in `RESEARCH_LAY_OF_THE_LAND.md`
-## What changed: no code, no Unity. `RESEARCH_LAY_OF_THE_LAND.md` (new), `TASKS.md` "Task 222" (commit 4ac1ab7).
-Picture `Screenshots/222/side_by_side.png` (git-ignored). No EditMode run: docs-only commit, and the task said no Unity.
-## Sources / what failed
-- Read: Steam appdetails + 83 announcements (news API), Steam forum threads with dev replies, YouTube watch-page descriptions
-  and storyboard frames (sand video `7QZvYfAwgvw`, LOD video `WfxuCEyK16I`), search snippets of the dev's X posts.
-- The dev's devlogs have NO caption track (8 checked): INFERRED music-only showcases, so no spoken tech detail exists to transcribe.
-  `yt-dlp` not installed (not installed by me); a direct YouTube player-API call was refused by the sandbox (not retried).
-- "This is Lay Of The Land (EP 1)" is a third-party let's-play (channel "Zanfer"), not the dev. X itself: 402. PCGamingWiki: 403.
-## Findings (QUOTED = dev's words)
-- 10 cm voxels (QUOTED, forum) -- same as our 0.1 m shell 0. UE5 + Lumen (QUOTED); HW ray tracing optional (recommended spec).
-- Terrain is MESHED (INFERRED from QUOTED "voxel mesh shadow imposters", "voxel nav mesh", "LOD fading"). Mesher type never stated.
-- Finite single landmass, pre-generated at world creation (2 min -> 40 s on a 7800X3D, QUOTED); voxel data gen on CPU with ISPC.
-- MIN GTX 1660 Ti (5.5 TF, NVIDIA) Low 1080p native 30 fps; M1 8-core 2.6 TF (Apple newsroom) -> their minimum is ~2.1x our GPU.
-  Per-TFLOP pixel rate theirs ~11 vs ours ~1.2 Mpx/s/TF: a ~9x gap (INFERRED, rough; scenes differ).
-- Memory hurts them too: OOM on 16 GB systems (QUOTED 1.0.4), -1.5 GB at max (1.0.25); a player saw 11 GB RAM.
-- Simulation: sand/gravel/snow fall, fire spreads, water = source + flowing voxels (INFERRED not volume-conserving), only inside a
-  "simulation update range"; CPU/GPU, tick rate, cell counts NOT stated. The sand video shows collapses of a few metres, NOT
-  large-scale -- the owner's recollection is not confirmed by any of the 30 newest titles or that video's frames.
-## Left unfinished
-- No transcripts (none exist for the dev's videos). Tick rate / CPU-vs-GPU of their sim unknown (INFERRED CPU, reasons in the doc).
-## Next step
-- Owner reads the options; options 5 (pre-generated finite world) and 6 (meshed raster terrain) are STOP_FOR_OWNER-level redesigns,
-  not queued. Option 1 (per-voxel colour noise, crevice AO, haze, bloom) fits the current "look" stage if the owner wants it.
+# 223-bug-audit-temp-alloc-in-jobs: DONE -- no pile-up anywhere; the "older than 4 frames" warnings were generator TempJob scratch -> Persistent (169 + 68 warnings -> 0)
+## What changed (commit 996c9f7)
+- `TerrainGenChunkSource.cs` (485, 524-527), `.Shell.cs` (243), `.ShellFill.cs` (116-126): 16 `Allocator.TempJob` -> `Allocator.Persistent`.
+  They are scratch held by managed streaming worker threads (StreamManager 7, ShellStreamer 3) for one whole chunk build, longer than
+  TempJob's 4-frame lifetime. Same sizes, same `finally` Dispose, nothing new kept; Persistent is allowed there (not inside a job).
+- New `AUDIT_TEMP_ALLOC.md` (the table), `Assets/CoreEngine/Tests/GenScratchHashTests.cs` (Explicit hash probe), `TASKS.md` "Task 223".
+## Audit table (full rows in AUDIT_TEMP_ALLOC.md)
+| site | job | per call | peak in flight | verdict |
+|---|---|---|---|---|
+| FarQuery PointJob / GatherLib (Malloc) | IJobParallelFor | ~23 KB per column | < 1 MB | OK (218's fix) |
+| FarField FillRegionJob / FillTg2Job | IJobParallelFor | none (TerrainGen = stackalloc only) | 0 | OK |
+| ColumnJob hg, VoxelJob/ShellVoxelJob bTop.., Overlay* touched | IJob Run, once per Execute | 3-68 KB | < 1 MB | OK |
+| ShellFillJob stack/subS/pending/hist | IJob Run, once per phase | 16 KB + flood growth | 3 workers | OK |
+| TorchFloodBuild FloodBrickJob flag/pass/sorted.. | IJob Scheduled, MaxJobs 2 | ~0.2-1 MB | 2 jobs | OK (no logged stack ever names it) |
+| main-thread Temp/TempJob (FarField 917, ShellStore 319, ShellBrickPack, FarQuery plan, ..) | not in a job / same frame | <= 4 MB | 1 | OK |
+| **Generate mats/uniform/isUniform/stats** | gen worker thread, TempJob | 2.06 MB | x7 = 14.4 MB | **warned -> FIXED** |
+| **GenerateShellChunkRaw stats** | shell worker, TempJob | 16 B | x3 | **warned -> FIXED** |
+| **FillShellChunk open/lyOpen/head/scanLo/..** | shell worker, TempJob | 0.46 MB | x3 = 1.4 MB | **warned -> FIXED** |
+No allocation is made per iteration of a parallel job; nothing peaks above 50 MB. So no 218-style fix was needed beyond the TempJob swap.
+## Evidence
+- Bit-identical: `GenScratchHashTests.GeneratorOutput_Hash` (seed 42, 18 near chunks (16 non-uniform) + shells 1-4 with fill), old code
+  and new code both `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF` (`Logs/TerrainGen/temp223/hash_before.txt`, `hash_after.txt`).
+- Every aged stack in all 126 logs under `Logs/` (111,530 + 55,758 lines) ends in Generate / GenerateShellChunkRaw / FillShellChunk; none in TorchFlood.
+- Launch pair `Logs/overnight/223_pair.sh` (look review high, 218b survey flags, jungle_high + walk1, ~11 min each; logs
+  `Logs/overnight/223/player_before|after.log`, ledgers `Screenshots/223/before|after/lookreview.txt`):
+  aged-dispose lines 169 -> 0, JobTempAlloc lines 68 -> 0, process peak 2,528.4 -> 2,516.2 MB, GPU body pool peak 254,399 both,
+  refusals 56/70 -> 59/69 (start-up load variance: 218b had 58/70 at these poses; no pool code touched), CPU pool peak 494,535 -> 494,646.
+  Rule 11 budget (refusals not up, peak <= +50 MB): within it. Valve evictions are not printed by this capture mode.
+- `-diag-job-temp-memory-leak-validation` printed no callstacks in the release player (attribution from the Dispose stacks instead).
+- Fast suite: PASS 1061 FAIL 0 SKIP 25 (`Logs/overnight/223/fast.out`). No frame timing.
+- Looked at: `Screenshots/223/after/ws_fixed_walk1_native_sf0.png` (jungle canopy, ponds, river, snow forest behind, nothing missing;
+  4 px differ from before) and `.../ws_fixed_jungle_high_native_sf0.png` (full canopy; 42,922 px differ, all in rows 0-317 = far band, as 218b).
+## Left unfinished / next
+- Nothing open. Efficiency note (rule 11 a): per-worker REUSED scratch would also skip the 2 MB malloc per chunk; not done (worker
+  plumbing, gain only allocator time). If a perf task wants it, `ColumnPass` / `ShellChunk` are the per-worker scratch to extend.
 
 ## For the doc
-Key facts: (1) 10 cm voxels, same as ours (dev, Steam forum 2026-03-26). (2) UE5 + Lumen GI, optional HW ray tracing. (3) Meshed
-terrain with LOD fade and shadow imposters (inferred from patch notes). (4) Finite, pre-generated world (40 s - 2 min at creation).
-(5) Minimum GPU GTX 1660 Ti = 5.5 TFLOPS vs M1 2.6: ~2.1x ours, for 1080p native Low 30 fps. (6) Per TFLOP they push ~9x the pixels we
-do (rough). (7) Memory is their main launch complaint too (OOM on 16 GB). (8) Their "thousands of voxels" sim = sand/fire/water near the
-player, a few metres at a time; not large-scale; CPU/GPU not stated.
-Table: see `RESEARCH_LAY_OF_THE_LAND.md` "Table" (topic | what they do | source | ours | could we copy?).
-Image: `Screenshots/222/side_by_side.png` -- left column ours (High, task 219: canyon walk_near, forest_eye, jungle_eye), right column
-their official Steam shots (canyon village, forest house, swamp statue). Look at the SHADE: theirs is lit by warm/green bounce, ours goes
-near-black (bottom row); look at SURFACES: theirs vary voxel by voxel with dark crevices, ours are flat colours; look at the DISTANCE:
-theirs fades into haze, ours is a hard blue sky with sharp far hills.
-Options in plain words: (1) cheap look polish they have -- per-voxel colour variation, crevice shading, haze, bloom (small, now);
-(2) compute sky/bounce light at lower resolution and upscale like Lumen's Low (sky fill costs 40 ms today; perf stage);
-(3) far shadows from a coarse copy of the world (sun costs 28 ms; perf stage); (4) simulate only the fluid/sand cells that moved
-(medium); (5) pre-generate a finite world instead of streaming generation (owner decision, changes the game); (6) switch near terrain
-to meshes like they do (a renderer redesign, owner decision; no evidence yet that it is the cause of the gap).
+- "older than 4 frames" warnings per launch: 169 -> 0; "JobTempAlloc" warnings: 68 -> 0 (`Logs/overnight/223/player_before|after.log`).
+- Process memory peak: 2,528 -> 2,516 MB (same poses/flags; `Screenshots/223/*/lookreview.txt`). GPU refusals 56/70 -> 59/69 (load noise).
+- Generator output hash identical before/after (`Logs/TerrainGen/temp223/hash_*.txt`).
+- Audit: 3 parallel jobs in the whole engine, none allocates per iteration; largest temp scratch in flight 14.4 MB (`AUDIT_TEMP_ALLOC.md`).
+- Image: `Screenshots/223/after/ws_fixed_walk1_native_sf0.png` -- walk1 after the fix: whole frame (canopy, ponds, river, far snow)
+  matches before to 4 pixels; nothing visible changed, which is the point.
