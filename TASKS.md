@@ -2035,3 +2035,12 @@ one voxel in -> twin, the torch removed -> plain, placed again -> twin; shader p
 (warm ABBA, 432 rows, noon, p50): walk_open 37.5 -> 31.2 ms (flood off 31.3, flood off + diet 2 off 37.35); walk_near 90.2 -> 78.0 and
 72.0 -> 59.2 (two levels in one launch, neighbouring passes); torch_camp (28 torches): twin in both arms, 61.4 vs 61.9. Runner
 `Logs/overnight/229/run.sh day|day2|night`. Result: HANDOFF 229.
+
+**Task 231 -- why Lay of the Land looks "cinematic" (owner 2026-11-17; OFFLINE experiment, no engine change, no timing).** Python factor
+ablation on our 226 stills and on their three Steam shots (`Screenshots/222/side_by_side.png`): (a) warm sun / cool shade, (b) pale hazy
+sky + soft clouds, (c) colour grade, (d) lifted coloured shade, (e) 1/4-voxel grain, each alone and all five; the reverse test removes
+each from THEIR shots. 8 image metrics (sky chroma/luma, warm-cool split, shade p10, chroma, green chroma, contrast, detail), each scaled
+by its spread over the 6 originals. One low-sun (12 deg) launch with existing flags (`-costsun 12 -costfixed ... -costarms none`).
+Script `Logs/overnight/231/ablate.py` (run `python3 -I Logs/overnight/231/ablate.py` from the repo root), report
+`Logs/overnight/231/ablation.txt`, launch `Logs/overnight/231/run.sh`; sheets + `viewer.html` in `Screenshots/231/sheets/`.
+Result (HANDOFF 231): sky > grade > the rest; the time of day (low sun) alone equals all five at forest_eye; all five close only ~30 %.
