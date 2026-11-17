@@ -280,6 +280,13 @@ namespace VoxelEngine.Rendering
         }
 
         public int TorchCount => _recs.Count;
+
+        /// Task 229: does any LIT chunk of the union (a non-zero directory entry, exactly what the GPU's
+        /// FloodLevels finds) lie in the voxel box [loVox, hiVox]? Scans the directory over the box's chunk
+        /// range (v >> 7, as the shader), so it costs at most the box's chunk count; no allocation.
+        public bool LitChunkIn(int3 loVox, int3 hiVox)
+            => _counts.IsCreated && _counts[3] > 0 && FloodTwinRule.DirHasLitChunkIn(_dir, _dirOrigin, _dirDims, loVox >> 7, hiVox >> 7);
+
         public int Chunks => _counts[3];
         public int AirBricks => _counts[0];
         public int MixedBricks => _counts[1];

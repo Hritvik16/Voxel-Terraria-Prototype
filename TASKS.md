@@ -2017,3 +2017,21 @@ widen by at most their own bricks); `SunDeferTests` pin updated. Result (warm AB
 102.0 -> 95.9, jungle_eye 66.8 -> ~66.2 (sun off 49.3 / 72.0 / 48.9). DEFECT, why it stays OFF: the vertical climb guard fails on a steep
 bare slope (a ray two bricks up is still inside the slope's surface bricks): brick-shaped false shadows (`Screenshots/228/sheets/walk_far_hill.png`);
 far forest interiors lose their sun patches. Runner `Logs/overnight/228/run.sh`, pictures `sheets.py`. Result: HANDOFF 228.
+
+**Task 229 (performance, owner Q-AN 2026-11-16 "Torches are too important to turn off"): the torch-flood kernel twin only when
+torches are near, `-floodnear 1|0` (last match; DEFAULT ON; 0 = before: the twin whenever the flood is Ready).** Finding: with the flood
+ON (play) an EMPTY pool still uploads, so `TorchFloodPool.Ready` was true with no torch anywhere and play drew `CSMainFarShadeFlood`
+every frame. The twin is not a diet-2 kernel, so play lost diet 2 (the 8.17 note); the flood code inside it costs ~0. New
+`FloodTwinRule` (VoxelEngine.Rendering): the twin draws only while an ACTIVE light's range sphere (`LightSourceBuffer.ActiveLights`,
+the shader's own `dist^2 > range^2` gate) or a LIT flood chunk (`TorchFloodPool.LitChunkIn`: non-zero directory entries, 128-voxel
+chunks as `FloodLevels`) reaches the tier-0 window + 1 brick. Otherwise the plain kernel (and so diet 2) runs: the same picture by
+construction, because the two kernels differ only in the light terms on tier-0 hits, and every one of them is 0 there. Per frame: <= 32 sphere tests +
+a directory scan over the window's chunks; 0 bytes added. Capture: cost arms `floodnear_off` (before), `floodd2_off` (flood off + diet 2
+off), `tf_twin` (`-costpaths torch`: tf_on with the rule off); run lines end `flood twin|skip|-`; `-costfloodpair` (with
+`-coststillraw`): raw2 / `_raw_fnflip` / `_raw_fnback`, compare `python3 -I Logs/overnight/229/fnpair.py <dir>`. Tests
+`FloodTwinRuleTests` (window margin; a light 1 cm inside / outside the range on an axis and on a diagonal corner; 20k random
+lights: "no reach" => the shader's gate skips every window point; a real flood: one lit chunk, a window one voxel short -> plain,
+one voxel in -> twin, the torch removed -> plain, placed again -> twin; shader pins), `KernelHealthTests` pin updated. Result
+(warm ABBA, 432 rows, noon, p50): walk_open 37.5 -> 31.2 ms (flood off 31.3, flood off + diet 2 off 37.35); walk_near 90.2 -> 78.0 and
+72.0 -> 59.2 (two levels in one launch, neighbouring passes); torch_camp (28 torches): twin in both arms, 61.4 vs 61.9. Runner
+`Logs/overnight/229/run.sh day|day2|night`. Result: HANDOFF 229.

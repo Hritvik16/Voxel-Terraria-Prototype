@@ -166,6 +166,8 @@ public class KernelHealthTests
         StringAssert.Contains("if (data.debugNaN) cmd.SetBufferData(data.debugBuffer, s_debugNaN, 0, 0, 3);", src);
         StringAssert.Contains("KernelHealth.Report(cs, k, r.GetData<float>()[0])", src);
         // The flood twins fold the cascade off: they may only be picked while it is off.
-        StringAssert.Contains("TorchFloodPool.Ready && !useStripped && !useMemoryProbe && !cascadeThisFrame", src);
+        // Task 229: floodNeeded = Ready && (FloodTwinRule.Needed or -floodnear 0).
+        StringAssert.Contains("bool floodNeeded = floodReady && (!FloodNearOnly ||", src);
+        StringAssert.Contains("if (floodNeeded && !useStripped && !useMemoryProbe && !cascadeThisFrame)", src);
     }
 }

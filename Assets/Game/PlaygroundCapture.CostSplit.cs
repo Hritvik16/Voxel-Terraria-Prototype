@@ -307,7 +307,7 @@ public partial class PlaygroundCapture
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
                   $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}  " +
-                  $"skyfill {RaymarchFeature.SkyFill} res {(RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SkyFillResDrawnLastFrame + "x" + RaymarchFeature.SkyFillResDrawnLastFrame)}  sunfar {RaymarchFeature.SunFarM:0.#} m");   // task 227, 228
+                  $"skyfill {RaymarchFeature.SkyFill} res {(RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SkyFillResDrawnLastFrame + "x" + RaymarchFeature.SkyFillResDrawnLastFrame)}  sunfar {RaymarchFeature.SunFarM:0.#} m  flood {(RaymarchFeature.FloodTwinDrawnLastFrame ? "twin" : RaymarchFeature.FloodTwinSkippedLastFrame ? "skip" : "-")}");   // task 227, 228, 229
                 if (RaymarchFeature.ShadowRoofSkip || RaymarchFeature.DebugRoofBuildOnly) L($"     {RaymarchFeature.RoofIncSummary()}");   // task 168
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
@@ -417,7 +417,7 @@ public partial class PlaygroundCapture
         // Task 134: the kernel diet (see the header).
         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
         // Task 161: kernel diet 2 (diet2_on / diet2_off) and the vertical sky probe off (skyprobe_off; capture only).
-        RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && _costBaseDiet2);
+        RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && arm != "floodd2_off" && _costBaseDiet2);   // task 229: floodd2_off
         RaymarchFeature.UseSkyProbeAmbient = arm != "skyprobe_off" && arm != "skysun_off" && arm != "ceiling" && _costBaseSkyProbe;   // task 168b: stacked arms
         // Task 137: the hole leap (see the header).
         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
@@ -443,7 +443,9 @@ public partial class PlaygroundCapture
                                           : arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
         // Task 212: flood_off / skyfill0 (FULL keeps the launch's values).
-        bool floodWant = arm != "flood_off" && _costBaseFlood;
+        bool floodWant = arm != "flood_off" && arm != "floodd2_off" && _costBaseFlood;
+        // Task 229: floodnear_off / tf_twin = the flood twin whenever the flood is Ready (before 229); FULL keeps the launch's -floodnear.
+        RaymarchFeature.FloodNearOnly = arm != "floodnear_off" && arm != "tf_twin" && _costBaseFloodNear;
         if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
         RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
         // Task 227: sfres1 = task 193's inline sky fill (one ray per pixel), sfres2 / sfres4 = the low-res trace pass.
@@ -488,6 +490,7 @@ public partial class PlaygroundCapture
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
     private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
+    private static bool _costBaseFloodNear = true;   // task 229
     private static int _costBaseSkyFillRes = 4;   // task 227
     private static float _costBaseSunFar;         // task 228
     private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
@@ -673,7 +676,7 @@ public partial class PlaygroundCapture
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
-                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes; _costBaseSunFar = RaymarchFeature.SunFarM;   // task 212
+                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseFloodNear = RaymarchFeature.FloodNearOnly; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes; _costBaseSunFar = RaymarchFeature.SunFarM;   // task 212
                                  _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
                                  _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
                                  _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom; }
@@ -739,6 +742,22 @@ public partial class PlaygroundCapture
                         ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
                     }
                     L($"  [d2pair] {Path.GetFileName(still)}: raw / raw2 / d2back diet2 {(d2 ? "ON" : "OFF")}, d2flip {(d2 ? "OFF" : "ON")}; last frame kernel {(RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                }
+                // Task 229: -costfloodpair -- the flood-twin rule (-floodnear) flipped, then back: raw2 / fnflip / fnback.
+                // Where the rule skips the twin, fnflip draws the twin and fnback the plain kernel: both must equal raw2.
+                if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costfloodpair") >= 0)
+                {
+                    bool fn = RaymarchFeature.FloodNearOnly;
+                    var kinds = new List<string>();
+                    foreach (var (on, suffix) in new[] { (!fn, "_raw_fnflip.png"), (fn, "_raw_fnback.png") })
+                    {
+                        RaymarchFeature.FloodNearOnly = on;
+                        yield return Frames(10);
+                        kinds.Add((RaymarchFeature.FloodTwinDrawnLastFrame ? "twin" : RaymarchFeature.FloodTwinSkippedLastFrame ? "skip" : "-")
+                                  + "/" + (RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean"));
+                        ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+                    }
+                    L($"  [fnpair] {Path.GetFileName(still)}: raw / raw2 / fnback floodnear {(fn ? "ON" : "OFF")}, fnflip {(fn ? "OFF" : "ON")}; flood/kernel flip {kinds[0]}, back {kinds[1]}");
                 }
                 // Task 168: -costroofpair -- the same with the shadow roof skip flipped (raw2 / roofflip / roofback).
                 if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costroofpair") >= 0)

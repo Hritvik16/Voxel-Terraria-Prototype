@@ -173,7 +173,7 @@ public partial class PlaygroundCapture
         }
         foreach (var t in _costTorches) _costLights.Unregister(t);
         if (arm != "tl_none") foreach (var t in _costTorches) _costLights.Register(t, Materials.Torch);
-        TorchFloodPool.Enabled = arm == "tf_on";
+        TorchFloodPool.Enabled = arm == "tf_on" || arm == "tf_twin";   // task 229: tf_twin = tf_on with -floodnear 0
         if (TorchFloodPool.Enabled)
         {
             var pool = TorchFloodPool.Instance;

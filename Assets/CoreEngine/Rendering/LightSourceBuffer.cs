@@ -84,6 +84,10 @@ namespace VoxelEngine.Rendering
         private float[] _scratchDist = new float[64];
         private readonly LightSource[] _staging = new LightSource[EngineConfig.MAX_ACTIVE_LIGHTS];
 
+        /// Task 229 (FloodTwinRule): the lights the shader loops over after the last Upload,
+        /// entries [0, ActiveCount). Read-only by convention; never written outside Upload.
+        public LightSource[] ActiveLights => _staging;
+
         private GraphicsBuffer _gpu;
 
         /// A CPU-side mirror of what is currently on the GPU, so Upload can skip

@@ -385,6 +385,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool KernelDiet2 = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-diet2");
     /// Task 161: the far-shading kernels last frame were the diet-2 kernels (log / capture only).
     public static bool Diet2DrawnLastFrame { get; private set; }
+    /// Task 229: with the torch flood Ready, draw its kernel twin only while FloodTwinRule.Needed (a lit flood chunk
+    /// or an active light's range reaches the tier-0 window); otherwise the plain kernel (and so diet 2), the same
+    /// picture by construction. `-floodnear 1|0` (last match; default ON). 0 = the twin whenever Ready (before 229).
+    public static bool FloodNearOnly = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-floodnear");
+    /// Task 229: last frame drew a flood twin (log / capture only).
+    public static bool FloodTwinDrawnLastFrame { get; private set; }
+    /// Task 229: last frame the flood was Ready but FloodTwinRule kept the plain kernel (log / capture only).
+    public static bool FloodTwinSkippedLastFrame { get; private set; }
     /// Task 168: the diet-2 kernel drawn last frame was CSMainFarShadeLeanRoof (roof skip folded ON).
     public static bool Diet2RoofDrawnLastFrame { get; private set; }
     /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
@@ -1508,7 +1516,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Task 206: the flood twins fold the tier cascade off (Raymarch.compute: 33 -> 29 Metal buffer slots, cap 31),
                 // so they draw only while it is off -- always while the shells draw (play). Cascade on: analytic torches.
                 bool cascadeThisFrame = UseLODCascade && LODCascadeManager.Active != null && !shellsOn;
-                if (VoxelEngine.Rendering.TorchFloodPool.Ready && !useStripped && !useMemoryProbe && !cascadeThisFrame)
+                // Task 229: the twin only while it can change a pixel (FloodTwinRule's header: exact).
+                bool floodReady = VoxelEngine.Rendering.TorchFloodPool.Ready;
+                bool floodNeeded = floodReady && (!FloodNearOnly || VoxelEngine.Rendering.FloodTwinRule.Needed(
+                    VoxelEngine.Rendering.TorchFloodPool.Instance, lights?.ActiveLights, lights != null ? lights.ActiveCount : 0,
+                    originB, clip.WindowDimsBricks));
+                FloodTwinSkippedLastFrame = floodReady && !floodNeeded;
+                if (floodNeeded && !useStripped && !useMemoryProbe && !cascadeThisFrame)
                 {
                     string twin = null;
                     if (passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFlood")) twin = "CSMainFlood";
@@ -1619,6 +1633,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     if (heartbeat) { _hbShader = activeCompute; _hbKernel = passData.kPrimary; }
                 }
                 Diet2DrawnLastFrame = diet2;
+                FloodTwinDrawnLastFrame = passData.floodOn;   // task 229
                 Diet2RoofDrawnLastFrame = diet2 && diet2Roof;
                 SunDeferDrawnLastFrame = diet2Sun;
                 SunDeferBytes = diet2Sun ? (long)dispatchW * dispatchH * (long)UnityEngine.Experimental.Rendering.GraphicsFormatUtility.GetBlockSize(desc.graphicsFormat) : 0L;
