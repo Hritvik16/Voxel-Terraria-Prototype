@@ -1,51 +1,41 @@
-# 221-look-lighting-off-pictures: DONE -- pictures of each lighting switch off (sky fill, torch flood, sun shadows, all three) at 4 poses
-## What changed: no code. TASKS.md "Task 221" (commit 7b2c0a3). Runner `Logs/overnight/221/run.sh`, sheets/diff `Logs/overnight/221/sheets.py` (Logs git-ignored).
-## How: release player (219's build), play's flags, High, 432 rows, shell wait 60 s, `-costtimed 1` (stills only; NO timing quoted -- the ms below are 212's).
-Poses: walk_near, forest_eye, jungle_eye (219's, noon, sun behind) + torch_camp (task 151's 32-torch night scene, 28 placed, flood I 1.6 k 0.35).
-NOT one launch: 7 (the tool cannot stack arms; listed in run.sh): day (A,B,C,D) 81 min, dayE (E) 44 min, night/nightE/nightA/nightB 4-5 min each,
-jD (jungle reshoot) 21 min. Day launches far over the ~12 min budget: every arm re-settles at 6-9 fps at 3 still poses.
-Wasted: one dayE start (killed after 10 min) -- `-shadowlevel 3` on the launch line is NOT applied in `-costsplit` runs (header said rung 0).
-Night: the torch scene turns the flood OFF in every arm except `tf_on` (task 158), so night A = `tf_on`, B = `-skyfill 0` + `tf_on`, C = FULL.
-## Diff vs A (mean |d| 0-255 / % px > 32; `Logs/overnight/221/diff.txt`). Noise: 219 cross-launch 2.2/0.35, 2.2/0.12, 1.2/0.21; here B vs BC 0.9/0.03, 2.1/0.36, 0.7/0.08; night 0.8/0.01
-| pose | B sky fill 0 | C flood off | D sun off | E all off |
-|---|---|---|---|---|
-| walk_near | 3.8 / 0.96 | 2.6 / 0.38 (noise) | 2.7 / 0.47 (~noise) | 4.5 / 1.26 |
-| forest_eye | 8.0 / 7.4 | 3.4 / 0.56 (noise) | 10.5 / 13.8 | 11.4 / 10.8 |
-| jungle_eye | 5.2 / 6.4 | 1.5 / 0.48 (noise) | moved, no diff | 11.7 / 15.8 |
-| torch_camp (night) | 7.3 / 1.55 | 7.7 / 9.8 | n/a (sun -76 deg; 1.2/0.08) | 9.4 / 12.5 |
-## What each switch loses (looked at every image)
-- B sky fill 2 -> 0: shade loses its soft sky/ground-bounce light. Forest: tree trunks and crown undersides go near BLACK, the rock's shadow
-  goes darker. Jungle: the already-dark trunks go black. walk_near: the shade under the ledge turns smoother and lighter, the dark speckle
-  goes, faint vertical stripes show on the cliff. Night: the slopes away from the torches get slightly bluer.
-- C torch flood off (back to the old point-light torches): by DAY NOTHING (all three at the noise level -- no torches in view; 212 measured
-  the flood twin's 27.8 ms at walk_near, noon, no torches). At night: torch light gets harder and patchier -- black notches between voxels
-  on the lit slope in front, light no longer wraps evenly over the steps (9.8 % of pixels change).
-- D sun shadows off: no cast shadows anywhere. Forest: no tree shadows on the grass, trunks look pale grey, the whole scene goes flat.
-  walk_near (noon, canyon): only the dark crease under the rock lip goes. Night: nothing (sun below the horizon).
-- E all three off: flat and shadowless; forest trunks dark grey; jungle trunks dark brown/black with an evenly lit floor (no dappled light);
-  night = C's harder torch light plus B's bluer far slopes.
-## Cheapest look loss per ms (ms = task 212, High, walk_near, 432 rows, warm; not re-measured)
-| arm | ms saved (212) | what you lose |
-|---|---|---|
-| C torch flood off | 27.8 | by day nothing visible; at night harder, patchier torch light (old point lights) |
-| D sun shadows off | 28.1 | every cast shadow; forests look flat (13.8 % px) |
-| B sky fill 0 | 40.4 | soft light in shade; trunks/undersides go black in forests (7.4 % px) |
-| E all three | not measured stacked (212's "ceiling" is a different stack: 24.6 ms left) | all of the above |
-Per ms the cheapest loss is C (nothing by day, a night-only change). Not a recommendation -- the owner picks.
-## Unfinished / flagged
-- jungle_eye D is broken: camera came out 2 m higher (minimap alt 20 vs 18 m); the reshoot (`jD`) came out at 33 m on top of the canopy. The
-  pose is not repeatable across arms (survival player pushed out of a trunk?). Shown flagged in the sheets; E (alt 18) shows sun-off there.
-  Not diagnosed (capture-only task). No D with the flood exists at night (not needed: sun below the horizon).
-- Memory (rule 11): no code, nothing new stored. Ledger at jungle_eye (all arms the same build): GPU pool full, refused 4,346 (day) / 1,340
-  (dayE) / 2,476 (jD) -- the known jungle refusals (201a/216), varies by launch; CPU pool peak ~494-496 k vs valve 484.5 k. Night: 0 refused.
-Tests: none run (no code changed).
-## Next: owner answers Q-AN (cut lighting / lower target / stronger machine) with these pictures; 220 waits on it.
+# 222-research-lay-of-the-land: DONE -- research only; findings + table + options in `RESEARCH_LAY_OF_THE_LAND.md`
+## What changed: no code, no Unity. `RESEARCH_LAY_OF_THE_LAND.md` (new), `TASKS.md` "Task 222" (commit 4ac1ab7).
+Picture `Screenshots/222/side_by_side.png` (git-ignored). No EditMode run: docs-only commit, and the task said no Unity.
+## Sources / what failed
+- Read: Steam appdetails + 83 announcements (news API), Steam forum threads with dev replies, YouTube watch-page descriptions
+  and storyboard frames (sand video `7QZvYfAwgvw`, LOD video `WfxuCEyK16I`), search snippets of the dev's X posts.
+- The dev's devlogs have NO caption track (8 checked): INFERRED music-only showcases, so no spoken tech detail exists to transcribe.
+  `yt-dlp` not installed (not installed by me); a direct YouTube player-API call was refused by the sandbox (not retried).
+- "This is Lay Of The Land (EP 1)" is a third-party let's-play (channel "Zanfer"), not the dev. X itself: 402. PCGamingWiki: 403.
+## Findings (QUOTED = dev's words)
+- 10 cm voxels (QUOTED, forum) -- same as our 0.1 m shell 0. UE5 + Lumen (QUOTED); HW ray tracing optional (recommended spec).
+- Terrain is MESHED (INFERRED from QUOTED "voxel mesh shadow imposters", "voxel nav mesh", "LOD fading"). Mesher type never stated.
+- Finite single landmass, pre-generated at world creation (2 min -> 40 s on a 7800X3D, QUOTED); voxel data gen on CPU with ISPC.
+- MIN GTX 1660 Ti (5.5 TF, NVIDIA) Low 1080p native 30 fps; M1 8-core 2.6 TF (Apple newsroom) -> their minimum is ~2.1x our GPU.
+  Per-TFLOP pixel rate theirs ~11 vs ours ~1.2 Mpx/s/TF: a ~9x gap (INFERRED, rough; scenes differ).
+- Memory hurts them too: OOM on 16 GB systems (QUOTED 1.0.4), -1.5 GB at max (1.0.25); a player saw 11 GB RAM.
+- Simulation: sand/gravel/snow fall, fire spreads, water = source + flowing voxels (INFERRED not volume-conserving), only inside a
+  "simulation update range"; CPU/GPU, tick rate, cell counts NOT stated. The sand video shows collapses of a few metres, NOT
+  large-scale -- the owner's recollection is not confirmed by any of the 30 newest titles or that video's frames.
+## Left unfinished
+- No transcripts (none exist for the dev's videos). Tick rate / CPU-vs-GPU of their sim unknown (INFERRED CPU, reasons in the doc).
+## Next step
+- Owner reads the options; options 5 (pre-generated finite world) and 6 (meshed raster terrain) are STOP_FOR_OWNER-level redesigns,
+  not queued. Option 1 (per-voxel colour noise, crevice AO, haze, bloom) fits the current "look" stage if the owner wants it.
 
 ## For the doc
-- 212's cost (High, walk_near, 432 rows) vs what turning it off shows: sky fill 2 40.4 ms -> shade goes black under trees; torch flood 27.8 ms
-  -> no change by day, harder torch light at night; sun shadows 28.1 ms -> no cast shadows, flat forest.
-- Pixels changed vs play (forest_eye, % > 32): sky fill 0 7.4 %, flood off 0.6 % (noise), sun off 13.8 %, all off 10.8 %. Night: flood off 9.8 %.
-- `Screenshots/221/sheets/doc_sheet.png`: rows A play / B sky fill 0 / C flood off / D sun off / E all off; columns walk_near, forest, jungle, night.
-  Look at column 2 (forest): row B's black trunks, row D's missing tree shadows; column 4 (night): row C's harder, notched torch light.
-- `Screenshots/221/sheets/forest_eye_arms.png` (full size, 2 x 3): the clearest pose -- compare A (top left) with B (top right) and D (middle right).
-- `Screenshots/221/sheets/torch_camp_arms.png`: night, A flood (top left) vs C point lights (middle left): look at the lit slope bottom left.
+Key facts: (1) 10 cm voxels, same as ours (dev, Steam forum 2026-03-26). (2) UE5 + Lumen GI, optional HW ray tracing. (3) Meshed
+terrain with LOD fade and shadow imposters (inferred from patch notes). (4) Finite, pre-generated world (40 s - 2 min at creation).
+(5) Minimum GPU GTX 1660 Ti = 5.5 TFLOPS vs M1 2.6: ~2.1x ours, for 1080p native Low 30 fps. (6) Per TFLOP they push ~9x the pixels we
+do (rough). (7) Memory is their main launch complaint too (OOM on 16 GB). (8) Their "thousands of voxels" sim = sand/fire/water near the
+player, a few metres at a time; not large-scale; CPU/GPU not stated.
+Table: see `RESEARCH_LAY_OF_THE_LAND.md` "Table" (topic | what they do | source | ours | could we copy?).
+Image: `Screenshots/222/side_by_side.png` -- left column ours (High, task 219: canyon walk_near, forest_eye, jungle_eye), right column
+their official Steam shots (canyon village, forest house, swamp statue). Look at the SHADE: theirs is lit by warm/green bounce, ours goes
+near-black (bottom row); look at SURFACES: theirs vary voxel by voxel with dark crevices, ours are flat colours; look at the DISTANCE:
+theirs fades into haze, ours is a hard blue sky with sharp far hills.
+Options in plain words: (1) cheap look polish they have -- per-voxel colour variation, crevice shading, haze, bloom (small, now);
+(2) compute sky/bounce light at lower resolution and upscale like Lumen's Low (sky fill costs 40 ms today; perf stage);
+(3) far shadows from a coarse copy of the world (sun costs 28 ms; perf stage); (4) simulate only the fluid/sand cells that moved
+(medium); (5) pre-generate a finite world instead of streaming generation (owner decision, changes the game); (6) switch near terrain
+to meshes like they do (a renderer redesign, owner decision; no evidence yet that it is the cause of the gap).
