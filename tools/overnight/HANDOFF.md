@@ -1,53 +1,67 @@
-STOP_FOR_OWNER -- pick how often the ~35 min budget check runs: (b) every 5 drawing/content tasks + at once after a HEAVY task
-+ before merges (RECOMMENDED), (a) after every drawing task, or (c) only before merges to `main`. Detail: `PERF_BUDGET_GUARD.md` sec. 1.
-Also confirm: the check measures play's own look (High, 432 rows, play flags), not a "floor preset" -- 219 showed presets don't change time.
-NOTE for the supervisor: `tools/overnight/PAUSE` from 224's memory watchdog may still be there; clear it when the Mac is fit.
+# 225-look-trunks-not-black: DONE -- cause found and measured (two exact defects that multiply), both fixed and ON, commit 18dc60d
+NOTE for the supervisor: `tools/overnight/PAUSE` (from the watchdog's swap kills on 2026-11-16) is still there; clear it when the Mac is fit.
+This task needed an 88-min day launch: the Mac swapped (7 of 8 GB) and frames ran at 100-190 ms.
 
-# 220-plan-keep-the-budget: DONE (plan) -- guard designed, budget file + PREAMBLE rule 12 written; script waits for the owner's pick
-## What changed (commit f41c22b; no engine code, no launch, no Unity run)
-- `PERF_BUDGET_GUARD.md`: the plan -- options table (sec. 1), budget file (2), milestone check design (3), per-task proxies P1-P5 (4),
-  how a look task that adds a pass is costed (5), what the supervisor does on a failure (6), the supervisor's `Cost:` queue-rule text (7),
-  order with 225-229 (8).
-- `PERF_BUDGET.json`: PROVISIONAL budget. Settings = play's look (High, 432 rows, FSR 3, `tools/play-flags.sh`). Targets (33.3 ms,
-  <= 5 % > 33 ms, 3,000 MB) are reported as distance only; the baseline is a RATCHET (fail = worse than last accepted by more than
-  the tolerance). Hard limits: peak > 3,000 MB, refusals at walk_near > 0. Steps with OFF arms and 8.17 shares: sky fill 2.5 ms,
-  sun 5.0, torch flood 1.0 (night), shells 4.0, ceiling.
-- `tools/overnight/PREAMBLE.md` rule 12 (in force now, the same under every option): P1 memory; P2 pass card (resolution, 1 in K,
-  rays/steps/taps per pixel, GPU bytes, step + share); P3 cold ms only if the launch already prints it (8.17's rule); P4 content
-  counts (+10 %); P5 ray-work counters (+25 % flag). New pass = own switch + `-costarms <name>_off`. No output-res pass or new ray
-  march without approval. `HEAVY` marker in HANDOFF = check runs next.
-- TASKS.md "Task 220". SUPERVISOR.md NOT edited (not in my allowed files): paste guard sec. 7 into "Writing a task file".
-## Why this design (evidence)
-- Ratchet, not target: every arm is ~3x over 33 ms today (219: walk_near 108-111 ms); a check failing on the target always fails.
-- Tolerances from measured noise: 212's 12 F passes at walk_near 104.3-108.2 ms (`Logs/costsplit_2026-11-15_143504.txt`,
-  `_160531.txt`), lighting deltas repeat within 2-3 ms, memory peak ±50 MB (224). -> p50 max(5 ms, 5 %), step max(3 ms, 15 %).
-- Lighting track (Q-AN): the check's walk_near (day) arms skyfill0 / sun_off / flood_off / shells_off / ceiling, plus the night torch
-  path (task 151, 32 torches) FULL + flood_off -- after 229 the day flood cost should be ~0 and the night one is what matters.
-- No per-task timing (rule 10): proxies are memory, a static pass card, counts and ray counters. P5 is a flag only: task 128 showed
-  shell-march iterations do not track ms. P3 is 8.17's existing look-task rule, used only where the launch already shows frame time.
-- Bisect by switches first (rule 11 gives every feature one): ONE launch with <= 5 OFF arms names the culprit, no rebuilds; that is
-  why N = 5 (10 suspects no longer fit one launch at 9 fps).
-- Baseline numbers (provisional): walk_near p50 107.0 / p95 204 ms, sky fill 40.4, sun 28.1, flood 27.8, shells 8.4, ceiling 24.6
-  (212); forest_eye 148.4 ms (219 High); peak 2,607 MB, refusals 0 at walk_near / 555 after forest+jungle (219 High,
-  `Logs/overnight/219/costsplit_high_432.txt`). Torch path not yet measured at play flags: the first check run fills it.
-## Noticed, not changed
-- Task 226's file says "Do NOT time frames"; AMENDMENT_8_17 sec. 3 asks look tasks for a cold ON/OFF estimate. Rule 12 resolves it:
-  P3 only where the launch already prints frame time, otherwise the P2 pass card. 226 bloom at output res would be HEAVY.
-## Next step
-- Owner picks (a)/(b)/(c). Then ONE task: write `run-budget-check.sh` (sec. 3) + `--rebaseline`, run it once to replace the provisional
-  baseline, ideally BEFORE 227 so 227-229's wins land on the same yardstick. Supervisor: add sec. 7 to SUPERVISOR.md, start
-  `tools/overnight/budget_count`.
-- Tests: none run -- no code changed (docs, JSON and the preamble only). JSON validated (`python3 -I -m json.tool`).
+## Cause (step 1): measured, not guessed
+New capture-only probe: SHADE TERMS debug views 15-18 (`-shadeprobe 1` in the cost split; decoder `Logs/overnight/225/probe.py`). The table
+shows medians for shaded trunk side faces (display-space lumas):
+| pose | albedo | skyVis (S sky / B bounce) | ambient | direct | lit | on screen |
+| forest_eye | 0.82 | 0.40 (0.25 / 0.57) | 0.147 | 0.020 | 0.147 | 35/255 |
+| jungle_eye | 0.25 | 0.24 (0.19 / 0.29) | 0.087 | 0.012 | 0.030 | 2/255 |
+Candidates ruled out: (a) albedo -- the forest trunks are bright (0.82) and black anyway, and jungle wood's 0.25 is authored; (b) "sky fill too
+coarse" -- the sky ray is the voxel-exact `TraceShadowRay` DDA; (c) the shadow term is applied once; (d) side faces DO get bounce (B = 0.29-0.57).
+What IS wrong, two things that multiply:
+1. `LookToLinear` = pow 2.2, but URP's output encode is the exact sRGB curve (probe ramp: byte 2/255 -> 22, not pow's 28). The look's
+   stated contract is "the encode lands back on the Brickmap's value". It failed below ~0.1: 0.030 -> 0.006 on screen (5x darker),
+   0.067 -> 0.034. Shaded trunks are exactly in that range.
+2. Sky fill (193) made skyVis a FRACTION of linear light, but it still enters the display-space `lerp(floor, 1, skyVis)`, so the light
+   scales as skyVis^2.2: 25 % open sky gave 4.7 % of the sky light. The old vertical probe was 0/1, where the two spaces agree.
+Proof by switching each term alone (same launch, `Logs/overnight/225/costsplit_day2.txt`). Median screen luma (bytes):
+| group | before | only fix 1 | only fix 2 | both |
+| jungle trunk side, shade | 2.1 | 7.6 | 8.0 | 15.9 |
+| jungle trunk side, sun | 8.5 | 16.1 | 16.9 | 25.0 |
+| forest trunk side, shade | 37.9 | 42.0 | 60.9 | 61.9 |
+| forest sunlit grass (control) | 124.2 | 123.6 | 127.4 | 126.6 |
+The pre-launch per-pixel simulation (`sim.py` on the probe data) predicted 16.0 and 59.8 for the "both" column; measured 15.9 and 61.9.
+## Fix (step 2): exact, derived from the wrong term, not tuned to these poses
+- `LookToLinear` = the sRGB EOTF; new `LookToDisplay` (its inverse) replaces the two `pow(x, 1/2.2)` undo sites (DrawnEdgeFade, TAA dyn track).
+- `LookSkyOpen(skyVis)` = lerp(floor, 1, skyVis^(1/2.2)), used at the look-1 shade site and SeeBehindColour. 0 and 1 are unchanged:
+  open ground, shells/far hits (skyVis 1) and sealed caves (0) stay as before. Look 0 (linear lighting) is untouched.
+- Switches: `-lookexact 0|1`, `-skylinear 0|1` (`RaymarchFeature.LookExactSrgb/SkyShareLinear` -> `_LookFix` bits). Both are ON in
+  play, rigs and capture. Capture arms: `lookfix_off` (= before), `lookexact_off`, `skylinear_off`.
+- Adversarial cases (desert sinkhole cave_mouth, 215's survey pose): a cactus (trunk class) in open sun 68.4 -> 70.6, open sand 191.0 -> 190.8,
+  pit interior 46 -> 55 (part-open mouth, still dark). Night torch_camp: median 17.0 -> 24.2, black px 46.8 -> 28.5 %, torch pools the same.
+- Files: Raymarch.compute, RaymarchFeature.cs, PlaygroundCapture.CostSplit.cs (arms + `-shadeprobe`), LookFixTests.cs (4 tests), TASKS.md.
+## Evidence
+- Fast suite `PASS 1066 FAIL 0 SKIP 25` (`Logs/overnight/225/fast.out`); `LookFixTests` 4/4 (flags, shader text, curve vs
+  `Mathf.GammaToLinearSpace` at all 256 levels, the crush numbers).
+- Launches: day2 (walk_near, forest_eye, jungle_eye, cave_mouth x 4 arms) and night2 (torch path, FULL vs lookfix_off).
+  Stills are in `Screenshots/225/day2|night2/`. Comparison: `python3 -I Logs/overnight/225/compare.py day2 night2`.
+- Rule 11/12: P1: no buffer and no pass (the switch only changes shader arithmetic, so the OFF arms in the same launch have identical
+  memory). Process peak 2,492 MB (day2) / 2,515 MB (night2) vs 2,627-2,630 MB in the pre-fix launches. CPU pool peak 496,333 (valve
+  484,500), the same as before. GPU refusals 0 at walk_near; 5,104 after forest_eye -> jungle_eye. That is NOT comparable to day1's 738,
+  which skipped forest (the pool was already at 245,704 after forest). A path effect, not this change: no streaming or pool code is
+  touched. P2 pass card: no new pass. Every look-1 pixel does 1 select + 3 pow in place of 3 pow in LookToLinear, plus 1 pow in
+  LookSkyOpen. Render rows, every frame, 0 GPU bytes, step "sky fill" share unchanged. P3/P5: n/a (no ray-march change, no frame timing).
+  P4: no content change. Not HEAVY.
+## Left / next
+- Jungle shade is no longer pitch black, but it is still darker than Lay of the Land. That is now honest arithmetic: a 76 % blocked
+  hemisphere, dark wood (5 % reflectance) and ONE bounce (sunlit ground only). Rays that hit shaded ground, leaf undersides or other trunks
+  return 0. LotL gets its green/warm shade from multi-bounce GI. Closing the gap is a design choice for the owner (e.g. a second bounce /
+  a canopy-transmission term), not a fix.
+- Night is lighter in its darkest parts (fix 1 is global). If the owner prefers the old crushed night, `-lookexact 0` restores it.
+- Not committed (not mine): `Assets/Scenes/Playground.unity` (regenerated by the build's scene builder), `Logs/TerrainGen/*` edits.
+- The 225 day1 "cave_mouth" (4306,854,3892) was a mountaintop. run2.sh uses 215's real survey pose.
 
 ## For the doc
-- The question: how often to run a ~35 min "did we get slower?" check. Recommended: every 5 drawing tasks, at once after a heavy one,
-  and before every merge (~7 min a task on average). Strict = after every drawing task (~35 min each, +20-35 % queue time).
-  Merge-only = cheapest, but a slowdown can hide under dozens of tasks (last merge was ~100 tasks ago).
-- The check compares against the LAST accepted numbers, not the 30 fps goal (we are ~3x over it today): walk_near 107 ms;
-  sky fill 40.4, sun shadows 28.1, torch flood 27.8, shells 8.4 ms; memory peak 2,607 MB of 3,000 (`PERF_BUDGET.json`).
-- It fails when walk_near gets > 5 ms (5 %) slower, a lighting step > 3 ms (15 %) dearer, memory +50 MB or over 3,000 MB -- limits
-  set from the measured run-to-run noise (task 212: 104-108 ms across 12 repeats).
-- Every drawing task now (rule 12) lists each new pass's resolution and per-pixel work, its memory, and its object counts, without
-  timing. A new pass at full output resolution or a new ray march needs your OK and triggers the check at once.
-- When it fails: no new look/content tasks until one switch-off launch finds the culprit; it is fixed or brought to you with pictures.
-- No images: plan only, nothing visible changed.
+- Why trunks were black: two bugs that multiply. (1) The look's last step (pow 2.2) is not the inverse of the screen's sRGB encode,
+  so everything below ~10 % brightness was crushed up to 5x. (2) Since sky fill, a "25 % open sky" gave only 4.7 % of the sky's light.
+- jungle_eye shaded trunk sides: 2 -> 16 /255; sunlit trunk sides 8.5 -> 25; black pixels 79.8 -> 35.6 % (`Logs/overnight/225/costsplit_day2.txt`).
+- forest_eye shaded trunk sides: 38 -> 62 /255; black pixels 12.9 -> 3.5 %; sunlit grass unchanged (124 -> 127).
+- Unchanged where it should be: open sand 191 -> 191, a cactus in full sun 68 -> 71. Night torch camp: median 17 -> 24, black 47 -> 29 %.
+- Memory: no new storage. Peak 2,492 MB (pre-fix launches 2,627-2,630). No new GPU pass.
+- `Screenshots/225/sheet_before_after.png`: left column before, right after, rows walk_near / forest_eye / jungle_eye / cave_mouth /
+  torch_camp (night). Look at the jungle row: trunks go from black silhouettes to brown bark, and the under-canopy ground turns green.
+- `Screenshots/225/sheet_lotl.png`: before | after | Lay of the Land. The forest row shows grey trunks with bark detail after the fix.
+  The jungle row is still darker than LotL's GI-lit shade (see "Left / next").
+- `Screenshots/225/diff_jungle_eye.png`: pixel diff x4. Bright = changed. Trunks and shaded ground light up; the sky stays black (unchanged).
