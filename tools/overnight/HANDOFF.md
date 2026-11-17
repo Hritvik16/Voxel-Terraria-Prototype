@@ -1,43 +1,41 @@
-# 223-bug-audit-temp-alloc-in-jobs: DONE -- no pile-up anywhere; the "older than 4 frames" warnings were generator TempJob scratch -> Persistent (169 + 68 warnings -> 0)
-## What changed (commit 996c9f7)
-- `TerrainGenChunkSource.cs` (485, 524-527), `.Shell.cs` (243), `.ShellFill.cs` (116-126): 16 `Allocator.TempJob` -> `Allocator.Persistent`.
-  They are scratch held by managed streaming worker threads (StreamManager 7, ShellStreamer 3) for one whole chunk build, longer than
-  TempJob's 4-frame lifetime. Same sizes, same `finally` Dispose, nothing new kept; Persistent is allowed there (not inside a job).
-- New `AUDIT_TEMP_ALLOC.md` (the table), `Assets/CoreEngine/Tests/GenScratchHashTests.cs` (Explicit hash probe), `TASKS.md` "Task 223".
-## Audit table (full rows in AUDIT_TEMP_ALLOC.md)
-| site | job | per call | peak in flight | verdict |
-|---|---|---|---|---|
-| FarQuery PointJob / GatherLib (Malloc) | IJobParallelFor | ~23 KB per column | < 1 MB | OK (218's fix) |
-| FarField FillRegionJob / FillTg2Job | IJobParallelFor | none (TerrainGen = stackalloc only) | 0 | OK |
-| ColumnJob hg, VoxelJob/ShellVoxelJob bTop.., Overlay* touched | IJob Run, once per Execute | 3-68 KB | < 1 MB | OK |
-| ShellFillJob stack/subS/pending/hist | IJob Run, once per phase | 16 KB + flood growth | 3 workers | OK |
-| TorchFloodBuild FloodBrickJob flag/pass/sorted.. | IJob Scheduled, MaxJobs 2 | ~0.2-1 MB | 2 jobs | OK (no logged stack ever names it) |
-| main-thread Temp/TempJob (FarField 917, ShellStore 319, ShellBrickPack, FarQuery plan, ..) | not in a job / same frame | <= 4 MB | 1 | OK |
-| **Generate mats/uniform/isUniform/stats** | gen worker thread, TempJob | 2.06 MB | x7 = 14.4 MB | **warned -> FIXED** |
-| **GenerateShellChunkRaw stats** | shell worker, TempJob | 16 B | x3 | **warned -> FIXED** |
-| **FillShellChunk open/lyOpen/head/scanLo/..** | shell worker, TempJob | 0.46 MB | x3 = 1.4 MB | **warned -> FIXED** |
-No allocation is made per iteration of a parallel job; nothing peaks above 50 MB. So no 218-style fix was needed beyond the TempJob swap.
+# 224-perf-reuse-gen-scratch-per-worker: DONE -- generator scratch reused per worker; output bit-identical; peak 2,602 -> 2,583 MB
+NOTE for the supervisor: the memory watchdog touched `tools/overnight/PAUSE` at 19:46 (system swap 10,342 MB while my first fast-suite
+run was going; owner's Firefox open, swap built up over the day). Swap drained to ~5-6 GB, the rerun passed. PAUSE is still there: clear it
+(`rm tools/overnight/PAUSE`) when the Mac is fit to go on. `Logs/overnight/watchdog.log` last 2 lines.
+## What changed (commit fde5224)
+- `TerrainGenChunkSource.cs`: `ColumnPass` (already one per StreamManager worker) now also holds Generate's voxel scratch (`mats` 128^3,
+  brick mat/uniform, stats = 2.06 MB), made on the worker's first non-air chunk (`EnsureVoxelScratch`), reused after; no per-chunk malloc.
+- `.ShellFill.cs`: new `ShellScratch` (fill arrays + voxel stats, ~0.46 MB); `.Shell.cs`: new overload
+  `GenerateShellChunk(shell, coord, output, ops, summaries, scratch)`; `ShellStreamer.WorkerLoop` makes one per worker thread (and one for
+  the synchronous path). Null pass / scratch = one-shot per call, the old behaviour (tests, reports).
+- Why this design is the efficient one (rule 11 a): the scratch is held once per WORKER (7 + 3), not per chunk and not in `ShellChunk`
+  (2 x workers + 2 of those wait for upload: x2.7 the memory). Held total ~15.8 MB, the same as the 223 in-flight peak with all workers busy.
+- Reset per use = exactly a fresh allocation: ClearMemory arrays zeroed (8 KB near; ~0.4 MB shell), lists emptied; `mats`/`scanLo` were
+  UninitializedMemory and are always written before read (VoxelJob writes every non-proven brick; every overlay expands a uniform brick first).
+- Tests: `GenScratchHashTests.VoxelReuseIsExact_DenseThenSparse` (fast, 9.5 s), `ShellScratchReuseIsExact_DenseThenSparse` (Slow, 12 s):
+  a dense chunk, then sparser targets (proven-air + proven-solid bricks, shared and refilled column, wholly-air fast path), once plain and
+  once with the scratch `Scribble`d with junk, vs fresh scratch: bytes, brick table, skip/fill stats. Probe `GeneratorOutput_Hash` now hashes
+  both paths and asserts equal. TASKS.md "Task 224", AUDIT_TEMP_ALLOC.md follow-up section.
 ## Evidence
-- Bit-identical: `GenScratchHashTests.GeneratorOutput_Hash` (seed 42, 18 near chunks (16 non-uniform) + shells 1-4 with fill), old code
-  and new code both `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF` (`Logs/TerrainGen/temp223/hash_before.txt`, `hash_after.txt`).
-- Every aged stack in all 126 logs under `Logs/` (111,530 + 55,758 lines) ends in Generate / GenerateShellChunkRaw / FillShellChunk; none in TorchFlood.
-- Launch pair `Logs/overnight/223_pair.sh` (look review high, 218b survey flags, jungle_high + walk1, ~11 min each; logs
-  `Logs/overnight/223/player_before|after.log`, ledgers `Screenshots/223/before|after/lookreview.txt`):
-  aged-dispose lines 169 -> 0, JobTempAlloc lines 68 -> 0, process peak 2,528.4 -> 2,516.2 MB, GPU body pool peak 254,399 both,
-  refusals 56/70 -> 59/69 (start-up load variance: 218b had 58/70 at these poses; no pool code touched), CPU pool peak 494,535 -> 494,646.
-  Rule 11 budget (refusals not up, peak <= +50 MB): within it. Valve evictions are not printed by this capture mode.
-- `-diag-job-temp-memory-leak-validation` printed no callstacks in the release player (attribution from the Dispose stacks instead).
-- Fast suite: PASS 1061 FAIL 0 SKIP 25 (`Logs/overnight/223/fast.out`). No frame timing.
-- Looked at: `Screenshots/223/after/ws_fixed_walk1_native_sf0.png` (jungle canopy, ponds, river, snow forest behind, nothing missing;
-  4 px differ from before) and `.../ws_fixed_jungle_high_native_sf0.png` (full canopy; 42,922 px differ, all in rows 0-317 = far band, as 218b).
+- Bit-identical: `Logs/TerrainGen/temp223/hash_after224.txt`: one-shot `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF` = 223's, reused
+  path the same two hashes. Adversarial tests pass (near targets: 3 went through the voxel pass, 3064/1212/109 proven-air bricks).
+- Launch pair `Logs/overnight/224_pair.sh` (223's flags: look review high, jungle_high + walk1), after 19:09, before 19:25, back to back;
+  logs `Logs/overnight/224/player_before|after.log`, ledgers `Screenshots/224/before|after/lookreview.txt`:
+  process peak 2,602.2 -> 2,582.8 MB; GPU body pool peak 254,399 -> 254,396, refusals 58/70 -> 57/69; CPU pool peak 494,808 -> 494,485
+  (valve 484,500); aged-TempJob / JobTempAlloc warnings 0/0 -> 0/0. Budget (refusals not up, peak <= +50 MB): within it.
+  Valve evictions are not printed by this capture mode. (223's after run read 2,516 MB: launch-to-launch spread is ~±50 MB.)
+- Pictures: walk1 before vs after 0 px differ; jungle_high 10,315 px, all in rows 0-215 (far band, as 223/218b).
+- Fast suite: PASS 1062 FAIL 0 SKIP 25 (`Logs/overnight/224/fast2.out`; `fast.out` = the run the watchdog killed). No frame timing.
 ## Left unfinished / next
-- Nothing open. Efficiency note (rule 11 a): per-worker REUSED scratch would also skip the 2 MB malloc per chunk; not done (worker
-  plumbing, gain only allocator time). If a perf task wants it, `ColumnPass` / `ShellChunk` are the per-worker scratch to extend.
+- Nothing open. Mishap, harmless: my copied pair script's first run wrote its shots into `Screenshots/223/after/`; 223's files were backed
+  up first and restored (lookreview.txt compared identical). The script is fixed.
 
 ## For the doc
-- "older than 4 frames" warnings per launch: 169 -> 0; "JobTempAlloc" warnings: 68 -> 0 (`Logs/overnight/223/player_before|after.log`).
-- Process memory peak: 2,528 -> 2,516 MB (same poses/flags; `Screenshots/223/*/lookreview.txt`). GPU refusals 56/70 -> 59/69 (load noise).
-- Generator output hash identical before/after (`Logs/TerrainGen/temp223/hash_*.txt`).
-- Audit: 3 parallel jobs in the whole engine, none allocates per iteration; largest temp scratch in flight 14.4 MB (`AUDIT_TEMP_ALLOC.md`).
-- Image: `Screenshots/223/after/ws_fixed_walk1_native_sf0.png` -- walk1 after the fix: whole frame (canopy, ponds, river, far snow)
-  matches before to 4 pixels; nothing visible changed, which is the point.
+- Malloc/free per chunk build: ~2.06 MB (near) / ~0.46 MB (shell) -> 0; scratch now held once per worker (~15.8 MB total, 7 + 3 workers).
+- Process memory peak: 2,602 -> 2,583 MB (back-to-back pair, `Screenshots/224/before|after/lookreview.txt`).
+- GPU refusals 58/70 -> 57/69; CPU pool peak 494,808 -> 494,485; aged-TempJob warnings 0 -> 0.
+- Generator output hash unchanged: near 69CE4AAEAE2F03BC, shells 7E504985E4B9FDDF (`Logs/TerrainGen/temp223/hash_after224.txt`).
+- Image: `Screenshots/224/after/ws_fixed_walk1_native_sf0.png` -- walk1 after: the whole frame (jungle canopy, ponds, river, snow forest
+  behind) is identical to before to the pixel; nothing visible changed, which is the point.
+- Image: `Screenshots/224/after/ws_fixed_jungle_high_native_sf0.png` -- jungle_high after: full canopy, nothing missing; the only pixels
+  that differ from before are in the top ~215 rows (the far band at the horizon), as in 223's and 218b's pairs.
