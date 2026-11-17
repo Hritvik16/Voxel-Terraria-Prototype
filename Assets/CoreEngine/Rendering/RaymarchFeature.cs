@@ -39,6 +39,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         ShellHeat = 13,
         // Task 129 (diagnostic, CSMainFarShade only): hit tier + distance codes for -lodref.
         HitInfo = 14,
+        // Task 225 (diagnostic, CSMainFarShade / Diag only, capture only): SHADE TERMS, 6-bit codes
+        // (Raymarch.compute ShadeProbeColor): class + skyVis + sunVis, sky-fill halves + VAO,
+        // albedo / direct / ambient lumas, skyOpen / lit / final lumas.
+        ShadeClass = 15,
+        ShadeSkyHalves = 16,
+        ShadeLight = 17,
+        ShadeFinal = 18,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -620,6 +627,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static int SkyFill = ValidSkyFill(ReadIntArg("-skyfill", 0));
     public static int ValidSkyFill(int v) => v == 1 || v == 2 ? v : 0;
 
+    /// TASK 225 (look, owner Q-AN "why are the tree trunks pitch black"): two exact fixes to the look's
+    /// display<->linear handling, both ON by default (Raymarch.compute _LookFix, LookToLinear / LookSkyOpen).
+    /// `-lookexact 0`: LookToLinear back to pow 2.2 (not the inverse of URP's sRGB encode: crushed display < ~0.1).
+    /// `-skylinear 0`: the sky-fill share back in display space (a 25 % open face got 4.7 % of the sky light).
+    /// No storage, no pass: one select + pow per pixel.
+    public static bool LookExactSrgb = ReadIntArg("-lookexact", 1) != 0;
+    public static bool SkyShareLinear = ReadIntArg("-skylinear", 1) != 0;
+    public static int LookFixBits => (LookExactSrgb ? 1 : 0) | (SkyShareLinear ? 2 : 0);
+
     /// TASK 194 (bug fix, default ON): the REFUSED-CHUNK HAND-OVER (Raymarch.compute, the block of that name):
     /// while the near GPU body pool holds refused chunks, a tier-0 hit past the ray's entry into a
     /// non-resident column goes to the shells, which draw the refused chunk. `-refusedhandover 0` = the old
@@ -753,6 +769,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
             public int skyFill, sfValid;                 // task 193
+            public int lookFix;                          // task 225
             public uint sfFrame;
             public GraphicsBuffer sfRead, sfWrite;
             public Matrix4x4 sfPrevVP;
@@ -1040,6 +1057,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 }
                 int sfMode = ValidSkyFill(SkyFill);
                 passData.skyFill = sfMode;
+                passData.lookFix = LookFixBits;   // task 225
                 if (sfMode != 0)
                 {
                     if (_sfA == null || _sfW != dispatchW || _sfH != dispatchH)
@@ -1690,6 +1708,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
                         cmd.SetComputeIntParam(data.compute, "_SkyProbeTilt", data.skyProbeTilt);
                         cmd.SetComputeIntParam(data.compute, "_SkyFill", data.skyFill);              // task 193
+                        cmd.SetComputeIntParam(data.compute, "_LookFix", data.lookFix);              // task 225
                         cmd.SetComputeIntParam(data.compute, "_SkyHistValid", data.sfValid);
                         cmd.SetComputeIntParam(data.compute, "_SkyFrame", (int)data.sfFrame);
                         cmd.SetComputeMatrixParam(data.compute, "_SkyPrevViewProj", data.sfPrevVP);

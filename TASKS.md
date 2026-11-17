@@ -1960,3 +1960,15 @@ owner picks first; lighting tracked as sky fill / sun / torch flood deltas at wa
 walk_near p50 107 ms, sky fill 40.4 / sun 28.1 / flood 27.8 / shells 8.4 ms, peak 2,607 MB; targets reported as distance only;
 tolerances from 212's F-pass noise), PREAMBLE rule 12 (per-task proxies P1-P5: memory, pass card, cold ms only if shown, counts,
 ray-work counters; `HEAVY` marker). Supervisor's `Cost:` line text: guard sec. 7. No code, no launch. Result: HANDOFF 220.
+**Task 225 (look, owner Q-AN "why are the tree trunks pitch black"): TWO EXACT FIXES to the look's display<->linear handling, both
+ON everywhere (`RaymarchFeature.LookExactSrgb` `-lookexact 0|1`, `SkyShareLinear` `-skylinear 0|1`; shader `_LookFix` bits 0/1).**
+CAUSE, measured with new capture-only SHADE TERMS views 15-18 (`-shadeprobe 1` in the cost split; decoder `Logs/overnight/225/probe.py`,
+per-fix simulation `sim.py`): trunk albedo is NOT it (forest 0.82, jungle 0.25 display luma -- authored), the sky trace is voxel-exact
+(not coarse), the shadow term is applied once. Two multiplying defects: (1) LookToLinear was pow 2.2 but URP's output encode is the exact
+sRGB curve (the probe ramp: byte 2/255 -> 22, not 28), so a look value of 0.03 reached the screen as 0.006 (5x darker), 0.067 as 0.034;
+fixed: LookToLinear = the sRGB EOTF, `LookToDisplay` its inverse (DrawnEdgeFade, the TAA dyn track). (2) sky fill (193) made skyVis a
+FRACTION of linear light but it still entered the display-space lerp, so 25 % open sky gave 0.25^2.2 = 4.7 % of the light; fixed:
+`LookSkyOpen` takes skyVis^(1/2.2) (0 and 1 unchanged: open ground, shells/far hits, sealed caves). Look 0 (linear lighting) untouched.
+Cost: no buffer, no pass, one select + pow per pixel. Capture arms `lookfix_off` (= before), `lookexact_off`, `skylinear_off`
+(`PlaygroundCapture.CostSplit.cs`). Tests `LookFixTests` (flags, shader text, curves vs `Mathf.GammaToLinearSpace`, the crush numbers).
+Shots: `Logs/overnight/225/run2.sh day2|night2`, `compare.py` (sheets in `Screenshots/225/`). Result: HANDOFF 225.

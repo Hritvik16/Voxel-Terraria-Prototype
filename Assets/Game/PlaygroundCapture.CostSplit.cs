@@ -158,6 +158,8 @@
 //   TASK 219 (perf feasibility ladder; capture only, opt-in): -costfixed "name|ex,ey,ez|ax,ay,az;..." times still poses
 //            after walk_near (walk_open dropped, as with cliff), at the launch's hours; -costarms none = FULL only;
 //            every path ends with a [mem] line (MemoryLedger.Step14Line: pools, GPU refusals, process peak).
+//   TASK 225 (look, stills only): arms lookfix_off (= before 225), lookexact_off, skylinear_off; -shadeprobe 1 adds the
+//            SHADE TERMS stills shade15..18 (debug views 15-18; decoder Logs/overnight/225/probe.py, sim.py).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -369,7 +371,9 @@ public partial class PlaygroundCapture
     /// FULL (play's frame at CostRows rows) with exactly one thing switched off.
     private static void CostApply(string arm)
     {
-        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, CostRows, false);
+        // Task 225: shade15..shade18 = the SHADE TERMS debug views (stills only, no upscaler so the codes stay whole).
+        int shadeView = arm.StartsWith("shade") && int.TryParse(arm.Substring(5), out int sv) && sv >= 15 && sv <= 18 ? sv : 0;
+        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" || shadeView != 0 ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, CostRows, false);
         // tiny_gate: a DIAGNOSTIC, not one thing off -- no upscaler and a 256x144
         // march (7% of 540's pixels): what is left is the CPU + fixed-cost floor
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
@@ -429,19 +433,26 @@ public partial class PlaygroundCapture
         RaymarchFeature.DebugSeeSkip = arm == "see_noblend" ? 1 : arm == "see_nofar" ? 2 : arm == "see_nomarch" ? 4 : 0;
         // Task 75b: heat / see_heat show the step-count heat view (stills only; their ms are not frames
         // of the product), see_tier the LOD tier view with see-through on.
-        RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier";
-        RaymarchFeature.DebugViewOverride = arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
+        RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier" || shadeView != 0;
+        RaymarchFeature.DebugViewOverride = shadeView != 0 ? (RaymarchFeature.DebugMode)shadeView
+                                          : arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
         // Task 212: flood_off / skyfill0 (FULL keeps the launch's values).
         bool floodWant = arm != "flood_off" && _costBaseFlood;
         if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
         RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
+        // Task 225: lookfix_off (both off = before 225), lookexact_off, skylinear_off (FULL keeps the launch's values).
+        RaymarchFeature.LookExactSrgb = arm != "lookfix_off" && arm != "lookexact_off" && _costBaseLookExact;
+        RaymarchFeature.SkyShareLinear = arm != "lookfix_off" && arm != "skylinear_off" && _costBaseSkyLinear;
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
         // Task 151: tl_K_I_R / tl_none torch arms (PlaygroundCapture.TorchCost.cs); no-op without -costpaths torch.
         CostTorchApply(arm);
     }
+
+    /// Task 225: `-shadeprobe 1` adds the SHADE TERMS stills (views 15-18) to every arm's still set.
+    private static readonly bool CostShadeProbe = ArgValue("-shadeprobe") == "1";
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
@@ -452,6 +463,7 @@ public partial class PlaygroundCapture
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
     private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
+    private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -633,7 +645,8 @@ public partial class PlaygroundCapture
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
-                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill; }   // task 212
+                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseSkyFill = RaymarchFeature.SkyFill;   // task 212
+                                 _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear; }   // task 225
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
@@ -665,6 +678,15 @@ public partial class PlaygroundCapture
                 yield return Frames(6);
                 ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
             }
+            // Task 225 (-shadeprobe 1): the SHADE TERMS views 15-18 at the same pose, every arm
+            // (decoder: Logs/overnight/225/probe.py). 20 frames first: the sky-fill history follows the kernel switch.
+            if (CostShadeProbe)
+                for (int sv = 15; sv <= 18; sv++)
+                {
+                    RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)sv;
+                    yield return Frames(sv == 15 ? 20 : 6);
+                    ScreenCapture.CaptureScreenshot(still.Replace(".png", "_shade" + sv + ".png")); yield return Frames(2);
+                }
             RaymarchFeature.UseDebugViewOverride = false;
             // Task 93b4: no-upscaler stills (no jitter) for byte-identity between arms.
             if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-coststillraw") >= 0)

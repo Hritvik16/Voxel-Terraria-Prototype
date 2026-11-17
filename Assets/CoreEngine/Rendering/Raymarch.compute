@@ -1046,7 +1046,38 @@ float  _LookHazeDensity;
 float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
 int    _EmissiveBleed;     // 1 = faces next to lava/torches get glow (default), 0 = off
 
-float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
+// TASK 225 (owner Q-AN "why are the tree trunks pitch black"): _LookFix (RaymarchFeature.LookFix, both bits ON by default).
+// Bit 0 (`-lookexact 0` = off): LookToLinear is the EXACT inverse of the encode URP applies (the sRGB piecewise
+// curve; task 225's probe ramp measured it: byte 2/255 -> 22, where a 2.2 power would give 28). pow 2.2 is not its
+// inverse below display ~0.1: a display value of 0.03 reached the screen as 0.006 (5x darker), 0.067 as 0.034 --
+// exactly the shaded-trunk range -- so the stated contract above ("the encode lands back on the Brickmap's value")
+// failed in every dark area. Above display ~0.2 the two curves agree within 1 %.
+// Bit 1 (`-skylinear 0` = off): see LookSkyOpen.
+int _LookFix;
+float3 LookToLinear(float3 c)
+{
+    c = saturate(c);
+    if ((_LookFix & 1) == 0) return pow(c, 2.2);
+    return lerp(pow((c + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
+}
+// LookToLinear's inverse (the display value back from a finished linear colour).
+float3 LookToDisplay(float3 c)
+{
+    c = saturate(c);
+    if ((_LookFix & 1) == 0) return pow(c, 1.0 / 2.2);
+    return lerp(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, step(c, 0.0031308));
+}
+// The look's sky openness from the sky visibility. Sky fill (task 193) made skyVis a FRACTION -- the cosine-weighted
+// share of the hemisphere's light that arrives -- which is a share of LINEAR light; the vertical probe it replaced was
+// 0 or 1, where display and linear space agree. This look multiplies light in DISPLAY space and LookToLinear raises
+// the product to ~2.2, so a face with 25 % of its sky open got 0.25^2.2 = 4.7 % of the open-sky light. Bit 1 converts
+// the share to display space first (v^(1/2.2): the look's own display<->linear model), so 25 % open gives 25 % of the
+// light. 0 and 1 are unchanged: open ground, shells / far hits (skyVis 1) and sealed caves (0) are bit-identical.
+float LookSkyOpen(float skyVis)
+{
+    float v = (_LookFix & 2) != 0 ? pow(saturate(skyVis), 1.0 / 2.2) : skyVis;
+    return lerp(_UndergroundAmbientFloor, 1.0, v);
+}
 
 // The cinematic grade's highlight shoulder: identity below the knee, then an
 // exponential roll-off that approaches 1 instead of clipping at it. Knee 1 is
@@ -4055,7 +4086,7 @@ float3 DrawnEdgeFade(float3 colorLinear, float3 rayDir, float distVoxels)
 {
     float f = DrawnEdgeAmount(rayDir, distVoxels);
     if (f <= 0.0) return colorLinear;
-    float3 c = pow(saturate(colorLinear), 1.0 / 2.2);   // LookToLinear's inverse
+    float3 c = LookToDisplay(colorLinear);   // LookToLinear's inverse
     return LookToLinear(lerp(c, LookShoulder(LookAtmosphere(rayDir), _LookGrade.z), f));
 }
 
@@ -4163,6 +4194,36 @@ float SeeCutFade(float pathVoxels, float maxPathVoxels)
 // Shell / far hits keep skyVis 1 (plan Q5 (a)); a sky ray leaving the window sideways counts as open
 // (plan step S3, not done here).
 // ===========================================================================
+// ---- TASK 225 (DIAGNOSTIC, capture only; CSMainFarShade / Diag, never the diet-2 play kernels) ----
+// SHADE TERMS views, 6-bit codes (byte = 4 * code + 2) like view 14, rows 0-3 a grey calibration ramp
+// (16 px per code) for Logs/overnight/225/probe.py. Linear q(x) = round(63 x); log L(x) = 0 for x <= 2^-10,
+// else round(63 (log2 x + 10) / 12) clamped 1..63 (2^-10 .. 4, 0.19 stop per code).
+//  15: R = class (mat 0 none / 1 trunk / 2 leaf / 3 other | face 0 up / 1 side / 2 down << 2 | shell << 4),
+//      G = q(skyVis), B = q(sunVis)
+//  16: R = q(S), G = q(B) (the sky-fill halves' running means; 0 when a half has no sample), B = q(VAO)
+//  17: R = L(albedo luma), G = L(direct luma, graded), B = L(ambient luma, graded)
+//  18: R = q(skyOpen), G = L(lit luma, before bleed/fog), B = L(final colour luma)
+uint ShadeProbeQ(float x) { return (uint)round(63.0 * saturate(x)); }
+uint ShadeProbeL(float x) { return x <= 0.0009765625 ? 0u : (uint)clamp(round(63.0 * (log2(x) + 10.0) / 12.0), 1.0, 63.0); }
+float4 ShadeProbeColor(int mode, uint2 px, bool hit, uint mat, int3 n, int shell, float skyV, float sunV,
+                       float sS, float sB, float4 L, float4 L2, float3 finalC)
+{
+    uint3 c = uint3(0u, 0u, 0u);
+    if (hit)
+    {
+        uint cls = ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) ? 1u
+                 : ((mat >= 183u && mat <= 186u) || mat == 216u) ? 2u : 3u;
+        uint face = n.y > 0 ? 0u : (n.y < 0 ? 2u : 1u);
+        if (mode == 15) c = uint3(cls | (face << 2) | (shell > 0 ? 16u : 0u), ShadeProbeQ(skyV), ShadeProbeQ(sunV));
+        else if (mode == 16) c = uint3(sS >= 0.0 ? ShadeProbeQ(sS) : 0u, sB >= 0.0 ? ShadeProbeQ(sB) : 0u, ShadeProbeQ(L.w));
+        else if (mode == 17) c = uint3(ShadeProbeL(L.x), ShadeProbeL(L.y), ShadeProbeL(L.z));
+        else c = uint3(L2.x >= 0.0 ? ShadeProbeQ(L2.x) : 0u, ShadeProbeL(L2.z), ShadeProbeL(dot(finalC, float3(0.2126, 0.7152, 0.0722))));
+    }
+    float4 o = float4(float3(c * 4u + 2u) / 255.0, 1.0);
+    if (px.y < 4u) { float r = float(min(px.x >> 4, 63u) * 4u + 2u) / 255.0; o = float4(r, r, r, 1.0); }
+    return o;
+}
+
 StructuredBuffer<uint2> SkyHistR;      // x = S 12b | B 12b << 12 | nS 4b << 24 | nB 4b << 28, y = key; 0xFFFFFFFF = none
 RWStructuredBuffer<uint2> SkyHistW;
 int _SkyFill;            // 0 off (the vertical probe), 1 sky, 2 sky + ground bounce
@@ -4319,7 +4380,7 @@ float3 SeeBehindColour(uint m, int3 v, float3 nF, float sunVisB, float skyVisB, 
     {
         float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
         float softened = lerp(0.4, 1.0, saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2);
-        float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVisB);
+        float skyOpen = LookSkyOpen(skyVisB);   // task 225
         float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVisB);
         float3 direct = _LookSun.rgb * saturate(dot(nF, sd) * 0.8 + 0.2) * sunExposure * softened
                       + _LookMoon.rgb * saturate(dot(nF, -sd) * 0.8 + 0.2) * softened * skyOpen;
@@ -5210,6 +5271,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float sunVis = 0.0;
     float skyVis = 1.0;
     uint2 skyRec = uint2(0u, 0xFFFFFFFFu);   // task 193: this pixel's sky-fill record (none)
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+    // Task 225 (DIAGNOSTIC, capture only): SHADE TERMS views 15-18 (ShadeProbeColor). -1 = not recorded.
+    float spS = -1.0, spB = -1.0;                       // the sky-fill halves (history means after this frame)
+    float4 spL = float4(-1.0, -1.0, -1.0, -1.0);        // lumas: albedo, direct, ambient, VAO
+    float4 spL2 = float4(-1.0, -1.0, -1.0, -1.0);       // lumas: point lights, lit; x = skyOpen
+#endif
     int shadowSteps = 0;
 
     // §6.5's night rule and rung 3, evaluated once and shared by every branch
@@ -5567,6 +5634,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 skyRec = uint2((uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28), fillKey);
             }
             skyVis = fillTrace ? SkyFillOpen(normal, hs, cs, hb, cb) : 0.0;
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+            spS = cs > 0u ? hs : -1.0; spB = cb > 0u ? hb : -1.0;   // task 225 probe
+#endif
         }
     }
     // Task 193: every pixel writes its record (none when it has no tier-0 sky fill), so a stale one
@@ -5834,7 +5904,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // terrace contours. skyOpen keeps sealed caves dark: with no sky
             // visibility the shadow floor collapses to the underground floor.
             float sunLight = saturate(dot(nF, sd) * 0.8 + 0.2);
-            float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVis);
+            float skyOpen = LookSkyOpen(skyVis);   // task 225: the share in linear light
             float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVis);
             float3 direct = _LookSun.rgb * sunLight * sunExposure * softened;
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
@@ -5930,6 +6000,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                               : baseColor * faceLight;
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
                 if (!selfLit) upsDynRgb = baseColor * pointTerm;   // task 174
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+                {   // task 225 probe: the look-1 terms, lumas
+                    const float3 LW5 = float3(0.2126, 0.7152, 0.0722);
+                    spL = float4(dot(baseColor, LW5), dot(direct * _LookGrade.x, LW5), dot(ambient * _LookGrade.x, LW5), vao);
+                    spL2 = float4(skyOpen, dot(pointTerm, LW5), dot(lit, LW5), 0.0);
+                }
+#endif
 #ifdef VE_FAR_SHADE
                 lightAdd = MaterialEmissiveTint(lm) * MaterialEmissive(lm);
                 if (!selfLit)   // the point lights' share of faceLight
@@ -6341,7 +6418,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // without a motion vector: track its whole displayed colour (LookToLinear's pow 2.2 undone).
             // Any other surface: only the dynamic light, so still terrain stays exactly 0 change.
             bool wholePx = passMat != 0u || (hit && (MaterialIsClearFluid(mat) || MaterialIsSelfLit(mat) || MaterialEmissive(mat) > 0.0));
-            float3 dv = wholePx ? pow(saturate(color.rgb), 1.0 / 2.2) : saturate(upsDynRgb);
+            float3 dv = wholePx ? LookToDisplay(color.rgb) : saturate(upsDynRgb);
             TaaDynW[pi] = dot(dv, float3(0.299, 0.587, 0.114)) * 255.0;
         }
     }
@@ -6352,6 +6429,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float tintLum = dot(color.rgb, float3(0.299, 0.587, 0.114));
         color.rgb = lerp(color.rgb, (hit ? ShellTintColor(shellAtHit) : float3(0.5, 0.5, 0.5)) * (0.35 + 0.65 * tintLum), 0.6);
     }
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+    if (_DebugMode >= 15 && _DebugMode <= 18)   // task 225: SHADE TERMS (capture only)
+        color = ShadeProbeColor(_DebugMode, id.xy, hit, mat, normal, shellAtHit, skyVis, sunVis, spS, spB, spL, spL2, color.rgb);
+#endif
 #ifdef VE_SUNDEFER
     if (sdPass != 0u) { if (inBounds) SunDeferB[id.xy] = color; } else   // task 168c: the blocked outcome
 #endif
