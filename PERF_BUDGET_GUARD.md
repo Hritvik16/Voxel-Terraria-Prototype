@@ -73,9 +73,10 @@ As built (task 230); the differences from the plan above all come from the cost-
   own noise (|FULL before - after|) exceeds its tolerance is downgraded FAIL -> WARN ("noisy"). `--rebaseline` is refused
   when the run is NOT CLEAN or a hard limit failed. A full run sets `tools/overnight/BUDGET_COUNT` (PASS / rebaseline 0,
   WARN 2). Output: `Logs/budget/<stamp>/check.txt`.
-- **Open (task 230's run, 2026-11-17): the NIGHT launch peaks at ~6.0 GB** (6,025 / 6,055 MB; task 229's night 6,037) when
-  the `tf_on` arm builds the torch flood synchronously (`TorchFloodPool.Rebuild`); the day stays at ~2.57 GB. That fails
-  the 3,000 MB hard limit on every run, so no baseline can be accepted until it is fixed or the owner rules on it.
+- **FIXED (task 236, 2026-11-17): the NIGHT launch's ~6.0 GB peak** (task 230's run 6,025 / 6,055 MB) was Metal staging memory from
+  ~900 small `GraphicsBuffer.SetData` calls in the torch flood's synchronous rebuild (~4 MB each, held to the frame's end; play's fill
+  did the same per frame, 3.4-3.6 GB). One SetData per buffer per upload (`-tfupload 1`, default): night peak 5,985 -> 2,538 MB,
+  under the 3,000 MB hard limit; the day stays at ~2.57 GB. KNOWN_ISSUES has the entry. The next clean check can be accepted.
 
 ## 4. The per-task proxy (no timing; PREAMBLE rule 12, in force now)
 

@@ -72,6 +72,16 @@ namespace VoxelEngine.Rendering
         public static int DirMode;
         /// Keep a per-voxel oracle after a synchronous Rebuild (the capture's GPU == oracle probe).
         public static bool KeepOracle;
+        /// Task 236 diagnostic (null = off, no cost): called with a stage name inside the synchronous Rebuild / Flush
+        /// (MemWatch's `-tfmemmarks` logs the process footprint at each).
+        public static Action<string> MemMark;
+        /// Task 236: -tfupload 0|1 (default 1). How the CPU union reaches the GPU buffers. 1 = ONE SetData per buffer per
+        /// Upload, over the span from the first to the last dirty unit (the words in between already equal the CPU copy),
+        /// and the synchronous Flush uploads once at its end instead of after every merge. 0 = before 236: one SetData per
+        /// dirty run (gaps under 64 units merged) after every merge. On Metal every SetData stages its own GPU memory
+        /// (IOAccelerator), held until the GPU has finished that frame: hundreds of runs per merge piled up ~1 GB per
+        /// frame in play's fill and +3.5 GB in the capture's synchronous rebuild (14 merges in one frame).
+        public static int UploadMode = 1;
 
         public static void ParseArgs()
         {
@@ -89,6 +99,7 @@ namespace VoxelEngine.Rendering
                     case "-tfanchor": TorchFloodBuild.AnchorsOn = v != "0"; break;
                     case "-tfeditlit": EditLitOnly = v != "0"; break;
                     case "-tfreach": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ReachM); break;
+                    case "-tfupload": if (int.TryParse(v, out int um) && (um == 0 || um == 1)) UploadMode = um; break;
                 }
             }
         }
@@ -237,6 +248,8 @@ namespace VoxelEngine.Rendering
         /// Task 169: bricks the anchored test made direct, summed over finished floods.
         public long AnchoredSum;
         public long UploadBytesTotal;
+        /// Task 236: SetData calls since ResetAll, and the most in one Upload.
+        public int UploadCalls, UploadCallsMax;
         /// Main-thread ms of every Tick that had work (the L3 report).
         public readonly List<float> BusyTickMs = new List<float>();
         /// Per finished flood: (worker wall ms from schedule to seen done, reached voxels, lit bricks, direct bricks).
@@ -357,6 +370,8 @@ namespace VoxelEngine.Rendering
             ScratchPeakBytes = Math.Max(ScratchPeakBytes, ScratchBytes);
             if (was || busy) BusyTickMs.Add((float)sw.Elapsed.TotalMilliseconds);
             if (!busy && _slots.Count > 0) FreeSlots();   // the job scratch exists only while flooding
+            if (was && !busy) MemMark?.Invoke($"tick fill done (floods {FloodsDone}, merges {MergesDone}, upload calls {UploadCalls} max {UploadCallsMax}/Upload, " +
+                                              $"{UploadBytesTotal / 1048576.0:F1} MB; union hash {UnionHash():X16}; GPU {(Gpu ? VerifyGpu() ?? "== CPU" : "-")})");
         }
 
         /// Replaces the torch set (tests and Tick). Removed torches drop their light; added ones are queued.
@@ -511,9 +526,11 @@ namespace VoxelEngine.Rendering
             // finished floods
             foreach (var s in _slots)
                 if (s.busy && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
+            if (_sync) MemMark?.Invoke("  step: floods finished");
             Phase(1, sw, ref last);
             // a finished merge
             if (_merging && (!budgeted || _mergeH.IsCompleted)) FinishMerge();
+            if (_sync) MemMark?.Invoke("  step: merge applied + uploaded");
             Phase(2, sw, ref last);
             PhaseSumMs[2] -= LastUploadMsStep; if (LastUploadMsStep > PhaseMaxMs[3]) PhaseMaxMs[3] = LastUploadMsStep;
             PhaseSumMs[3] += LastUploadMsStep; LastUploadMsStep = 0;
@@ -527,6 +544,7 @@ namespace VoxelEngine.Rendering
                 StartFlood(r, s);
             }
             JobHandle.ScheduleBatchedJobs();
+            if (_sync) MemMark?.Invoke("  step: floods started (snapshots)");
             Phase(4, sw, ref last);
             // the next merge
             if (!_merging && !_dirtyBricks.IsEmpty) StartMerge(budgeted ? MergeBatch : int.MaxValue);
@@ -648,7 +666,7 @@ namespace VoxelEngine.Rendering
             if (_dataB == null || _data.Length > _dataB.count) _dataRealloc = true;
             foreach (var c in _retired) c.Dispose();
             _retired.Clear();
-            if (Gpu) Upload();
+            if (Gpu && !(_sync && UploadMode == 1)) Upload();   // task 236: the synchronous Flush uploads once, at its end
         }
 
         private void UpdateDir()
@@ -695,9 +713,10 @@ namespace VoxelEngine.Rendering
         {
             _sync = true;
             int guard = 0;
-            do Step(false); while (Busy && guard++ < 1000000);   // one Step even when idle: it polls the box chunks
+            do { Step(false); MemMark?.Invoke($"flush step {guard} (floods {FloodsDone}, merges {MergesDone})"); }
+            while (Busy && guard++ < 1000000);   // one Step even when idle: it polls the box chunks
             _sync = false;
-            if (Gpu && !_uploaded) Upload();
+            if (Gpu && (!_uploaded || UploadMode == 1)) Upload();   // task 236: mode 1 deferred every merge's upload to here
         }
 
         /// Synchronous refill from scratch (the capture's "build it now before timing" and the reference).
@@ -706,8 +725,10 @@ namespace VoxelEngine.Rendering
             if (Store != null && !ReferenceEquals(_store, Store)) _store = Store;
             var sw = Stopwatch.StartNew();
             var sig = Signature(lights);
+            MemMark?.Invoke("rebuild start");
             ResetAll(_store);
             SetTorches(sig);
+            MemMark?.Invoke("rebuild reset + torches");
             _builtSig = sig;
             _seenRev = lights.Revision;
             FloodRunMs.Clear();
@@ -726,6 +747,8 @@ namespace VoxelEngine.Rendering
                 Oracle = f;
             }
             Rebuilds++;
+            MemMark?.Invoke($"rebuild end (upload calls {UploadCalls} max {UploadCallsMax}/Upload, {UploadBytesTotal / 1048576.0:F1} MB; union hash {UnionHash():X16}; " +
+                            $"GPU {(Gpu ? VerifyGpu() ?? "== CPU" : "-")})");
             LastTorches = sig.Length - skipped; LastTorchesSkipped = skipped;
             Debug.Log($"[torchflood] rebuild {Rebuilds}: {LastTorches} torches ({skipped} skipped), {Chunks} lit chunks, " +
                       $"air bricks {AirBricks}, mixed {MixedBricks}, escapes {Escapes}, GPU {GpuBytes / 1048576.0:F2} MB, CPU union " +
@@ -756,7 +779,7 @@ namespace VoxelEngine.Rendering
             _dirDirty = _tablesRealloc = _dataRealloc = true;
             _version++;
             _store = store;
-            FloodsDone = MergesDone = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+            FloodsDone = MergesDone = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; UploadCalls = UploadCallsMax = 0; ScratchPeakBytes = 0; ResetPhaseStats();
             _uploaded = false;
         }
 
@@ -777,6 +800,32 @@ namespace VoxelEngine.Rendering
             if (a.Length != b.Length) return false;
             for (int i = 0; i < a.Length; i++) if (!a[i].v.Equals(b[i].v) || a[i].m != b[i].m) return false;
             return true;
+        }
+
+        /// Task 236 (diagnostic marks): FNV-1a over the CPU union (directory origin and entries, the chunk tables, and
+        /// the data words the tables reach). The upload mode never touches the CPU union, so both modes must print the
+        /// same hash for the same torches; VerifyGpu then checks the GPU buffers against it.
+        public ulong UnionHash()
+        {
+            ulong h = 1469598103934665603UL;
+            void Mix(uint x) { h ^= x; h *= 1099511628211UL; }
+            Mix((uint)_dirOrigin.x); Mix((uint)_dirOrigin.y); Mix((uint)_dirOrigin.z);
+            foreach (uint d in _dir) Mix(d);
+            for (int i = 0; i < _tables.Length; i++) Mix(_tables[i]);
+            for (int ti = 0; ti < _chunkUsed.Length; ti++)
+                for (int bi = 0; bi < 4096; bi++)
+                {
+                    uint en = _tables[ti * 4096 + bi];
+                    if (en == 0) continue;
+                    int off = (int)(en & OFFSET_MASK), n = (en >> 30) == KIND_AIR ? 8 : 64;
+                    for (int k = 0; k < n; k++)
+                    {
+                        uint c = _data[off + k];
+                        Mix(c);
+                        if (n == 64 && (c & ESCAPE_BIT) != 0) for (int q = 0; q < 8; q++) Mix(_data[(int)(c & OFFSET_MASK) + q]);
+                    }
+                }
+            return h;
         }
 
         /// The union as an Encoded (a copy; cached until the union changes). Tests and the capture probe.
@@ -1097,14 +1146,28 @@ namespace VoxelEngine.Rendering
         private void Upload()
         {
             var sw = Stopwatch.StartNew();
+            int calls0 = UploadCalls;
+            long bytes0 = UploadBytesTotal;
             _dirB = Fit(_dirB, _dir.Length, out bool f0);
-            if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; } _dirDirty = false; }
+            if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; UploadCalls++; } _dirDirty = false; }
             _tablesB = Fit(_tablesB, _tables.Length, out bool f1);
             if (f1 || _tablesRealloc)
             {
-                if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; }
+                if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; UploadCalls++; }
                 for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0;
                 _tablesRealloc = false;
+            }
+            else if (UploadMode == 1)
+            {
+                // task 236: one call over the dirty tables' span
+                int a = -1, b = -1;
+                for (int i = 0; i < _dirtyTable.Length; i++)
+                    if (_dirtyTable[i] != 0) { if (a < 0) a = i; b = i; _dirtyTable[i] = 0; }
+                if (a >= 0)
+                {
+                    _tablesB.SetData(_tables.AsArray(), a * 4096, a * 4096, (b - a + 1) * 4096);
+                    UploadBytesTotal += 4L * 4096 * (b - a + 1); UploadCalls++;
+                }
             }
             else
             {
@@ -1114,7 +1177,7 @@ namespace VoxelEngine.Rendering
                     int j = i;
                     while (j + 1 < _dirtyTable.Length && _dirtyTable[j + 1] != 0) j++;
                     _tablesB.SetData(_tables.AsArray(), i * 4096, i * 4096, (j - i + 1) * 4096);
-                    UploadBytesTotal += 4L * 4096 * (j - i + 1);
+                    UploadBytesTotal += 4L * 4096 * (j - i + 1); UploadCalls++;
                     for (int k = i; k <= j; k++) _dirtyTable[k] = 0;
                     i = j;
                 }
@@ -1122,9 +1185,14 @@ namespace VoxelEngine.Rendering
             _dataB = Fit(_dataB, _data.Length, out bool f2);
             if (f2 || _dataRealloc)
             {
-                if (_data.Length > 0) { _dataB.SetData(_data.AsArray(), 0, 0, _data.Length); UploadBytesTotal += 4L * _data.Length; }
+                if (_data.Length > 0) { _dataB.SetData(_data.AsArray(), 0, 0, _data.Length); UploadBytesTotal += 4L * _data.Length; UploadCalls++; }
                 for (int i = 0; i < _dirtyData.Length; i++) _dirtyData[i] = 0;
                 _dataRealloc = false;
+            }
+            else if (UploadMode == 1)
+            {
+                // task 236: one call over the dirty units' span (first to last dirty unit below the length)
+                if (DirtySpan(_dirtyData.AsArray(), _data.Length >> 3, out int u0, out int u1)) UploadRun(u0, u1);
             }
             else
             {
@@ -1146,15 +1214,39 @@ namespace VoxelEngine.Rendering
                 if (runStart >= 0) UploadRun(runStart, last);
             }
             _uploaded = true;
+            UploadCallsMax = Math.Max(UploadCallsMax, UploadCalls - calls0);
+            if (MemMark != null && UploadCalls > calls0)
+                MemMark($"    upload (mode {UploadMode}): {UploadCalls - calls0} SetData calls, {(UploadBytesTotal - bytes0) / 1048576.0:F2} MB");
             LastUploadMs = sw.Elapsed.TotalMilliseconds;
             LastUploadMsStep += LastUploadMs;
+        }
+
+        /// Task 236: the span [u0, u1] from the first to the last set bit below `units` (one bit per 8-word data unit);
+        /// clears every word. False when nothing below `units` is dirty. Mode 1 uploads this span in ONE SetData.
+        public static bool DirtySpan(NativeArray<ulong> dirty, int units, out int u0, out int u1)
+        {
+            u0 = u1 = -1;
+            for (int w = 0; w < dirty.Length; w++)
+            {
+                ulong bits = dirty[w];
+                if (bits == 0) continue;
+                dirty[w] = 0;
+                int keep = units - w * 64;   // bits at or past `units` are stale (as the old path's break)
+                if (keep <= 0) continue;
+                if (keep < 64) bits &= (1UL << keep) - 1;
+                if (bits == 0) continue;
+                int lo = w * 64 + math.tzcnt(bits), hi = w * 64 + 63 - math.lzcnt(bits);
+                if (u0 < 0) u0 = lo;
+                u1 = hi;
+            }
+            return u0 >= 0;
         }
 
         private void UploadRun(int u0, int u1)
         {
             int o = u0 << 3, n = (u1 - u0 + 1) << 3;
             _dataB.SetData(_data.AsArray(), o, o, n);
-            UploadBytesTotal += 4L * n;
+            UploadBytesTotal += 4L * n; UploadCalls++;
         }
 
         /// Reads the three GPU buffers back and compares them with the CPU copy (capture only; synchronous).

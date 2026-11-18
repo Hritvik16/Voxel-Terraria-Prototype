@@ -173,6 +173,15 @@ public partial class PlaygroundCapture
         }
         foreach (var t in _costTorches) _costLights.Unregister(t);
         if (arm != "tl_none") foreach (var t in _costTorches) _costLights.Register(t, Materials.Torch);
+        if (arm == "tf_tick")
+        {
+            // Task 236: play's path. The flood ON from an empty pool, filled ONLY by the per-frame Tick (LightingDriver), as
+            // when torches are placed in play; no synchronous build. Diagnostic arm (the memory transient's play check).
+            TorchFloodPool.Enabled = false;
+            TorchFloodPool.SetEnabled(true);
+            TorchFloodPool.MemMark?.Invoke("tf_tick armed (pool reset; Tick fills it)");
+            return;
+        }
         TorchFloodPool.Enabled = arm == "tf_on" || arm == "tf_twin";   // task 229: tf_twin = tf_on with -floodnear 0
         if (TorchFloodPool.Enabled)
         {

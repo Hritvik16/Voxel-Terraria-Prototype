@@ -42,6 +42,18 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **NIGHT TORCH SCENE PEAKED AT ~6.0 GB; PLAY'S TORCH FILL AT ~3.4-3.6 GB (found task 230, 2026-11-17; DIAGNOSED + FIXED task 236, `-tfupload 0` = old).**
+  Not the flood's CPU memory (union + caches + scratch ~48 MB; Unity's "allocated" flat; an EditMode flood of 3.8 M voxels = +16-29 MB).
+  `footprint` samples: the growth was **IOAccelerator (Metal)**. `TorchFloodPool.Upload` issued ONE `GraphicsBuffer.SetData` per dirty data
+  run (gaps < 64 units merged): up to 239 calls per upload, and on Metal **each call cost ~4 MB of GPU memory (about the whole data buffer,
+  whatever it wrote)**, held until the GPU finished the frame. The capture's synchronous `Rebuild` ran 14 merges' uploads (903 calls) in ONE
+  frame: +3.5 GB. Play's per-frame `Tick` fill (28 torches placed at once) did up to 81 calls per frame: footprint 3,445 / 3,603 MB.
+  FIX (task 236, `-tfupload 1` default): one SetData per buffer per Upload over the dirty span (`TorchFloodPool.DirtySpan`; the words
+  between already equal the CPU copy), and the synchronous Flush uploads once at its end. Night launch peak 5,985 -> 2,538 MB; play fill
+  3,445 -> 2,422 MB; CPU union hash identical, GPU == CPU (VerifyGpu) both ways. LESSON for any GPU buffer: count SetData calls per frame,
+  not bytes. Diagnostic `-tfmemmarks` (`[tfmem]` lines: footprint per frame that moved >= 32 MB, marks inside Rebuild/Flush/Upload).
+  Capture caveat: `-costarms tf_tick,tf_on` makes tf_on REUSE tf_tick's pool (no Rebuild): put tf_on first.
+
 - **A CLICK ON THE PLAYER WINDOW TURNS A CAPTURE RUN'S CAMERA (task 205, 2026-11-14; fixed for `-worldsurvey` only).**
   Once a click captures the mouse, `PlaygroundFlyCamera.Update` writes its own yaw / pitch into the camera EVERY frame, overriding the
   capture's `SetPositionAndRotation`. With the queue running while the owner uses the Mac, 205's first launch shot 6 of 20 frames at the

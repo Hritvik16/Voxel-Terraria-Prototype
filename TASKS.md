@@ -2091,3 +2091,13 @@ hard limits 3,000 MB and walk_near refusals 0) and `BUDGET PASS|WARN|FAIL|NOT CL
 (refused when NOT CLEAN or a hard limit fails); `--compare DAY NIGHT [FOREST]` on old logs; `--stricter F --write-copy` (test
 copies). A full run sets `tools/overnight/BUDGET_COUNT` (PREAMBLE rule 13). Output `Logs/budget/<stamp>/check.txt`. First run
 (2026-11-17, 165 min with reruns): NOT CLEAN (owner input + pause), and the night launch peaks at ~6.0 GB on the tf_on flood build.
+
+**Task 236 (bug, memory; supervisor approval (a) of task 230's STOP): the night torch scene's 6 GB peak, and play's torch fill.**
+Cause: `TorchFloodPool.Upload` made one `GraphicsBuffer.SetData` per dirty data run; on Metal each call stages ~4 MB of GPU memory
+(IOAccelerator) until the GPU finishes the frame. The capture's synchronous `Rebuild` = 903 calls in one frame (+3.5 GB); play's `Tick`
+fill = up to 81 calls per frame (footprint 3.4-3.6 GB). Fix `-tfupload 1|0` (default 1; 0 = before 236): ONE SetData per buffer per Upload
+over the dirty span (`DirtySpan`), and Flush uploads once at its end. Night `-costpaths torch` peak 5,985 -> 2,538 MB, play fill 3,445 ->
+2,422 MB, upload calls 903 -> 3 (rebuild) / 1,607 -> 158 (fill), bytes up 34 -> 105 MB per 28-torch fill (span re-sends clean words).
+Same CPU union (hash), GPU == CPU (`VerifyGpu`). Diagnostics: `-tfmemmarks` (`[tfmem]` per-frame footprint jumps + Rebuild/Flush/Upload
+marks, MemWatch.Mark) and the capture arm `tf_tick` (flood ON from an empty pool, filled only by play's Tick). Tests
+`TorchFloodMemoryTests` (DirtySpan one span + clears; one flood's CPU transient < 64 MB). Logs `Logs/overnight/236/`.
