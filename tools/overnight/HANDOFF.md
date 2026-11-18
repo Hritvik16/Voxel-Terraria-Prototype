@@ -1,36 +1,54 @@
-STOP_FOR_OWNER -- the budget check works, but no baseline can be accepted yet. Two reasons:
-(1) The NIGHT launch peaks at **~6.0 GB** of process memory (6,025 and 6,055 MB; task 229's night 6,037). The hard limit is 3,000 MB, and this was not reported before. The day launch stays at 2,568 MB. INFERRED cause: the `tf_on` arm's synchronous `TorchFloodPool.Rebuild` (28 torches). 233's night ran on the same build without `tf_on` and peaked at 2,538 MB. Play uses the incremental `Tick`, so it is NOT known whether play spikes too.
-**Question:** (a) queue a bug task to find the +3.5 GB transient in Rebuild/Flush, and check whether play's Tick does it too (recommended; every check fails until then), or (b) accept the night peak as capture-only and count only the day peak for the hard limit.
-(2) The run was NOT CLEAN: the owner used the Mac (19:33-20:26, then from 21:19) and paused at 22:04. So `--rebaseline` was refused, as designed. Rerun the check when the Mac is idle, after (1) is decided.
+# 236-bug-night-torch-memory-peak-6gb: FIXED. Night torch scene peak 5,985 -> 2,538 MB; play's torch fill spiked too (3,445 -> 2,422 MB).
 
-# 230-perf-budget-check-script: script written and failure path proven. First real run NOT CLEAN; night peak 6.0 GB over the hard limit.
+## Cause (proven, not inferred)
+Not the flood's CPU memory: its own accounting is ~48 MB, Unity's "allocated" stayed flat, and an EditMode flood of 3.8 M voxels adds only +16-29 MB.
+macOS `footprint` samples during the fill: the swing was **IOAccelerator (Metal)**; "Untagged" (native heap) stayed flat.
+`TorchFloodPool.Upload` issued ONE `GraphicsBuffer.SetData` per dirty data run, up to 239 calls per upload. On Metal **each call cost ~4 MB of
+GPU memory** (about the whole data buffer, whatever it wrote): 239 calls -> +949 MB, 230 -> +900 MB. That memory was held until the GPU finished the frame.
+The capture's synchronous `Rebuild` = 14 merges' uploads (903 calls) in ONE frame = +3.5 GB.
+**Play spikes too**: the per-frame `Tick` fill (28 torches at once, capture arm `tf_tick` = play's path) did up to 81 calls per frame. Footprint
+3,445 MB (launch 1: 3,603), over the 3 GB limit. So placing several torches in play crossed it.
 
-## What changed (no Assets code, no API/layout change)
-- `tools/overnight/run-budget-check.sh` (new). Holds the lock. Steps: build unless SKIP_BUILD=1 → warm-up → DAY cost split (walk_near, arms from `PERF_BUDGET.json` steps) → FOREST (FULL only, secondary) → NIGHT (`-costpaths torch`, arms tf_on and tl_none; the torch scene's FULL is the OLD point lights). Input watch: a dirty DAY or NIGHT launch reruns once, and still dirty = NOT CLEAN; input during forest_eye is reported only. It prints ONE table and `BUDGET PASS|WARN|FAIL|NOT CLEAN` (exit 0/0/1/3), and takes `--rebaseline "<who>"` and `--compare DAY NIGHT [FOREST]`.
-- `tools/overnight/budget_compare.py` (the comparison) and `tools/overnight/hididle.c` (212's input probe).
-- `run-cost-split.sh`: `DEV_KERNELS=0` (play's player) and `BUILD_ARGS` hooks. The defaults are unchanged.
-- `PERF_BUDGET_GUARD.md`: the owner's pick (b), N = 5, an "as built" section and the open 6 GB note. `PERF_BUDGET.json`: the forest_eye pose is pinned, plus the launch flags. The baseline is STILL the provisional one.
-- `tools/overnight/BUDGET_COUNT` = 7 (225-229, 232, 233; 233 HEAVY). PREAMBLE rule 13 (the supervisor's counter and check rule). TASKS.md paragraph.
-- Fixed after the run (my bug): the script's EXIT trap replaced unity-lock's release trap, which left a stale lock (I removed it; it was mine, dead pid).
+## What changed (commits c140a9a code+docs, 541ee9c evidence)
+- `TorchFloodPool.cs`: `-tfupload 1|0` (default 1; 0 = before 236). Mode 1 = ONE SetData per buffer per Upload over the dirty span (`DirtySpan`; the
+  words in between already equal the CPU copy), and the synchronous Flush uploads once at its end. Counters `UploadCalls/UploadCallsMax`, `UnionHash()`,
+  `MemMark` hook (null = off). No API/layout change; the CPU union is untouched.
+- `MemWatch.cs`: `-tfmemmarks` diagnostic (`[tfmem]` line per frame whose footprint moved >= 32 MB, plus marks in Rebuild/Flush/Upload).
+- `PlaygroundCapture.TorchCost.cs`: capture arm `tf_tick` (flood ON from an empty pool, filled only by play's Tick).
+- `TorchFloodMemoryTests.cs` (new): DirtySpan = one span, clears, ignores stale bits past the length; one flood's CPU transient < 64 MB.
+- KNOWN_ISSUES entry, PERF_BUDGET_GUARD's 6 GB note -> FIXED, TASKS.md paragraph.
 
-## Evidence (warm: warm-up `Logs/tg2world_20261117_192617.txt`; run `Logs/budget/2026-11-17_192530/`)
-- Table: `Logs/budget/2026-11-17_192530/check.txt` (vs the provisional baseline). Clean part = the day rerun's walk_near (timed about 20:46-20:56; no input from 20:26 until 21:19:43, which fell in forest_eye). p50 ms:
-  walk_near FULL 67.4 (p95 117.1, 88.8 % > 33 ms, FULL range 5.5) | ceiling 22.9
-  steps: sky fill 11.5 (share 2.5) | sun 20.9 (share 5.0) | flood day -0.2 (229's skip works) | shells 6.0 (share 4.0)
-  night torch_camp (first launch, input only): tf_on 59.0, tl_none 49.6, so the flood step is +9.4 ms (share 1.0). The rerun (paused) is unusable: FULL range 21.6.
-  forest_eye FULL 99.9 / 103.7 (both launches had input during it; secondary). Memory: day peak 2,568 MB, GPU refusals 0 at every day path, GPU pool peak 245,704, CPU pool peak 494,879.
-- Failure path: a copy with this run as its baseline (hard memory limit lifted to 7,000 to isolate the ratchet rows) gives `BUDGET PASS` exit 0. The same copy x 0.8 gives `BUDGET FAIL` exit 1 (walk p50 +13.5 > 5.0, p95, sun step +4.2 > 3.0, night play, memory) (`Logs/overnight/230/failtest_same.txt`, `failtest_strict.txt`).
-- Time: 165 min with both reruns. The day launch took 73 min: 13 min walk_near and 60 min timing all 5 arms at forest_eye at about 100 ms frames. After the run I moved forest_eye to a FULL-only launch: estimated total about 35-40 min per clean check. This split is NOT yet run for real (owner pause), but the compare side is tested on these logs.
-- EditMode suite NOT run: nothing under Assets changed (shell/python/md only), and the owner's pause holds the Unity lock queue.
+## Evidence (plan `Logs/overnight/236/PLAN.md`; same build, back to back, `-costpaths torch -costarms tf_on,tf_tick -tfmemmarks`)
+| | `-tfupload 0` (old) | `-tfupload 1` (new) |
+|---|---|---|
+| process peak (night launch) | 5,984.9 MB | **2,538.1 MB** |
+| rebuild: SetData calls / most per upload | 903 / 239 | 3 / 3 |
+| play fill (tf_tick): max footprint | 3,445 MB | 2,422 MB |
+| play fill: calls / most per frame / bytes | 1,607 / 81 / 33.7 MB | 158 / 3 / 105.5 MB |
+| IOAccelerator max (footprint samples) | 4,657 MB | 1,156 MB |
+| CPU union hash after rebuild | 0B365D765B03507C | 0B365D765B03507C |
+| GPU == CPU (VerifyGpu), rebuild and both fills | yes | yes |
+| GPU body pool peak / refused; CPU pool peak | 103,611 / 0; 225,775 | 103,611 / 0; 225,775 |
+Reports: `Logs/overnight/236/costsplit_upload0_old.txt`, `costsplit_upload1_new.txt`; marks: `up0_tfmem.txt`, `up1_tfmem.txt`; categories: `fp_up0.txt`, `fp_up1.txt`, `fp_tick.txt`.
+Day level (task 230) 2,568 MB; the night is now below it.
+Stills: cross-launch byte compare is meaningless (even the flood-OFF `full` arm differs: real-time yaw sweep, FSR history), so identity = union hash + VerifyGpu.
+Looked at `Screenshots/236/tf_on_old_vs_new.png`: the same torch-lit slope and posts in both halves, with a slight yaw offset.
+Tests: own filter PASS 2. Fast suite **PASS 1107 FAIL 0 SKIP 25** (`Logs/overnight/236/fast_suite.out`).
+Rule 11/12: no pass added, GPU buffer sizes unchanged. Upload bytes rise (34 -> 105 MB per 28-torch fill, ≤ 1.7 MB per merge frame: a memcpy).
+No frame timing taken (rule 10). Not HEAVY.
 
-## Left / next
-- Owner: the 6 GB question above. Then a clean `run-budget-check.sh --rebaseline "owner Q-AO b"` (SKIP_BUILD=1 is fine until code changes; the build at 16:56 = HEAD with `-startsun 0` pinned).
-- Note: 233's walk_near FULL of about 35 ms is not comparable with this check's 67 ms (233 used -shellwait 30 and 12 s timing, and these numbers repeat 229's 60-88 ms at shellwait 60).
-- Not mine, not committed: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`, the 230 queue file's edited Requires line.
+## Left / notes
+- Parked task 170's patch (`tools/overnight/later/170-*.patch`) edits `Upload` (GrowGpu, partial-run uploads): it now conflicts and must be rebased over 236.
+  Its per-run upload idea is exactly what cost memory here.
+- Capture caveat (not fixed, out of scope): with `-costarms tf_tick,tf_on`, tf_on REUSES tf_tick's pool and does not Rebuild (`_costBaseFlood` is
+  read after the torch scene turns the flood off). Put tf_on first. Noted in KNOWN_ISSUES.
+- Next: the supervisor's clean `run-budget-check.sh` (needs a new build; idle Mac) can now pass the 3,000 MB hard limit and be `--rebaseline`d.
+- Lesson for other GPU buffers (fluid, shells, mirror): count SetData calls per frame, not bytes.
 
 ## For the doc
-- The guard exists: `tools/overnight/run-budget-check.sh` prints one table and BUDGET PASS / WARN / FAIL / NOT CLEAN. Proven: same baseline → PASS (exit 0), baseline 20 % stricter → FAIL (exit 1).
-- First real run (`Logs/budget/2026-11-17_192530/check.txt`): walk_near at play settings 67.4 ms p50 (target 33.3), ceiling 22.9 ms. Lighting steps: sky fill 11.5 ms (share 2.5), sun 20.9 ms (share 5.0), shells 6.0 (share 4.0), torch flood by day -0.2 ms (≈0 since 229), torch flood at night +9.4 ms (share 1.0).
-- Memory: day 2,568 MB, but the night torch scene peaks at 6,055 MB, over the 3 GB limit. New finding, owner question.
-- Not accepted as the baseline: the owner used the Mac during the run (NOT CLEAN). Rerun when idle.
-- No images: a tooling task. The cost split's stills are in `~/Library/Application Support/.../UpscalerClips/2026-11-17_204403/stills/` if wanted.
+- Night torch scene memory peak: **5,985 -> 2,538 MB** (limit 3,000; day 2,568). `Logs/overnight/236/costsplit_upload{0_old,1_new}.txt`
+- Play was affected too: placing 28 torches peaked at **3,445 -> 2,422 MB** while the flood filled (`up0_tfmem.txt` / `up1_tfmem.txt`)
+- Cause: 903 tiny GPU uploads in one frame, ~4 MB of Metal memory each. Now 3 uploads (one per buffer).
+- Same light: CPU flood hash identical, GPU copy verified equal. GPU pool refusals 0 -> 0.
+- Image: `Screenshots/236/tf_on_old_vs_new.png`. Left = old upload, right = new, the night torch scene with the flood ON; the lighting is the same
+  (posts and lit slope match; a small yaw offset comes from the real-time sweep).
