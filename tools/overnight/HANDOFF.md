@@ -1,45 +1,35 @@
-# 235-perf-budget-worst-case-poses: DONE. The budget check now judges worst-case poses. The first clean run is rebaselined: worst pose forest_eye at 16 deg, 135.4 ms p50 (4.1x the 30 fps frame).
+# 234-merge-readiness-check: DONE. Verdict READY: engine-phase can merge into main once the owner says go. Nothing was merged or pushed, and main was not touched.
 
-## What changed (scripts, JSON and docs only; no Assets code). Commit 92bacb1
-- `tools/overnight/run-budget-check.sh`: runs 4 cost splits after the warm-up, read from `PERF_BUDGET.json` "launches". The header says why (owner 2026-11-17).
-  Input during a launch's TIMED path makes it dirty. Input during a still-only path is reported only. `--compare walk=W forest=F jungle=J night=N`.
-- `tools/overnight/budget_compare.py`: per-pose rows, one pose x step table, the worst pose per step, and top 3 steps at the worst pose. The verdict uses the WORST-CASE rows and the hard limits only; noon rows are a control (info).
-  A FULL row is now also downgraded to "noisy" when its FULL range exceeds its tolerance. A MISSING row now = FAIL.
-- `PERF_BUDGET.json` v2: `worst_case`, `launches`, `poses`, and the pinned `jungle_eye_pose`. The v1 noon baseline moved to `previous_baselines`. The new baseline + history entry were written by `--rebaseline "owner 2026-11-17, task 235"`.
-- PREAMBLE rule 12 and `PERF_BUDGET_GUARD.md` sec. 3 each got one line: "report worst-case poses, not only noon / no torches". There is also a TASKS.md paragraph. `BUDGET_COUNT` -> 0 (accepted check).
-- Design: forest_eye and jungle_eye keep a streaming deficit, so EVERY run there waits NearSettle's 180 s cap (~3.7 min a run). Those launches therefore time only sun_off and skyfill0 (+ startsun_off at forest).
-  Day flood is not timed: every day FULL line said `flood skip` = 0 by construction (229). rest = FULL - sun - sky - flood.
+## What changed
+- No code. The report is `Logs/overnight/234/merge_readiness.md` (full detail, the proposed doc lines and the exact merge commands). The suite output is `Logs/overnight/234/all.out`. Commit: see `git log -1` ("234: merge readiness report").
 
-## Evidence (warm steady state; warm-up `Logs/tg2world_20261117_235342.txt`; run `Logs/budget/2026-11-17_235256/`, table `check.txt`)
-CLEAN (0 input moments, no pause), BUDGET PASS, rebaselined. p50 ms (% of 33.3):
-| pose | FULL | sun | sky fill | flood | rest | p95 | >33 ms | deficit |
-|---|---|---|---|---|---|---|---|---|
-| forest_eye 16 deg | **135.4 (407 %)** | 54.7 (164 %) | 25.5 (77 %) | 0 (skip) | 55.2 (166 %) | 198.2 | 97.9 % | 573 |
-| jungle_eye noon | 70.0 (210 %) | 15.5 (47 %) | -0.8 (~0) | 0 (skip) | 55.3 (166 %) | 99.9 | 99.5 % | 942 |
-| torch_camp night (tf_on) | 52.7 (158 %) | 0.4 | 0.9 | 8.4 (25 %) | 43.0 (129 %) | 76.5 | 90.9 % | 0 |
-| walk_near 16 deg | 35.4 (106 %) | 12.9 (39 %) | -0.5 (~0) | 0 (skip) | 23.0 (69 %) | 86.9 | 56.8 % | 0 |
-| control: forest_eye noon | 99.2 (298 %) | | | | | 138.6 | 97.3 % | 573 |
-| control: walk_near noon (same arc) | 34.1 (102 %) | | | | | 64.0 | 53.9 % | 0 |
-- The poses furthest over 33.3 ms: forest_eye 16 deg +102.1 ms, jungle_eye +36.7, torch_camp +19.4, walk_near 16 deg +2.1.
-- Top 3 steps at the worst pose (forest_eye 16 deg): rest 55.2, sun 54.7, sky fill 25.5. The low sun alone costs +36.2 ms there vs noon (135.4 vs 99.2, same launch; 233 measured +26.8).
-- Noise: forest FULL passes 145.2 / 134.0 / 134.1 / 134.3 (the first pass is high, so its sky-fill delta has noise 11.2 and is about 20 ms if you use the after-pass). walk_near FULL range 13.5 (the sun step's noise is 13.5), jungle 4.4, night 8.8.
-- Shells (walk_near 16 deg only): 7.0 ms (share 4.0). Ceiling 18.6 ms.
-- Memory (rule 11): peak 2,621 MB (forest launch; walk 2,535, jungle 2,521, night 2,512): under 3,000. GPU refusals: walk_near 0 (hard limit PASS), jungle 4,472 (pool full at 254,400, the known issue). CPU pool peak 496,071, valve 484,500.
-- Stills looked at (`Screenshots/235/sheet_worst_case.png`): forest 16 deg shows long low-sun shadows; noon does not. Jungle: tall dark trunks, sky through the canopy. Night: a slope lit by torches, 0.5 h sky. Both walk_near stills open on a close sandstone wall.
-- Fast suite PASS 1107 FAIL 0 SKIP 25 (`Logs/overnight/235/fast.out`). Nothing under Assets changed.
-- Time: 99 min (warm-up 5 min, walk 10, forest 43, jungle 31, night 9). That is OVER the ~40 min the task named. The 4-launch split already keeps each launch under ~45 min, and the deficit wait is the cost.
+## Evidence
+- Branch: 240 commits ahead (`main..engine-phase`); 806 files, +65,627 / -617 lines. `main` == `origin/main` == `412e04e` (2026-11-06), and `main` is an ancestor of engine-phase.
+- Push size: **1.7 MB** (git bundle of `main..engine-phase`). Largest file `Raymarch.compute` 401 KB. No blob over 5 MB, no images, no secret-looking files or lines. `.gitignore` covers `/Logs/` and `Screenshots/**` images.
+- Uncommitted: only the known generated files (`Assets/Scenes/Playground.unity`, 8 `Logs/TerrainGen/*` txt) plus the runner's queue/done moves and untracked Screenshots viewers.
+- **SUITE=all: PASS 1189 FAIL 0 SKIP 35**, 37m34s. The known slow-route failure (seed 31337 ford) is no longer red: `RouteTests` has passed since task 179. Nothing new failed. Skips: 16 report-only, the rest opt-in probes.
+- Budget check: **NOT re-run (my decision).** Task 235's accepted check (`Logs/budget/2026-11-17_235256/check.txt`, 01:32 today, CLEAN, `BUDGET PASS`, rebaselined) ran on exactly HEAD's engine code: nothing under Assets/ProjectSettings/Packages changed after `c140a9a`, and the 235 run started after it. A re-run could only give PASS (READY) or noise-WARN (still READY), so it would spend ~100 min of a hot Mac on no decision. To run it anyway: `tools/overnight/run-budget-check.sh`.
+  Its table, p50 ms: forest_eye 16 deg 135.4 | jungle noon 70.0 | torches night 52.7 | walk_near 16 deg 35.4 (controls: forest noon 99.2, walk noon 34.1). Hard limits PASS: peak 2,621 MB < 3,000, and walk_near has 0 GPU refusals.
+- No screenshots were taken (none needed: nothing visible changed).
 
-## Caveats / next
-- **walk_near at 16 deg is NOT a worst case.** The capture picks the walk arc from the sun's azimuth, so at 16 deg it is a different arc (it starts facing a wall, and the minimap says "underground -12 m") than the old noon arc (67 ms in 230).
-  Its noon control is the same arc (34.1). Suggested follow-up (capture-only code, needs a task): `-costwalkarc <deg>` to pin the arc to the old noon one (-180 deg), then rebaseline the walk rows.
-- Shorter check: a capture option to cap NearSettle's deficit wait (e.g. 20 s) would cut forest/jungle from ~3.7 to ~1 min a run (check ~100 -> ~45 min). Not done: capture code is out of this task's scope.
-- Not mine, not committed: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`, the 236 queue-file deletion.
+## Docs out of date (lines proposed in the report, sec. 4; CLAUDE.md NOT edited)
+- CLAUDE.md "Current state" has stale lines: the merge note (10-22 / a5f6440; main has been at 412e04e since 11-06), the perf state (168b-e -> the 235 worst-case table), and the fast suite (997 -> 1107/0/25). The whole-suite count is also stale ("630 cases, ~9.5 min" -> ~1,224 cases, ~38 min).
+- CLAUDE.md index: the "Slow route test red by known cause" line is stale (green since 179). There is no line yet for 236 (night torch 6 GB, FIXED).
+- SESSION_HANDOFF.md predates 236/235/234; the supervisor refreshes it. TASKS.md and KNOWN_ISSUES.md are current.
+
+## Merge plan (each step needs the owner's explicit go)
+- Plain merge commit `--no-ff`, the same as a5f6440. This keeps the 240 per-task hashes that the docs cite (a squash would orphan them).
+- Do it in a worktree (`git worktree add /tmp/voxel-main main`), so the working checkout and its uncommitted Playground.unity stay untouched.
+- Then `git push origin main` and `git push origin engine-phase` (origin's engine-phase is stale at 475ac85 from 10-13; the push is a fast-forward). Exact commands: report sec. 5.
+- Rollback: `main` -> `412e04e9c685bebf0624b999c8611f84136d906a` (before the push: `git branch -f main 412e04e`; after the push: `git revert -m 1 <merge>`, which is safer than a force push).
+- Blocked leftovers (`tools/overnight/blocked/`): 7 open task files (178c, 180, 180b, 184, 184b, 208, 216; their safe work is already committed, and each waits on an owner question), 4 orphan patches from tasks that later finished (176c, 177b, 187, 191), and `stale-20261108/`. They are tracked text, and nothing applies them. Recommendation: merge them as they are; later, the supervisor can move the orphans to `stale-20261118/`.
+
+## Next step
+- Supervisor: ask the owner for the go (merge + push), and optionally apply the CLAUDE.md line updates first so main carries current notes. Queue: 237 (plan: path to 33 ms at the worst poses) is next.
 
 ## For the doc
-- How far is the worst case from 30 fps? Forest at a morning sun (16 deg) runs at **135 ms a frame, about 7 fps**, which is **4.1x** the 33.3 ms budget. Jungle at noon runs at 70 ms (about 14 fps), torches at night at 53 ms (about 19 fps), and the walk arc at 35 ms (about 28 fps).
-  Even with the sun shadows, sky fill and torch flood all free, forest 16 deg would still be about 55 ms ("rest": the near march, trees, FSR and CPU), so no single lighting fix reaches 30 fps there.
-- Worst pose per step: sun 54.7 ms (forest 16 deg; share 5.0), sky fill 25.5 ms (forest 16 deg; share 2.5), torch flood 8.4 ms (night; share 1.0), rest 55 ms (forest and jungle).
-- The low sun alone: forest 99.2 ms at noon -> 135.4 ms at 16 deg (+36 ms, same launch).
-- Memory: peak 2,621 MB (under 3 GB). Jungle GPU pool full (4,472 refusals, known).
-- Table: `Logs/budget/2026-11-17_235256/check.txt`.
-- Image `Screenshots/235/sheet_worst_case.png`: top row is forest 16 deg | forest noon | jungle noon, bottom row is torches at night | walk_near 16 deg | walk_near noon. Compare the long shadows in the top-left panel (the costly low sun) with the short noon shadows next to it. The two bottom-right panels show why the walk row is not a worst case: a wall fills the frame.
+- **Verdict: READY to merge** engine-phase -> main (owner go needed; nothing pushed). 240 commits; the push sends about 1.7 MB; no file over 5 MB; no secrets or images.
+- Whole test suite: **1189 passed, 0 failed, 35 skipped** (37.5 min, `Logs/overnight/234/all.out`). The old route-test failure is gone (fixed in 179).
+- Budget: the 235 check on this same code is `BUDGET PASS`. Memory peak 2,621 MB (under 3 GB). Worst pose: forest at a 16-degree sun, 135 ms (about 7 fps), which is still 4.1x the 30 fps frame. That is the performance stage's job, not a merge blocker.
+- Rollback point: main `412e04e`. Merge method: plain merge commit (keeps the task history).
+- No images: this task changed nothing visible.
