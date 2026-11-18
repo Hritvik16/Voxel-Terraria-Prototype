@@ -2060,3 +2060,20 @@ sub-pixel pole line is missed in ~1.7 % of pixels, all within 1 voxel of its edg
 (8 -> 12 B x 2 x 768x432; play has temporal shadows ON via the preset). Result (warm ABBA, noon, 432 rows, p50): walk_near 62.1 ->
 60.6 ms (noise 1.3), forest_eye 95.8 -> 98.3 (noise 8.9), jungle_eye 70.5 -> 69.3 (noise 27); sun off 42.3 / 78.0 / 54.7. Runner
 `Logs/overnight/232/run.sh`, plan `PLAN.md`, pictures `sheets.py` -> `Screenshots/232/sheets/`. Result: HANDOFF 232.
+
+**Task 233 (look: low-sun start, pale sky + clouds, light grade; owner Q-AP (a)).** Three switches, constants / per-pixel ALU
+only, no new pass, 0 GPU bytes. `-startsun DEG` (SunCycle.StartSunDegrees; DEFAULT 0 = noon, `-startsun 16` = the look pick,
+morning side): play's start view / resume and the cost split's default hours (no `-costsun`) use the morning hours where the sun
+is DEG up. Kept OFF because over budget: warm ABBA sun step at forest_eye 18.2 ms (noon) -> 45.0 (16 deg) / 35.9 (25 deg),
+noise 8.0; walk_near 12.1 -> 9.6 / 10.6 (`Logs/overnight/233/costsplit_day.txt`). `-skypale 0|1` (default 1; `-skylook` is task
+121's switch): LookAtmosphere (sky pixels + haze target) uses the pale zenith (0.44,0.60,0.84) / horizon (0.80,0.85,0.90) with a
+wider horizon band (down^2 by day), `_SkyLook` bit 8, `_SkyPaleZenith/_SkyPaleHorizon` (w = day factor); `SkyClouds` 2-octave
+value noise on MISS pixels only (`!hit && !farHit`); the lighting colours (ambient, FarShadeSky, sky fill) take the pale hue at
+the old luma (SunCycle.DayZenith/DayHorizon), so shade changes hue, not brightness. `-grade 0|1` (default 1): `Grade233` in
+CSMainBody just before the ResultTexture write (render rows, before FSR), display space: greens -22 % sat + olive, all -5 %,
+warm mids, S-curve 0.18 pivot 0.40, toe lift 0.012, corner vignette 0.10 (RaymarchFeature.GradeA/GradeB/GradeWarm, tuned
+offline by `Logs/overnight/233/grade_tune.py`). Sky and grade scale with the day factor: night bit-identical by construction.
+Cost-split arms `startsun_off`, `startsunNN`, `skypale_off`, `grade_off`, `look233_off`, `sun233_only|sky233_only|grade233_only`;
+new capture options `-coststillarms a,b` (still-only arms) and `-costtimedpaths p,q` (only these paths run timed arms).
+Tests `Look233Tests` (start sun morning/noon, lighting luma kept, night unchanged, shader pins). Runner `Logs/overnight/233/run.sh`,
+sheets `sheets.py` -> `Screenshots/233/sheets/`, metrics `metrics.txt`. Result: HANDOFF 233.

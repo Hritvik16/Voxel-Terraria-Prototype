@@ -28,7 +28,9 @@ public class SkyLookTests
     {
         string src = File.ReadAllText("Assets/CoreEngine/Rendering/Raymarch.compute");
         StringAssert.Contains("baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));", src, "-skylook 0 = the old gradient");
-        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);", src, "a miss sees the disc");
+        // task 233: the miss line goes through skyBg (LookSkyBackground + the pale sky's clouds on sky pixels only)
+        StringAssert.Contains("float3 skyBg = LookSkyBackground(rayDir);", src, "a miss sees the disc");
+        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(skyBg, _LookGrade.z)), 1.0);", src, "a miss sees the disc");
         int haze = src.IndexOf("float3 FarShadeApplyHaze(");
         Assert.Greater(haze, 0);
         int end = src.IndexOf("\n}", haze);

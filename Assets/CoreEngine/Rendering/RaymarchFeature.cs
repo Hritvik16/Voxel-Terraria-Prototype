@@ -616,6 +616,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         _heightMipGen++;   // task 168: a new buffer starts with a full build
     }
     private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
+    private static Vector4 V4f(Unity.Mathematics.float4 v) => new Vector4(v.x, v.y, v.z, v.w);   // task 233
 
     /// TEMPORAL SHADOW REUSE (Raymarch.compute's header note). Off unless
     /// `-tshadow 1` (last match wins) until measured.
@@ -689,6 +690,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Task 226: bytes of bloom's two quarter-res textures this frame (0 = off); the HANDOFF's GPU-bytes line.
     public static long LastBloomBytes;
     public static int LotlLookBits => (VoxelVary ? 1 : 0) | (Crevice ? 2 : 0) | (AerialHaze ? 4 : 0);
+
+    /// TASK 233 (owner Q-AP (a), 2026-11-17: task 231's three cheap look pieces, each its own switch; the third,
+    /// `-startsun`, is SunCycle.StartSunDegrees, default 0 = noon: over budget). Both below default ON. Constants and per-pixel ALU only, 0 GPU bytes, no new pass.
+    /// `-skypale 0|1`: the pale hazy sky + 2-octave procedural clouds on sky pixels (Raymarch.compute LookAtmosphere /
+    /// SkyClouds, _SkyLook bit 8; needs the task 121 sky look); lighting takes its hue at the old luma (SunCycle.DayZenith).
+    /// (`-skylook` is task 121's switch, hence the new name.) `-grade 0|1`: the light colour grade in CSMain's last
+    /// colour step before the ResultTexture write (render rows, before FSR; Grade233). Both scale with the day factor:
+    /// night is bit-identical either way.
+    public static bool SkyPale = ReadIntArg("-skypale", 1) != 0;
+    public static bool ColourGrade = ReadIntArg("-grade", 1) != 0;
+    /// The grade's constants (offline-tuned on 226 / 231 stills, Logs/overnight/233/grade_tune.py: mean luma within
+    /// -0.2 .. +4.5 %): x green desaturation, y all desaturation, z olive (red into greens), w S-curve strength;
+    /// second: x S-curve pivot, y toe lift, z vignette, w unused. The warm-midtone tint is GradeWarm.
+    public static readonly Vector4 GradeA = new Vector4(0.22f, 0.05f, 0.06f, 0.18f);
+    public static readonly Vector4 GradeB = new Vector4(0.40f, 0.012f, 0.10f, 0f);
+    public static readonly Vector4 GradeWarm = new Vector4(0.025f, 0.010f, -0.022f, 0f);
     /// Their constants. Vary: +-12 % brightness on the darkest look albedo, +-6 % on white (a light material would
     /// clip), +-3 % warm/cool. Crevice: the direct light takes half of FaceAO's depth. Aerial: haze range and the
     /// desaturation share (task 121's 0.5 -> 0.75). Bloom: bright share smoothstep(0.55, 1.0) of linear luma, strength,
@@ -923,6 +940,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public Vector4 lookSkyRimShape;   // task 126
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
+            public Vector4 skyPaleZenith, skyPaleHorizon;   // task 233
+            public float grade233;                          // task 233: the grade's amount (day factor; 0 = off)
             public int emissiveBleed;
             public int underwaterView;
             public int seeThroughLiquids;
@@ -1342,6 +1361,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // LightingConfig.look -- see the LOOK 1 block in Raymarch.compute.
                 passData.look = LookOverride >= 0 ? LookOverride : cfg.look;
                 float hrs = SunCycle.Hours;
+                SunCycle.PaleSky = SkyPale && SkyLook;   // task 233: before any Look*At below
+                passData.skyPaleZenith = SkyPale && SkyLook ? V4f(SunCycle.PaleSkyZenithAt(hrs)) : Vector4.zero;
+                passData.skyPaleHorizon = SkyPale && SkyLook ? V4f(SunCycle.PaleSkyHorizonAt(hrs)) : Vector4.zero;
+                passData.grade233 = ColourGrade ? SunCycle.LookDayFactorAt(hrs) : 0f;
                 passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
                 passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
                 passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
@@ -1886,7 +1909,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRimShape", data.lookSkyRimShape);   // task 126
-                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0));
+                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0) | (SkyLook && SkyPale ? 8 : 0));
+                        cmd.SetComputeVectorParam(data.compute, "_SkyPaleZenith", data.skyPaleZenith);     // task 233
+                        cmd.SetComputeVectorParam(data.compute, "_SkyPaleHorizon", data.skyPaleHorizon);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233", new Vector4(data.grade233, 0f, 0f, 0f));
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233A", GradeA);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233B", GradeB);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233Warm", GradeWarm);
                         cmd.SetComputeIntParam(data.compute, "_BiomeTint", BiomeTint ? 1 : 0);   // task 122
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
                         cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);

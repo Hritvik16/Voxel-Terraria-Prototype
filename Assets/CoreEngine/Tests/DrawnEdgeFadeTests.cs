@@ -35,7 +35,9 @@ public class DrawnEdgeFadeTests
         Assert.Greater(fade, 0);
         string fadeBody = src.Substring(fade, src.IndexOf("\n}", fade) - fade);
         StringAssert.Contains("LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)", fadeBody, "the target is the miss colour without the disc");
-        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);", src, "a miss is shouldered the same way");
+        // task 233: the miss line goes through skyBg (LookSkyBackground + the pale sky's clouds on sky pixels only)
+        StringAssert.Contains("float3 skyBg = LookSkyBackground(rayDir);", src, "a miss is shouldered the same way");
+        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(skyBg, _LookGrade.z)), 1.0);", src, "a miss is shouldered the same way");
 
         int call = src.IndexOf("color.rgb = DrawnEdgeFade(color.rgb, rayDir, hit ? currentDist : fh.t);");
         Assert.Greater(call, 0, "the fade is applied in the body");

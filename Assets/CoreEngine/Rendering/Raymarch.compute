@@ -1158,6 +1158,11 @@ float4 _LookSkyRim;        // rgb the rim colour, a its strength (0 by day)
 // Task 126 (SunCycle.LookSkyRimShapeAt, -skyrimscale): x the rim's weight away from the sun
 // (task 121: 0.4), y the power of the halo floor's lobe round the sun (task 121: 8).
 float4 _LookSkyRimShape;
+// TASK 233 (-skypale, _SkyLook bit 8; SunCycle.PaleSkyZenithAt / HorizonAt): the pale hazy sky the EYE sees (rgb,
+// display space, night colours below the day factor) and w = the day factor (the clouds' weight). Lighting keeps
+// _LookSkyZenith / _LookSkyHorizon (the pale hue at the old luma, set on the CPU).
+float4 _SkyPaleZenith;
+float4 _SkyPaleHorizon;
 #define SKY_RIM_POW 3.0
 #define SKY_DISC_COS_IN  0.99994516    // cos 0.60 deg: the disc's full radius
 #define SKY_DISC_COS_OUT 0.99990252    // cos 0.80 deg: its soft edge
@@ -1172,7 +1177,10 @@ float3 LookAtmosphere(float3 dir)
     {
         float down = 1.0 - saturate(dir.y);
         float d2 = down * down;
-        baseSky = lerp(_LookSkyZenith.rgb, _LookSkyHorizon.rgb, d2 * d2);
+        if ((_SkyLook & 8) != 0)   // task 233: pale, the horizon band widened by day (down^2; night = down^4 as before)
+            baseSky = lerp(_SkyPaleZenith.rgb, _SkyPaleHorizon.rgb, lerp(d2 * d2, d2, _SkyPaleHorizon.w));
+        else
+            baseSky = lerp(_LookSkyZenith.rgb, _LookSkyHorizon.rgb, d2 * d2);
         float2 hd = dir.xz / max(length(dir.xz), 1e-4);
         float2 hs = sd.xz / max(length(sd.xz), 1e-4);
         float facing = dot(hd, hs) * 0.5 + 0.5;
@@ -1208,6 +1216,63 @@ float3 LookSkyBackground(float3 dir)
     float3 hue = _LookSkyHalo.rgb / max(max(_LookSkyHalo.r, max(_LookSkyHalo.g, _LookSkyHalo.b)), 1e-3);
     float up = smoothstep(-0.015, 0.01, sd.y);
     return c + hue * (disc * 1.5 + glow * 0.35) * up;
+}
+
+// TASK 233 (-skypale): soft clouds, 2 octaves of value noise on a flat layer (procedural: 0 bytes). Called ONLY for
+// pixels whose ray reached nothing (CSMainBody: !hit && !farHit), so the ALU lands on sky pixels alone. A function of
+// the direction only: the clouds sit at infinity like the sky (FSR 3 reprojects sky by rotation, so they are stable).
+// Weight x the day factor (_SkyPaleHorizon.w): none at night. Warmed by the horizon rim at a low sun. Display space.
+float SkyCloudHash(int2 c)
+{
+    uint h = (uint)c.x * 0x8da6b343u ^ (uint)c.y * 0xd8163841u;
+    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+    return (float)(h & 0xFFFFu) * (1.0 / 65535.0);
+}
+float SkyCloudNoise(float2 p)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    int2 c = (int2)i;
+    return lerp(lerp(SkyCloudHash(c), SkyCloudHash(c + int2(1, 0)), f.x),
+                lerp(SkyCloudHash(c + int2(0, 1)), SkyCloudHash(c + int2(1, 1)), f.x), f.y);
+}
+float3 SkyClouds(float3 dir, float3 c)
+{
+    if ((_SkyLook & 8) == 0 || _SkyPaleHorizon.w <= 0.0 || dir.y <= 0.02) return c;
+    float2 p = dir.xz / (dir.y + 0.10) * 1.4;
+    float n = 0.65 * SkyCloudNoise(p) + 0.35 * SkyCloudNoise(p * 2.3 + float2(17.3, 5.1));
+    float cov = smoothstep(0.52, 0.76, n) * smoothstep(0.03, 0.22, dir.y) * _SkyPaleHorizon.w * 0.85;
+    float3 col = float3(1.0, 0.98, 0.95) * (0.88 + 0.12 * smoothstep(0.45, 0.8, n));
+    col = lerp(col, col * _LookSkyRim.rgb * 1.25, _LookSkyRim.a * 0.5);
+    return lerp(c, col, cov);
+}
+
+// TASK 233 (-grade): the light colour grade, CSMainBody's last colour step before the ResultTexture write (render rows,
+// before FSR 3). Display space (LookToDisplay / LookToLinear; HDR above 1 passes through untouched). Constants from
+// RaymarchFeature.GradeA / GradeB / GradeWarm (Logs/overnight/233/grade_tune.py): greens desaturated toward olive, all a
+// little, warm midtones, a gentle S-curve pivoted at 0.40, a toe lift, a faint corner vignette. Amount _Grade233.x =
+// the day factor (0 = off; 0 at night: night is bit-identical).
+float4 _Grade233;
+float4 _Grade233A;      // x green desat, y all desat, z olive, w S-curve
+float4 _Grade233B;      // x S-curve pivot, y toe lift, z vignette
+float4 _Grade233Warm;   // rgb warm-midtone tint
+float3 Grade233(float3 lin, uint2 px, uint w, uint h)
+{
+    float k = _Grade233.x;
+    if (k <= 0.0) return lin;
+    float3 over = max(lin - 1.0, 0.0);
+    float3 c = LookToDisplay(lin);
+    float L = dot(c, float3(0.2126, 0.7152, 0.0722));
+    float green = smoothstep(0.0, 0.12, c.g - max(c.r, c.b));
+    c = L + (c - L) * (1.0 - _Grade233A.x * green - _Grade233A.y);
+    c.r += _Grade233A.z * green * L;
+    c = saturate(c + (4.0 * L * (1.0 - L)) * _Grade233Warm.rgb);
+    c = c + _Grade233A.w * (c - _Grade233B.x) * c * (1.0 - c) * 4.0;
+    c = c * (1.0 - _Grade233B.y) + _Grade233B.y;
+    float2 uv = (float2(px) + 0.5) / float2(max(w, 1u), max(h, 1u)) * 2.0 - 1.0;
+    float rr = 0.5 * dot(uv, uv);
+    c *= 1.0 - _Grade233B.z * rr * rr;
+    return lerp(lin, LookToLinear(c) + over, k);
 }
 
 // MIRRORS MaterialPalette.OfLook in MaterialRules.cs (the authoritative
@@ -6157,7 +6222,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #endif
     float4 color = _SkyColor;
     float3 upsDynRgb = float3(0.0, 0.0, 0.0);   // task 174: the dynamic light's share of `lit` (TaaDynW)
-    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);
+    if (_Look == 1 && _UseDevColors != 0)
+    {
+        float3 skyBg = LookSkyBackground(rayDir);
+        if (!hit && !farHit) skyBg = SkyClouds(rayDir, skyBg);   // task 233: sky pixels only
+        color = float4(LookToLinear(LookShoulder(skyBg, _LookGrade.z)), 1.0);
+    }
     // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
     bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
     float riverFoam = 0.0;   // task 76: foam on a river top face (near or far)
@@ -6753,6 +6823,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             TaaDynW[pi] = dot(dv, float3(0.299, 0.587, 0.114)) * 255.0;
         }
     }
+    if (_Look == 1 && _UseDevColors != 0) color.rgb = Grade233(color.rgb, id.xy, width, height);   // task 233
     // -shellsdebug (task 80): each pixel tinted by what drew it -- tier 0 blue,
     // shells 1.. green/yellow/orange/red/magenta/cyan/white, far band grey.
     if (_ShellTint != 0 && _ShellCount > 1 && (hit || farHit))

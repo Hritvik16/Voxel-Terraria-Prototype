@@ -166,6 +166,12 @@
 //            low-res sun: records + CSSunTrace on 2x2 / 4x4 blocks); FULL keeps the launch's -sunres (default 1).
 //   TASK 225 (look, stills only): arms lookfix_off (= before 225), lookexact_off, skylinear_off; -shadeprobe 1 adds the
 //            SHADE TERMS stills shade15..18 (debug views 15-18; decoder Logs/overnight/225/probe.py, sim.py).
+//   TASK 233 (look; capture only): no -costsun = the PLAY START sun (SunCycle.PlayStartHours: -startsun DEG morning;
+//            default 0 = noon as before; -startsun 16 = the look). Arms startsun_off (noon), startsunNN (NN deg, morning), skypale_off,
+//            grade_off, look233_off (all three off = before 233), sun233_only / sky233_only / grade233_only (one piece on).
+//            The sun arms move the clock only on paths that carry the launch's start hours (not torch / cliff1 / -costsun).
+//            -coststillarms a,b,..: STILL-ONLY arms (one still each, after the timed arms, not timed, not in the table).
+//            -costtimedpaths p,q: only these paths run the timed arms; every other path takes FULL's still + the still arms.
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -195,10 +201,14 @@ public partial class PlaygroundCapture
     {
         float timed = ArgFloat("-costtimed", 20f);
         float sunDeg = ArgFloat("-costsun", -1f);
-        float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.NoonHours;
+        float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.PlayStartHours;   // task 233: was noon
         bool torchPaths = ArgValue("-costpaths") == "torch";            // task 151: night, 32 torches
         bool cliffPaths = ArgValue("-costpaths") == "cliff";            // task 212: walk_near + cliff1
         if (torchPaths) hours = ArgFloat("-nighttod", 0.5f);
+        _costStartHours = (sunDeg > 0f || torchPaths) ? -1f : hours;   // task 233: the sun arms act only on these hours
+        string stillArmsArg = ArgValue("-coststillarms"), timedPathsArg = ArgValue("-costtimedpaths");   // task 233
+        string[] stillArms = string.IsNullOrEmpty(stillArmsArg) ? new string[0] : stillArmsArg.Split(',');
+        var timedPaths = string.IsNullOrEmpty(timedPathsArg) ? null : new HashSet<string>(timedPathsArg.Split(','));
         string armsArg = ArgValue("-costarms");
         string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg == "none" ? new string[0] : armsArg.Split(',');   // task 219: none = FULL only
         string fixedArg = ArgValue("-costfixed");                       // task 219: still poses "name|ex,ey,ez|ax,ay,az;..." after walk_near
@@ -278,6 +288,7 @@ public partial class PlaygroundCapture
         {
             string pname = path.name;
             SunCycle.SetHours(path.hours);   // task 212: cliff1 has its own sun; every older path carries the launch's hours
+            _costPathHours = path.hours;     // task 233: CostApply's sun arms
             L("");
             L($"== {pname}: {path.note}  (sun {SunCycle.ElevationDegreesAt(path.hours):F0} deg at {path.hours:F2} h)");
             RatePose(path, RatePathSeconds * 0.5f, out Vector3 mid, out _);
@@ -296,14 +307,16 @@ public partial class PlaygroundCapture
 
             var runs = new List<CostRun>();
             var order = new List<string> { "full" };
-            foreach (string a in costArms) { order.Add(a); order.Add(a); order.Add("full"); }
+            bool pathTimed = timedPaths == null || timedPaths.Contains(pname);   // task 233: -costtimedpaths
+            string[] pathArms = pathTimed ? costArms : new string[0];
+            foreach (string a in pathArms) { order.Add(a); order.Add(a); order.Add("full"); }
             var seen = new Dictionary<string, int>();
             foreach (string arm in order)
             {
                 int pass = seen.TryGetValue(arm, out int n) ? n : 0;
                 seen[arm] = pass + 1;
                 var r = new CostRun { arm = arm, pass = pass };
-                yield return CostTime(path, r, timed, pass == 0 ? Path.Combine(stills, $"{pname}_{arm}.png") : null, cam, acd, sm, far);
+                yield return CostTime(path, r, pathTimed ? timed : 0f, pass == 0 ? Path.Combine(stills, $"{pname}_{arm}.png") : null, cam, acd, sm, far);
                 runs.Add(r);
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p95 {Pct(r.ms, 0.95f),6:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  >33ms {Over33(r.ms),5:F1}%  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
@@ -312,6 +325,12 @@ public partial class PlaygroundCapture
                   $"skyfill {RaymarchFeature.SkyFill} res {(RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SkyFillResDrawnLastFrame + "x" + RaymarchFeature.SkyFillResDrawnLastFrame)}  sunfar {RaymarchFeature.SunFarM:0.#} m  sunres {(RaymarchFeature.SunResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SunResDrawnLastFrame + "x" + RaymarchFeature.SunResDrawnLastFrame)}  flood {(RaymarchFeature.FloodTwinDrawnLastFrame ? "twin" : RaymarchFeature.FloodTwinSkippedLastFrame ? "skip" : "-")}");   // task 227, 228, 229, 232
                 if (RaymarchFeature.ShadowRoofSkip || RaymarchFeature.DebugRoofBuildOnly) L($"     {RaymarchFeature.RoofIncSummary()}");   // task 168
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
+            }
+            foreach (string sa in stillArms)   // task 233: still-only arms (not timed, not in the table)
+            {
+                var r = new CostRun { arm = sa, pass = 0 };
+                yield return CostTime(path, r, 0f, Path.Combine(stills, $"{pname}_{sa}.png"), cam, acd, sm, far);
+                L($"     still arm {sa}: sun {SunCycle.ElevationDegreesAt(SunCycle.Hours):F0} deg, skypale {(RaymarchFeature.SkyPale ? "ON" : "OFF")}, grade {(RaymarchFeature.ColourGrade ? "ON" : "OFF")}");
             }
             CostApply("full");
             L($"  [mem] {MemoryLedger.Step14Line().Trim()}");   // task 219: CPU / GPU pools + process footprint after this path's runs
@@ -330,9 +349,9 @@ public partial class PlaygroundCapture
             t.AppendLine("arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50");
             t.AppendLine($"full     {Pct(allFull, 0.5f),6:F1} {Pct(allFull, 0.95f),6:F1} {Pct(allFull, 0.99f),6:F1}  {Over33(allFull),6:F1}    {fulls.Count} runs: {string.Join(" ", fp50.ConvertAll(v => v.ToString("F1")))}   " +
                          $"(range {fMax - fMin:F1})   cpu {Pct(Pool(fulls, x => x.cpuMain), 0.5f):F1} / {Pct(Pool(fulls, x => x.presentWait), 0.5f):F1}   gpu* {Pct(Pool(fulls, x => x.gpu), 0.5f):F1}");
-            for (int i = 0; i < costArms.Length; i++)
+            for (int i = 0; i < pathArms.Length; i++)
             {
-                string arm = costArms[i];
+                string arm = pathArms[i];
                 CostRun x1 = runs[1 + 3 * i], x2 = runs[2 + 3 * i], before = runs[3 * i], after = runs[3 + 3 * i];
                 var both = new List<float>(x1.ms); both.AddRange(x2.ms);
                 float fb = Pct(before.ms, 0.5f), fa = Pct(after.ms, 0.5f), xp = Pct(both, 0.5f);
@@ -467,11 +486,32 @@ public partial class PlaygroundCapture
         RaymarchFeature.Crevice = CostLotlPiece(arm, "crevice", _costBaseCrevice);
         RaymarchFeature.AerialHaze = CostLotlPiece(arm, "aerial", _costBaseAerial);
         RaymarchFeature.Bloom = CostLotlPiece(arm, "bloom", _costBaseBloom);
+        // Task 233: the three look pieces (FULL keeps the launch's values; see the header).
+        RaymarchFeature.SkyPale = CostLook233Piece(arm, "sky", "skypale_off", _costBaseSkyPale);
+        RaymarchFeature.ColourGrade = CostLook233Piece(arm, "grade", "grade_off", _costBaseGrade);
+        if (_costStartHours >= 0f && _costPathHours == _costStartHours)
+        {
+            bool sunOn = CostLook233Piece(arm, "sun", "startsun_off", SunCycle.StartSunOn);
+            float h = sunOn ? _costStartHours : SunCycle.NoonHours;
+            if (arm.StartsWith("startsun") && arm != "startsun_off" && float.TryParse(arm.Substring(8), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float sdeg) && sdeg > 0f)
+                h = SunCycle.HoursForElevation(sdeg, morning: true);
+            if (!SunCycle.StartSunOn && sunOn) h = _costStartHours;   // launched with -startsun 0: FULL is noon
+            SunCycle.SetHours(h);
+        }
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
         // Task 151: tl_K_I_R / tl_none torch arms (PlaygroundCapture.TorchCost.cs); no-op without -costpaths torch.
         CostTorchApply(arm);
+    }
+
+    /// Task 233: one of the three look pieces in an arm (see CostApply).
+    private static bool CostLook233Piece(string arm, string piece, string offArm, bool launchValue)
+    {
+        if (arm == "look233_off" || arm == offArm) return false;
+        if (arm == "sun233_only" || arm == "sky233_only" || arm == "grade233_only") return arm == piece + "233_only";
+        return launchValue;
     }
 
     /// Task 226: one look piece's state in an arm (see CostApply).
@@ -500,6 +540,8 @@ public partial class PlaygroundCapture
     private static int _costBaseSunRes = 1;       // task 232
     private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
     private static bool _costBaseVary = true, _costBaseCrevice = true, _costBaseAerial = true, _costBaseBloom = true;   // task 226
+    private static bool _costBaseSkyPale = true, _costBaseGrade = true;   // task 233
+    private static float _costStartHours = -1f, _costPathHours = -2f;   // task 233: the sun arms' hours
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -684,7 +726,8 @@ public partial class PlaygroundCapture
                                  _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseFloodNear = RaymarchFeature.FloodNearOnly; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes; _costBaseSunFar = RaymarchFeature.SunFarM; _costBaseSunRes = RaymarchFeature.SunRes;   // task 212, 232
                                  _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
                                  _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
-                                 _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom; }
+                                 _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom;
+                                 _costBaseSkyPale = RaymarchFeature.SkyPale; _costBaseGrade = RaymarchFeature.ColourGrade; }   // task 233
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
