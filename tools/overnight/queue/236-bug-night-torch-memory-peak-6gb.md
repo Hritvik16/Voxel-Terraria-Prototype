@@ -1,0 +1,13 @@
+# 236-bug-night-torch-memory-peak-6gb
+Model: opus
+Requires: 233-look-sky-sun-grade
+Approval: supervisor, "going ahead with (a) unless the owner objects" (task 230's STOP_FOR_OWNER recommended (a); reversible engineering; recorded in the owner's doc 2026-11-17). Owner rules: memory under 3 GB is a hard limit ("efficient by construction", 2026-11-14).
+Memory task. NO frame-time arms (rule 10); memory ledger lines only. Plan (what each result makes us do) first in `Logs/overnight/236/PLAN.md`.
+## Problem
+Task 230's night launch (`-costpaths torch`, 28 torches, arm `tf_on`) peaks at ~6.0 GB process memory (6,025 / 6,055 MB; 229's night 6,037; 221's tf_on 6,069 / 6,074). The day launch is 2,568 MB; 233's night WITHOUT `tf_on` was 2,538 MB. So about +3.5 GB comes with the torch flood being ON. INFERRED cause (not proven): the capture's synchronous `TorchFloodPool.Rebuild` / flush for 28 torches. Play uses the incremental `Tick`, so it is NOT known whether play spikes too. KNOWN_ISSUES and `tools/overnight/later/` hold task 170 ("torch memory trim", parked): read it and 175, 221, 229's HANDOFFs first.
+## Do
+1. Find where the +3.5 GB comes from: split by phase with the memory ledger / allocation counters the project already has (Allocator.Temp pile-up was 216/218's cause: check `JobHandle` parallel jobs, `NativeArray` sizes in Rebuild/Flush, per-chunk scratch, managed arrays). Isolate before fixing (CLAUDE.md): turn phases off one at a time in a capture-only arm.
+2. Check play: does the incremental `Tick` path (28+ torches, then placing torches during play) show the same transient? Use the existing `-torchflood 1` play flags in ONE short launch with the memory ledger (<= 10 min, no frame timing). Say plainly: "play spikes / does not spike".
+3. Fix it in the most memory-efficient way (rule 11a): bounded scratch per worker reused across chunks, chunked/streamed rebuild, nothing held that is not drawn. No terrain-specific constants; no frozen API or layout change (flag it and STOP_FOR_OWNER if one is needed). Switch to restore the old path if the fix is not trivial.
+4. Prove: night launch peak before vs after (target under 3,000 MB; at least back to day level + the flood pool's own size), GPU body pool refusals not up, identical stills (flood result byte-compared against the old path on the identity arm if the existing `-costfloodpair` allows). Tests for the new bound. Fast suite once at the end.
+5. HANDOFF: before/after peak per phase, whether play was affected, `## For the doc` with the numbers (no timing). Feature note in TASKS.md. Update `PERF_BUDGET_GUARD.md`'s "open 6 GB note".

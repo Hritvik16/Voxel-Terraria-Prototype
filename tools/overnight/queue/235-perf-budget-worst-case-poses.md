@@ -1,6 +1,6 @@
 # 235-perf-budget-worst-case-poses
 Model: opus
-Requires: 230-perf-budget-check-script
+Requires: 236-bug-night-torch-memory-peak-6gb
 Approval: OWNER 2026-11-17 (chat): "I want 1 for now" = judge performance on WORST-CASE poses, not noon. Owner's point: a low sun and torches both occur in play, so a gain that only shows at noon / with no torch near is not a gain for the 30 fps target.
 Performance task (timing allowed, owner rule 10; warm steady state, interleaved arms; write outcomes first in `Logs/overnight/235/PLAN.md`).
 ## Do
