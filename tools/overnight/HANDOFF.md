@@ -1,47 +1,36 @@
-# 232-perf-sun-lowres-share: DONE, switch kept OFF. Exact low-res sun (`-sunres 4`) is built and correct but saves ~0 ms. Commits e70c1a9 (code + tests), 52e51b9 (runner, plan, reports)
+# 233-look-sky-sun-grade: DONE. HEAVY. Pale sky + clouds and the grade are ON by default. The low start sun is built but OFF: it costs +27 ms at forest_eye. Commits 87893b5 (code + tests), 3db4292 (runner, reports)
 
-## What changed
-- `-sunres 1|2|4` (default 1 = today's path; the preset is unchanged). This only applies with a far-shading primary kernel that is not the sun-defer one.
-  How it works: the primary kernel shades from the face's sun record (its own, or a PRIOR = at least 2 reprojected probes on the SAME face plane that agree
-  within 1/16). Where neighbours disagree (shadow edge, penumbra) or nothing fits, it traces the exact ray inline. New kernel `CSSunTrace`
-  re-traces one face per 4x4 block per frame, exactly. A prior that tracing proves wrong drops that block's other priors on that plane. Every value
-  comes from some face's EXACT ray, with no coarse bricks, so 228's triangle field cannot happen.
-- Efficient design (rule 11): no new G-buffer or UAV. It reuses task 56's temporal-shadow history (record 8 -> 12 B, to carry the face). The trace pass
-  has one thread per block, and all its lanes trace. Shell-hit rays start at the face centre (< 0.05 m off), so one face = one ray.
-- Arms `sunres_off|sunres2|sunres4`; the run line prints `sunres inline|4x4`. CPU twin `SunLowReference`, tests `SunLowReferenceTests`; `KernelHealth` lists CSSunTrace.
+## What changed (constants / per-pixel ALU only, no new pass, 0 GPU bytes)
+- `-skypale 0|1` (default 1). The name is new because `-skylook` is already task 121's switch. Sky pixels and the haze target get a pale zenith/horizon and a wider horizon band. Clouds: 2 octaves of procedural value noise on MISS pixels only (`!hit && !farHit`). Lighting (ambient, far-shade sky, sky fill) takes the pale HUE at the OLD luma, so shade changes hue but not brightness, and the jungle trunks cannot go darker.
+- `-grade 0|1` (default 1): `Grade233`, just before the ResultTexture write (render rows, before FSR). Greens a little olive, warm mids, S-curve pivoted at 0.40, toe lift, faint vignette. I tuned it offline first (`grade_tune.py`: mean luma -0.2 to +4.5 % on the 226/231 stills).
+- `-startsun DEG` (default 0 = noon; `-startsun 16` = the look; morning side, because play's 20-minute day would put an evening start into night within about a minute). It sets play's start view and the cost split's default hours. Why 16 deg: the day factor is full from 14.5 deg, and the gold halo (0.39) and horizon rim (0.50) are still present.
+- Sky and grade scale with the day factor, so night is identical by construction. Arms: `startsun_off|startsunNN|skypale_off|grade_off|look233_off|sun233_only|sky233_only|grade233_only`. New capture options: `-coststillarms` and `-costtimedpaths`.
+- Why this design is the efficient one (rule 11): sky colours are CPU constants per frame. The cloud ALU runs only on sky pixels, about 8 hashes each. The grade is about 60 ALU ops on pixels already drawn. No textures or buffers. Not timed: any result would sit inside the 3-8 ms noise, so the pass cards stand in for timing (PLAN.md).
+
 ## Evidence
-- Fast suite `PASS 1099 FAIL 0 SKIP 25` (`Logs/overnight/232/fast.txt`; 13 new cases). Twin: a slot floor never takes the ledge's light. A steep slope
-  is exact under 3 suns (0 wrong on the slope). A thin pole near the camera is exact. Far shadow edges are wrong only within 1 voxel of the true edge
-  (the straight wall: 0 wrong). A FAR sub-pixel pole line is missed in 1.7 % of pixels (all at its edge): a known trade.
-- Timing, WARM steady state (warm-up `Logs/tg2world_20261117_134511.txt`), one cost split, ABBA, noon, High, 432 rows, play flags
-  (`Logs/overnight/232/costsplit_day.txt`; plan written first: `PLAN.md`). The run lines confirm `sunres 4x4` on FULL and `inline` on sunres_off. p50 ms:
-  pose         before (sunres_off)  sunres 4   sun off   noise(FULL range)  -> sun cost now / saved
-  walk_near          62.1             60.6       42.3        1.3            -> 19.8 / 1.5
-  forest_eye         95.8             98.3       78.0        8.9            -> 17.8 / -2.5
-  jungle_eye         70.5             69.3       54.7       27.4 (a 90 ms pass)  -> 15.8 / ~0
-  Per the plan: under 5 ms at walk_near, so the default stays 1. That is not a STOP. FULL is about equal to before, which the plan names as the "orphans" outcome.
-  INFERRED, not measured: inline orphans still make whole SIMD groups wait (124's finding). They come from every shadow edge, the canopy dapple and
-  far steep slopes, where FSR3 jitter shows new faces each frame and each step is its own plane: the twin's steep-slope case traces 78 % of
-  pixels inline. Shrinking the rays per pixel does not cut time while one lane per group still traces.
-- Pictures (`Logs/overnight/232/diff.txt`): clean mean|d| vs before 2.03 / 1.88 / 1.72, at the 228 noise floor (0.90 / 2.06 / 0.67).
-  sunvis 1.91 / 2.76 / 0.53 (228's coarse: 15.3 / 6.9 / 1.5). The 228 hillside crop shows zero difference.
-- Rule 11/12: P1 +2.65 MB whenever the history exists (play has it: the preset turns temporal shadows on; record 8 -> 12 B x 2 x 768x432), with the switch
-  ON or OFF. -sunres 4 adds nothing more. Launch peak 2,566.3 MB (228: 2,639.0; 227: 2,564.9). GPU refusals 0 / 0 / 2,859 (228: 0 / 0 / 4,797). CPU pool
-  peak 494,866 (228: 496,530). All arms run in one process, so ON and OFF share one ledger. P2 pass card, CSSunTrace: render rows (768x432), every
-  frame, 1 thread per 4x4 block, 1 sun ray (tier 0 + shell continuation, step caps unchanged), <= 32 record reads/writes per thread, 0 new bytes
-  beyond the history. 8.17 step S2 (sun), inside the sun's share. Only with -sunres 2|4. P5: no counter in the stripped build. Not HEAVY.
-- Night torch_camp was not launched: the sun is below the horizon there (0 sun rays), so the picture is identical by construction (PLAN.md).
+- Fast suite `PASS 1105 FAIL 0 SKIP 25` (`Logs/overnight/233/fast.txt`). 6 new `Look233Tests`. Two source-pin tests (SkyLook, DrawnEdgeFade) were updated to the new miss line.
+- Sun cost, WARM steady state (warm-up `Logs/tg2world_20261117_165939.txt`), one cost split, ABBA, 432 rows, play flags (`Logs/overnight/233/costsplit_day.txt`). FULL = 16 deg; every arm has sky + grade on. p50 ms:
+  pose        noon   16 deg   25 deg   sun off   noise -> sun step noon / 16 / 25
+  walk_near   36.9   34.4     35.4     24.8      3.2   -> 12.1 / 9.6 / 10.6
+  forest_eye  106.6  133.4    124.3    88.4      8.0   -> 18.2 / 45.0 / 35.9
+  P3: `step sun: 45.0 ms at 16 deg (forest_eye, warm) vs share 5.0 ms OVER SHARE` (noon is already 18.2, also OVER SHARE).
+  The plan's rule: no low elevation stays within noise of noon at forest_eye, so the default is noon. Note: every in-game morning and evening already shows this low sun, so the +27 ms is a sun-shadow cost play already pays during the day cycle (8.17 step S2). The start time is not the cause.
+- Pictures (`Logs/overnight/233/metrics.txt`, 231's distance to LotL; lower = closer): forest_eye before 0.97 -> +sun 0.76, +sky 0.53, +grade 1.01, all three 0.66. redwood 1.07 -> 0.58 / 0.79 / 0.96, all 0.38. jungle 1.12 -> sky 0.68, all 0.84. By eye the sky is the biggest step. The grade alone barely moves anything: it is the weakest piece and the owner's call.
+- Grade luma: at low sun (full vs grade_off) +2.8 / +1.2 / +6.1 / +1.0 %, never darker (231's grade lost 10-20 %). At noon +6.0 / +2.0 / +5.2 %. jungle noon -8.9 % is NOT valid: the grade233_only jungle still was framed with the camera turned (trunk moved), the only mis-framed tile, cause unknown.
+- Night torch_camp (`costsplit_night.txt`): the sky differs by 0 px and mean luma is equal (35.04 vs 35.03). The leftover speckle on the far moonlit slope (raw mean|d| 0.88 vs floor 0.29) INFERRED: stochastic sky-fill history between arms, not a colour shift.
+- Rule 11 (one process per launch, so ON and OFF share one ledger; the pieces allocate nothing): day peak 2,516 MB (232: 2,566), night 2,538. GPU refusals 0 / 0 / 5,360 / 5,360 (232: 2,859, on a different walk arc; the pool is full at jungle, a known issue). CPU pool peak 496,441 (232: 494,866). Valve evictions 0.
+- P2 pass cards: no new pass. Clouds go in CSMainBody, render rows, every frame, sky pixels only, 8 hashes, 0 B, step S1/post. The grade goes in CSMainBody, render rows, every frame, about 60 ALU ops per pixel, 0 B, step "shading/post". P4/P5: no content and no ray-march change.
+- Launch budget broken: the day launch took 110 min (17:05-18:55) because forest_eye runs at 90-130 ms per frame and each still arm takes about 2 min. The memory watchdog killed 3 builds at 15:21, 15:55 and 16:22 (swap > 10.24 GB: the owner's Firefox held ~7 GB). The 4th build ran with `-job-worker-count 1`. **`tools/overnight/PAUSE` was touched by the watchdog and is still there**: the supervisor/owner should remove it to resume the queue.
+
 ## Left / next
-- Not committed (not mine): `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`. Images git-ignored (`Screenshots/232/`).
-- Next (owner/supervisor): the sun's ~16-20 ms is not in ray COUNT: 124 (halving), 228 (coarse far) and 232 (1/16 + reuse) all saved ~0-6 ms.
-  Suggest measuring the inline-orphan share (a counter in a VE_ALL_KERNELS build) before any further sun-ray work. Another option is moving ALL sun rays
-  out of the big kernel (sunres with no inline path, accepting 1-2 frames of lag at edges), which would need the owner's OK on look.
+- Not mine, not committed: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`. Images are git-ignored (`Screenshots/233/`).
+- Owner: look per piece; `-startsun 16` only if the forest +27 ms is acceptable, or after S2 sun work. Supervisor: HEAVY means run the budget check. Low-sun sun cost is the S2 problem to take next.
 
 ## For the doc
-- Low-res sun (`-sunres 4`, OFF by default), warm ABBA p50: walk_near 62.1 -> 60.6 ms (noise 1.3), forest_eye 95.8 -> 98.3 (noise 8.9), jungle_eye 70.5 -> 69.3 (noise 27). No real saving (`Logs/overnight/232/costsplit_day.txt`).
-- What the sun costs now (before minus sun off): 19.8 / 17.8 / 15.8 ms.
-- Look: unchanged. Clean diff vs before 2.03 / 1.88 / 1.72, at the noise floor; no false shadows (228's coarse sunvis diff was 15.3 at walk_near).
-- Memory: +2.65 MB (the history record 8 -> 12 B); peak 2,566 MB; refusals 2,859 at jungle (228: 4,797).
-- `Screenshots/232/sheets/sheet_sunvis.png`: rows walk_near / forest / jungle; columns before | low-res 4x4 | sun off (white = lit, black = shadow). Columns 1 and 2 look the same: the canopy dapple and trunk shadows are in the same places.
-- `Screenshots/232/sheets/walk_far_hill_sunvis.png`: 228's broken hillside at 3x, before | low-res | |d| x4. The right panel is black (no difference), with no triangle field.
-- `Screenshots/232/sheets/zoom_forest_eye_sunvis.png`: forest at 3x around the biggest difference. The white block in |d| is a far patch streamed differently between arms (sky-blue = not drawn), not a shadow change; canopy edges match.
+- Look: distance to LotL (lower = closer), all three pieces vs before: forest 0.97 -> 0.66, redwood 1.07 -> 0.38, jungle 1.12 -> 0.84 (`Logs/overnight/233/metrics.txt`).
+- Pale sky alone is the biggest step (forest 0.97 -> 0.53). The grade alone is about neutral (1.01). Grade at low sun: luma +1 to +6 %, no darkening.
+- Low sun cost (warm ABBA, p50): forest_eye 106.6 -> 133.4 ms at 16 deg (+26.8, noise 8.0), 124.3 at 25 deg. walk_near 36.9 -> 34.4. So `-startsun` stays OFF (noon).
+- Memory: 0 bytes added; peak 2,516 MB (232: 2,566). Night unchanged (sky 0 diff, mean luma equal).
+- `Screenshots/233/sheets/sheet_day.png`: rows forest / jungle / walk_near / redwood; columns before | +low sun | +pale sky | +grade | all three. Look at the sky (pale, soft clouds) and the grass (olive in the last column). walk_near is a wall close up: the low sun lights it brightly.
+- `Screenshots/233/sheets/lotl_side_by_side.png`: ours before | ours all three | LotL. Closer: the pale cloudy sky (forest row) and the warm rock (redwood vs their canyon). Not closer: houses, props, characters, framing, and their soft light gradients. The jungle also gets darker at a low sun.
+- `Screenshots/233/sheets/viewer.html`: full-size flip, forest_eye and redwood_far1 before / all three (Space flips, arrows change the pose).
