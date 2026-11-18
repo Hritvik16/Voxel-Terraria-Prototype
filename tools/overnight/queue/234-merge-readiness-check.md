@@ -1,6 +1,6 @@
 # 234-merge-readiness-check
 Model: opus
-Requires: 230-perf-budget-check-script
+Requires: 235-perf-budget-worst-case-poses
 Approval: OWNER 2026-11-17 (chat): "we should also probably push and merge to origin main once we have reached a stable point". This task only CHECKS readiness. It does NOT merge, does NOT push, does NOT touch `main` (anything on `main` and any push is the owner's explicit go, asked by the supervisor).
 ## Do
 1. State of the branch: `git log --oneline main..engine-phase | wc -l`, `git status --short` (list anything uncommitted that is not a known generated file: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`), is `origin/main` == `main`, any file over 50 MB or any secret-looking file in the diff `main..engine-phase` (`git diff --stat main..engine-phase | sort by size`, check .gitignore covers `Screenshots/**` images and `Logs/` output). Report size of what a push would send.
