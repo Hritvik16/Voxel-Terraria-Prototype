@@ -1,0 +1,4 @@
+23:16:44 lock is free; waiting for the Mac to be clear of Unity for 45 s
+PASS 13  FAIL 1  SKIP 1  suite=fast  wall=1m08s
+  fast suite left out 1165 of 1176 cases (Category Slow; vs TestResults_all.xml of 2026-11-16 12:15)
+  FAILED: DirtySpan_ScatteredUnits_OneSpan_AndClears: the old path's SetData calls for this set

@@ -1,0 +1,357 @@
+[tfmem] ON: a line per frame whose footprint / peak moved >= 32 MB, plus TorchFloodPool marks
+[tfmem] frame t 17.0 s frame 1 | footprint 1880 MB (peak 1880) | unity allocated 601 MB, reserved 671 MB, gfx driver 0 MB
+[tfmem] frame t 18.0 s frame 2 | footprint 2142 MB (peak 2145) | unity allocated 613 MB, reserved 687 MB, gfx driver 0 MB
+[tfmem] frame t 18.0 s frame 4 | footprint 2071 MB (peak 2148) | unity allocated 614 MB, reserved 687 MB, gfx driver 0 MB
+[tfmem] frame t 18.7 s frame 26 | footprint 2003 MB (peak 2148) | unity allocated 614 MB, reserved 689 MB, gfx driver 0 MB
+[tfmem] frame t 19.0 s frame 31 | footprint 2515 MB (peak 2515) | unity allocated 674 MB, reserved 749 MB, gfx driver 0 MB
+[tfmem] frame t 19.1 s frame 34 | footprint 2564 MB (peak 2564) | unity allocated 624 MB, reserved 691 MB, gfx driver 0 MB
+[tfmem] frame t 20.6 s frame 86 | footprint 2522 MB (peak 2581) | unity allocated 624 MB, reserved 697 MB, gfx driver 0 MB
+[tfmem] frame t 21.9 s frame 117 | footprint 2454 MB (peak 2581) | unity allocated 624 MB, reserved 697 MB, gfx driver 0 MB
+[tfmem] frame t 23.2 s frame 146 | footprint 2418 MB (peak 2581) | unity allocated 624 MB, reserved 697 MB, gfx driver 0 MB
+[tfmem] tick fill done (floods 0, merges 0, upload calls 0 max 0/Upload, 0.0 MB; union hash A944454F3A925281; GPU == CPU) t 37.6 s frame 529 | footprint 2401 MB (peak 2581) | unity allocated 630 MB, reserved 717 MB, gfx driver 0 MB
+[tfmem] frame t 112.1 s frame 1903 | footprint 2308 MB (peak 2581) | unity allocated 651 MB, reserved 733 MB, gfx driver 0 MB
+[tfmem] frame t 118.0 s frame 2021 | footprint 2270 MB (peak 2581) | unity allocated 637 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem] frame t 131.6 s frame 2264 | footprint 2308 MB (peak 2581) | unity allocated 637 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem] frame t 131.7 s frame 2266 | footprint 2270 MB (peak 2581) | unity allocated 637 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem] rebuild start t 144.0 s frame 2486 | footprint 2261 MB (peak 2581) | unity allocated 635 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem] rebuild reset + torches t 144.0 s frame 2486 | footprint 2261 MB (peak 2581) | unity allocated 635 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 144.0 s frame 2486 | footprint 2261 MB (peak 2581) | unity allocated 635 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 144.0 s frame 2486 | footprint 2261 MB (peak 2581) | unity allocated 635 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 144.0 s frame 2486 | footprint 2261 MB (peak 2581) | unity allocated 641 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem] flush step 0 (floods 0, merges 0) t 144.0 s frame 2486 | footprint 2262 MB (peak 2581) | unity allocated 641 MB, reserved 737 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 144.5 s frame 2486 | footprint 2279 MB (peak 2581) | unity allocated 658 MB, reserved 753 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 144.5 s frame 2486 | footprint 2279 MB (peak 2581) | unity allocated 658 MB, reserved 753 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 144.5 s frame 2486 | footprint 2279 MB (peak 2581) | unity allocated 658 MB, reserved 753 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 1.18 MB t 144.5 s frame 2486 | footprint 2281 MB (peak 2581) | unity allocated 661 MB, reserved 753 MB, gfx driver 0 MB
+[tfmem] flush step 1 (floods 2, merges 1) t 144.5 s frame 2486 | footprint 2282 MB (peak 2581) | unity allocated 661 MB, reserved 753 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 144.8 s frame 2486 | footprint 2289 MB (peak 2581) | unity allocated 666 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 144.8 s frame 2486 | footprint 2289 MB (peak 2581) | unity allocated 666 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 144.8 s frame 2486 | footprint 2289 MB (peak 2581) | unity allocated 666 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 2.51 MB t 144.8 s frame 2486 | footprint 2293 MB (peak 2581) | unity allocated 669 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem] flush step 2 (floods 4, merges 2) t 144.8 s frame 2486 | footprint 2294 MB (peak 2581) | unity allocated 669 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 145.2 s frame 2486 | footprint 2296 MB (peak 2581) | unity allocated 670 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 145.2 s frame 2486 | footprint 2296 MB (peak 2581) | unity allocated 670 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 145.2 s frame 2486 | footprint 2296 MB (peak 2581) | unity allocated 670 MB, reserved 761 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 10 SetData calls, 2.75 MB t 145.2 s frame 2486 | footprint 2298 MB (peak 2581) | unity allocated 672 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 3 (floods 6, merges 3) t 145.2 s frame 2486 | footprint 2299 MB (peak 2581) | unity allocated 672 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 145.5 s frame 2486 | footprint 2304 MB (peak 2581) | unity allocated 672 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 145.5 s frame 2486 | footprint 2304 MB (peak 2581) | unity allocated 672 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 145.5 s frame 2486 | footprint 2304 MB (peak 2581) | unity allocated 672 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 11 SetData calls, 2.01 MB t 145.5 s frame 2486 | footprint 2305 MB (peak 2581) | unity allocated 673 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 4 (floods 8, merges 4) t 145.5 s frame 2486 | footprint 2306 MB (peak 2581) | unity allocated 673 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 145.8 s frame 2486 | footprint 2310 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 145.8 s frame 2486 | footprint 2310 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 145.8 s frame 2486 | footprint 2310 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 9 SetData calls, 2.16 MB t 145.8 s frame 2486 | footprint 2310 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 5 (floods 10, merges 5) t 145.8 s frame 2486 | footprint 2311 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 146.1 s frame 2486 | footprint 2321 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 146.1 s frame 2486 | footprint 2321 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 146.1 s frame 2486 | footprint 2321 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 25 SetData calls, 2.34 MB t 146.1 s frame 2486 | footprint 2321 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 6 (floods 12, merges 6) t 146.1 s frame 2486 | footprint 2322 MB (peak 2581) | unity allocated 674 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 146.4 s frame 2486 | footprint 2399 MB (peak 2581) | unity allocated 675 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 146.4 s frame 2486 | footprint 2399 MB (peak 2581) | unity allocated 675 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 146.4 s frame 2486 | footprint 2399 MB (peak 2581) | unity allocated 675 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 100 SetData calls, 2.26 MB t 146.5 s frame 2486 | footprint 2400 MB (peak 2581) | unity allocated 675 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 7 (floods 14, merges 7) t 146.5 s frame 2486 | footprint 2400 MB (peak 2581) | unity allocated 675 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 146.8 s frame 2486 | footprint 2778 MB (peak 2778) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 146.8 s frame 2486 | footprint 2778 MB (peak 2778) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 146.8 s frame 2486 | footprint 2778 MB (peak 2778) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 158 SetData calls, 2.17 MB t 146.8 s frame 2486 | footprint 2778 MB (peak 2778) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 8 (floods 16, merges 8) t 146.8 s frame 2486 | footprint 2779 MB (peak 2779) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 147.1 s frame 2486 | footprint 3397 MB (peak 3397) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 147.1 s frame 2486 | footprint 3397 MB (peak 3397) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 147.1 s frame 2486 | footprint 3397 MB (peak 3397) | unity allocated 676 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 239 SetData calls, 2.82 MB t 147.1 s frame 2486 | footprint 3398 MB (peak 3398) | unity allocated 677 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 9 (floods 18, merges 9) t 147.1 s frame 2486 | footprint 3399 MB (peak 3398) | unity allocated 677 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 147.5 s frame 2486 | footprint 4347 MB (peak 4347) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 147.5 s frame 2486 | footprint 4347 MB (peak 4347) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 147.5 s frame 2486 | footprint 4347 MB (peak 4347) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 230 SetData calls, 2.49 MB t 147.5 s frame 2486 | footprint 4347 MB (peak 4347) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 10 (floods 20, merges 10) t 147.5 s frame 2486 | footprint 4348 MB (peak 4348) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 147.8 s frame 2486 | footprint 5243 MB (peak 5243) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 147.8 s frame 2486 | footprint 5243 MB (peak 5243) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 147.8 s frame 2486 | footprint 5243 MB (peak 5243) | unity allocated 678 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 4.39 MB t 147.8 s frame 2486 | footprint 5248 MB (peak 5248) | unity allocated 682 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 11 (floods 22, merges 11) t 147.8 s frame 2486 | footprint 5249 MB (peak 5249) | unity allocated 682 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 148.1 s frame 2486 | footprint 5259 MB (peak 5259) | unity allocated 683 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 148.1 s frame 2486 | footprint 5259 MB (peak 5259) | unity allocated 683 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 148.1 s frame 2486 | footprint 5259 MB (peak 5259) | unity allocated 683 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 76 SetData calls, 1.44 MB t 148.1 s frame 2486 | footprint 5262 MB (peak 5262) | unity allocated 683 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 12 (floods 24, merges 12) t 148.1 s frame 2486 | footprint 5263 MB (peak 5263) | unity allocated 683 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 148.5 s frame 2486 | footprint 5798 MB (peak 5798) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 148.5 s frame 2486 | footprint 5798 MB (peak 5798) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 148.5 s frame 2486 | footprint 5798 MB (peak 5798) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 8 SetData calls, 1.81 MB t 148.5 s frame 2486 | footprint 5800 MB (peak 5800) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 13 (floods 26, merges 13) t 148.5 s frame 2486 | footprint 5801 MB (peak 5801) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods finished t 148.8 s frame 2486 | footprint 5825 MB (peak 5825) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: merge applied + uploaded t 148.8 s frame 2486 | footprint 5825 MB (peak 5825) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]   step: floods started (snapshots) t 148.8 s frame 2486 | footprint 5825 MB (peak 5825) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 25 SetData calls, 1.36 MB t 148.8 s frame 2486 | footprint 5827 MB (peak 5827) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] flush step 14 (floods 28, merges 14) t 148.8 s frame 2486 | footprint 5828 MB (peak 5828) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[tfmem] rebuild end (upload calls 903 max 239/Upload, 31.7 MB; union hash 0B365D765B03507C; GPU == CPU) t 148.9 s frame 2486 | footprint 5984 MB (peak 5984) | unity allocated 684 MB, reserved 777 MB, gfx driver 0 MB
+[torchflood] rebuild 1: 28 torches (0 skipped), 122 lit chunks, air bricks 98459, mixed 14871, escapes 9, GPU 10.00 MB, CPU union 12.92 + caches 8.72 + scratch 26.06 MB; total 4857 ms (floods 28, merges 14)
+[tfmem] frame t 149.0 s frame 2488 | footprint 5700 MB (peak 5984) | unity allocated 659 MB, reserved 769 MB, gfx driver 0 MB
+[tfmem] frame t 149.1 s frame 2489 | footprint 2980 MB (peak 5984) | unity allocated 659 MB, reserved 769 MB, gfx driver 0 MB
+[tfmem] frame t 149.1 s frame 2490 | footprint 2329 MB (peak 5984) | unity allocated 659 MB, reserved 769 MB, gfx driver 0 MB
+[tfmem] frame t 197.4 s frame 3638 | footprint 2362 MB (peak 5984) | unity allocated 674 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] tf_tick armed (pool reset; Tick fills it) t 237.8 s frame 4422 | footprint 2334 MB (peak 5984) | unity allocated 650 MB, reserved 773 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 0.40 MB t 238.4 s frame 4435 | footprint 2356 MB (peak 5984) | unity allocated 676 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 2 SetData calls, 0.23 MB t 238.4 s frame 4436 | footprint 2366 MB (peak 5984) | unity allocated 676 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.45 MB t 238.7 s frame 4443 | footprint 2366 MB (peak 5984) | unity allocated 674 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.46 MB t 238.7 s frame 4444 | footprint 2370 MB (peak 5984) | unity allocated 676 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 0.24 MB t 238.8 s frame 4445 | footprint 2382 MB (peak 5984) | unity allocated 676 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.45 MB t 239.1 s frame 4452 | footprint 2357 MB (peak 5984) | unity allocated 683 MB, reserved 781 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 42 SetData calls, 0.46 MB t 239.3 s frame 4453 | footprint 2695 MB (peak 5984) | unity allocated 695 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 21 SetData calls, 0.31 MB t 239.3 s frame 4454 | footprint 2732 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 239.4 s frame 4455 | footprint 3027 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.51 MB t 239.4 s frame 4456 | footprint 3155 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 5 SetData calls, 0.44 MB t 239.5 s frame 4457 | footprint 2843 MB (peak 5984) | unity allocated 684 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 239.6 s frame 4458 | footprint 2411 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 239.7 s frame 4461 | footprint 2373 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.71 MB t 239.7 s frame 4462 | footprint 2374 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.68 MB t 239.7 s frame 4463 | footprint 2400 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.25 MB t 239.7 s frame 4464 | footprint 2426 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 239.9 s frame 4468 | footprint 2391 MB (peak 5984) | unity allocated 686 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 16 SetData calls, 0.46 MB t 240.0 s frame 4472 | footprint 2361 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.0 s frame 4472 | footprint 2421 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 14 SetData calls, 0.43 MB t 240.0 s frame 4473 | footprint 2451 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.0 s frame 4474 | footprint 2494 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.1 s frame 4477 | footprint 2431 MB (peak 5984) | unity allocated 684 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.2 s frame 4478 | footprint 2373 MB (peak 5984) | unity allocated 700 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 17 SetData calls, 0.48 MB t 240.3 s frame 4482 | footprint 2365 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.3 s frame 4482 | footprint 2400 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 18 SetData calls, 0.47 MB t 240.3 s frame 4483 | footprint 2459 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.10 MB t 240.3 s frame 4484 | footprint 2566 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.5 s frame 4487 | footprint 2410 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.5 s frame 4488 | footprint 2366 MB (peak 5984) | unity allocated 693 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 50 SetData calls, 0.52 MB t 240.7 s frame 4493 | footprint 2367 MB (peak 5984) | unity allocated 694 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 42 SetData calls, 0.49 MB t 240.8 s frame 4494 | footprint 2736 MB (peak 5984) | unity allocated 701 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 20 SetData calls, 0.52 MB t 240.9 s frame 4496 | footprint 3026 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 240.9 s frame 4496 | footprint 3065 MB (peak 5984) | unity allocated 694 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 25 SetData calls, 0.46 MB t 240.9 s frame 4497 | footprint 3155 MB (peak 5984) | unity allocated 694 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.0 s frame 4498 | footprint 2988 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.0 s frame 4499 | footprint 2673 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.1 s frame 4500 | footprint 2569 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.2 s frame 4502 | footprint 2383 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 52 SetData calls, 0.59 MB t 241.2 s frame 4503 | footprint 2385 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.60 MB t 241.2 s frame 4504 | footprint 2582 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 21 SetData calls, 0.30 MB t 241.3 s frame 4505 | footprint 2765 MB (peak 5984) | unity allocated 686 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.3 s frame 4505 | footprint 2798 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.4 s frame 4506 | footprint 3078 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 27 SetData calls, 0.64 MB t 241.5 s frame 4507 | footprint 3188 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 29 SetData calls, 0.60 MB t 241.5 s frame 4508 | footprint 2539 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.6 s frame 4509 | footprint 2886 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.6 s frame 4510 | footprint 2764 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.7 s frame 4512 | footprint 2404 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.57 MB t 241.8 s frame 4516 | footprint 2385 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.57 MB t 241.9 s frame 4517 | footprint 2537 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 22 SetData calls, 0.27 MB t 241.9 s frame 4518 | footprint 2801 MB (peak 5984) | unity allocated 686 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 241.9 s frame 4518 | footprint 2834 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.0 s frame 4519 | footprint 3141 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 29 SetData calls, 0.66 MB t 242.1 s frame 4521 | footprint 2551 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 31 SetData calls, 0.65 MB t 242.2 s frame 4522 | footprint 2731 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.2 s frame 4522 | footprint 2598 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.2 s frame 4523 | footprint 2789 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.3 s frame 4525 | footprint 2611 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.4 s frame 4527 | footprint 2411 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 28 SetData calls, 0.65 MB t 242.4 s frame 4528 | footprint 2386 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 26 SetData calls, 0.66 MB t 242.5 s frame 4529 | footprint 2472 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 14 SetData calls, 0.16 MB t 242.5 s frame 4530 | footprint 2679 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.6 s frame 4531 | footprint 2861 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.6 s frame 4532 | footprint 2689 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.7 s frame 4534 | footprint 2487 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.7 s frame 4535 | footprint 2423 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 242.8 s frame 4536 | footprint 2386 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 23 SetData calls, 0.72 MB t 242.9 s frame 4538 | footprint 2386 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 19 SetData calls, 0.71 MB t 242.9 s frame 4539 | footprint 2536 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 15 SetData calls, 0.18 MB t 242.9 s frame 4540 | footprint 2656 MB (peak 5984) | unity allocated 687 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.0 s frame 4540 | footprint 2690 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.0 s frame 4541 | footprint 2768 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 81 SetData calls, 0.68 MB t 243.1 s frame 4543 | footprint 2596 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 56 SetData calls, 0.52 MB t 243.1 s frame 4544 | footprint 2617 MB (peak 5984) | unity allocated 688 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.1 s frame 4544 | footprint 2650 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.3 s frame 4545 | footprint 3086 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.4 s frame 4546 | footprint 3407 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 28 SetData calls, 0.88 MB t 243.5 s frame 4547 | footprint 2823 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 24 SetData calls, 0.86 MB t 243.5 s frame 4548 | footprint 2987 MB (peak 5984) | unity allocated 689 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.6 s frame 4548 | footprint 2731 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 80 SetData calls, 0.73 MB t 243.6 s frame 4549 | footprint 2735 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.64 MB t 243.7 s frame 4550 | footprint 3104 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.8 s frame 4551 | footprint 3299 MB (peak 5984) | unity allocated 691 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 243.9 s frame 4552 | footprint 3412 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 76 SetData calls, 0.85 MB t 243.9 s frame 4553 | footprint 3372 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.0 s frame 4553 | footprint 3164 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.62 MB t 244.0 s frame 4554 | footprint 3134 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.1 s frame 4555 | footprint 3320 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.2 s frame 4556 | footprint 3360 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 0.39 MB t 244.3 s frame 4557 | footprint 3331 MB (peak 5984) | unity allocated 690 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.3 s frame 4557 | footprint 3179 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 17 SetData calls, 0.79 MB t 244.3 s frame 4558 | footprint 2773 MB (peak 5984) | unity allocated 692 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 16 SetData calls, 0.78 MB t 244.4 s frame 4559 | footprint 2484 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 13 SetData calls, 0.44 MB t 244.4 s frame 4560 | footprint 2568 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.5 s frame 4561 | footprint 2623 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.6 s frame 4562 | footprint 2538 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.6 s frame 4564 | footprint 2406 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 64 SetData calls, 0.67 MB t 244.7 s frame 4565 | footprint 2387 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 41 SetData calls, 0.41 MB t 244.8 s frame 4566 | footprint 2633 MB (peak 5984) | unity allocated 694 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.8 s frame 4566 | footprint 2667 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.8 s frame 4567 | footprint 2874 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 244.9 s frame 4568 | footprint 3180 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.0 s frame 4569 | footprint 2700 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.0 s frame 4570 | footprint 2412 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.55 MB t 245.1 s frame 4572 | footprint 2388 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 28 SetData calls, 0.55 MB t 245.2 s frame 4573 | footprint 2410 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 29 SetData calls, 0.64 MB t 245.2 s frame 4574 | footprint 2578 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 16 SetData calls, 0.37 MB t 245.3 s frame 4575 | footprint 2742 MB (peak 5984) | unity allocated 694 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.3 s frame 4575 | footprint 2776 MB (peak 5984) | unity allocated 696 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.4 s frame 4578 | footprint 2620 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.5 s frame 4579 | footprint 2426 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 245.6 s frame 4580 | footprint 2388 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.67 MB t 245.8 s frame 4586 | footprint 2388 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.66 MB t 245.9 s frame 4587 | footprint 2412 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.46 MB t 246.1 s frame 4591 | footprint 2391 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.43 MB t 246.1 s frame 4592 | footprint 2403 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 246.2 s frame 4594 | footprint 2441 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 246.3 s frame 4596 | footprint 2399 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 13 SetData calls, 0.44 MB t 246.5 s frame 4601 | footprint 2383 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 18 SetData calls, 0.46 MB t 246.6 s frame 4602 | footprint 2443 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.18 MB t 246.6 s frame 4603 | footprint 2541 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] frame t 246.8 s frame 4606 | footprint 2493 MB (peak 5984) | unity allocated 698 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 5 SetData calls, 0.42 MB t 246.8 s frame 4607 | footprint 2389 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.42 MB t 246.9 s frame 4608 | footprint 2395 MB (peak 5984) | unity allocated 697 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.13 MB t 246.9 s frame 4609 | footprint 2401 MB (peak 5984) | unity allocated 695 MB, reserved 813 MB, gfx driver 0 MB
+[tfmem] tick fill done (floods 28, merges 66, upload calls 1607 max 81/Upload, 33.7 MB; union hash 405974BD1431CEA0; GPU == CPU) t 246.9 s frame 4609 | footprint 2418 MB (peak 5984) | unity allocated 669 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 247.3 s frame 4619 | footprint 2384 MB (peak 5984) | unity allocated 671 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] tf_tick armed (pool reset; Tick fills it) t 269.6 s frame 5150 | footprint 2376 MB (peak 5984) | unity allocated 651 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 0.40 MB t 270.1 s frame 5163 | footprint 2387 MB (peak 5984) | unity allocated 671 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 2 SetData calls, 0.23 MB t 270.1 s frame 5164 | footprint 2397 MB (peak 5984) | unity allocated 676 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.45 MB t 270.5 s frame 5173 | footprint 2387 MB (peak 5984) | unity allocated 677 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.46 MB t 270.5 s frame 5174 | footprint 2399 MB (peak 5984) | unity allocated 677 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 3 SetData calls, 0.24 MB t 270.6 s frame 5175 | footprint 2409 MB (peak 5984) | unity allocated 677 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.45 MB t 270.8 s frame 5181 | footprint 2407 MB (peak 5984) | unity allocated 683 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 42 SetData calls, 0.46 MB t 270.9 s frame 5182 | footprint 2484 MB (peak 5984) | unity allocated 681 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 21 SetData calls, 0.31 MB t 271.0 s frame 5183 | footprint 2713 MB (peak 5984) | unity allocated 683 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 271.2 s frame 5184 | footprint 2856 MB (peak 5984) | unity allocated 683 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 271.2 s frame 5186 | footprint 2822 MB (peak 5984) | unity allocated 683 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.51 MB t 271.2 s frame 5187 | footprint 2538 MB (peak 5984) | unity allocated 684 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 5 SetData calls, 0.44 MB t 271.3 s frame 5188 | footprint 2405 MB (peak 5984) | unity allocated 684 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.71 MB t 271.6 s frame 5194 | footprint 2391 MB (peak 5984) | unity allocated 684 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.68 MB t 271.6 s frame 5195 | footprint 2417 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.25 MB t 271.6 s frame 5196 | footprint 2442 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 271.9 s frame 5201 | footprint 2392 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 16 SetData calls, 0.46 MB t 271.9 s frame 5202 | footprint 2393 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 14 SetData calls, 0.43 MB t 272.0 s frame 5203 | footprint 2470 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.0 s frame 5204 | footprint 2534 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.2 s frame 5207 | footprint 2398 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 17 SetData calls, 0.48 MB t 272.2 s frame 5208 | footprint 2398 MB (peak 5984) | unity allocated 685 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.3 s frame 5208 | footprint 2432 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 18 SetData calls, 0.47 MB t 272.3 s frame 5209 | footprint 2485 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 6 SetData calls, 0.10 MB t 272.3 s frame 5210 | footprint 2585 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.4 s frame 5212 | footprint 2540 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.5 s frame 5214 | footprint 2410 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 50 SetData calls, 0.52 MB t 272.8 s frame 5218 | footprint 2392 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 42 SetData calls, 0.49 MB t 272.8 s frame 5219 | footprint 2470 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 272.9 s frame 5220 | footprint 2761 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 20 SetData calls, 0.52 MB t 273.0 s frame 5221 | footprint 3050 MB (peak 5984) | unity allocated 685 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.0 s frame 5221 | footprint 3103 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 25 SetData calls, 0.46 MB t 273.1 s frame 5222 | footprint 3158 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.1 s frame 5223 | footprint 2980 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.2 s frame 5224 | footprint 2692 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.2 s frame 5225 | footprint 2650 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 52 SetData calls, 0.59 MB t 273.3 s frame 5226 | footprint 2546 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.3 s frame 5226 | footprint 2421 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.60 MB t 273.3 s frame 5227 | footprint 2578 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 21 SetData calls, 0.30 MB t 273.4 s frame 5228 | footprint 2783 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.5 s frame 5229 | footprint 3106 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 27 SetData calls, 0.64 MB t 273.6 s frame 5230 | footprint 3180 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.6 s frame 5230 | footprint 3020 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.7 s frame 5231 | footprint 2916 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 29 SetData calls, 0.60 MB t 273.7 s frame 5232 | footprint 2970 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.7 s frame 5232 | footprint 2890 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.8 s frame 5233 | footprint 2671 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.8 s frame 5234 | footprint 2607 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 273.9 s frame 5236 | footprint 2560 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.57 MB t 274.0 s frame 5237 | footprint 2400 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 44 SetData calls, 0.57 MB t 274.0 s frame 5238 | footprint 2594 MB (peak 5984) | unity allocated 686 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 274.0 s frame 5238 | footprint 2626 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 22 SetData calls, 0.27 MB t 274.1 s frame 5239 | footprint 2811 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 274.4 s frame 5240 | footprint 2868 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 29 SetData calls, 0.66 MB t 274.4 s frame 5242 | footprint 2857 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 31 SetData calls, 0.65 MB t 274.5 s frame 5243 | footprint 2763 MB (peak 5984) | unity allocated 688 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 274.6 s frame 5245 | footprint 2818 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 274.6 s frame 5247 | footprint 2602 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 274.7 s frame 5248 | footprint 2400 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 28 SetData calls, 0.65 MB t 275.0 s frame 5255 | footprint 2383 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 26 SetData calls, 0.66 MB t 275.0 s frame 5256 | footprint 2558 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 14 SetData calls, 0.16 MB t 275.1 s frame 5257 | footprint 2756 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.1 s frame 5258 | footprint 2792 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.2 s frame 5259 | footprint 2855 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.2 s frame 5260 | footprint 2537 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.2 s frame 5261 | footprint 2481 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.3 s frame 5262 | footprint 2393 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 23 SetData calls, 0.72 MB t 275.3 s frame 5263 | footprint 2393 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 19 SetData calls, 0.71 MB t 275.4 s frame 5264 | footprint 2543 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 15 SetData calls, 0.18 MB t 275.4 s frame 5265 | footprint 2663 MB (peak 5984) | unity allocated 687 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.5 s frame 5266 | footprint 2775 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.5 s frame 5268 | footprint 2619 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.6 s frame 5269 | footprint 2431 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.6 s frame 5270 | footprint 2393 MB (peak 5984) | unity allocated 689 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 81 SetData calls, 0.68 MB t 275.7 s frame 5272 | footprint 2393 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 56 SetData calls, 0.52 MB t 275.7 s frame 5273 | footprint 2463 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 275.9 s frame 5274 | footprint 3032 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.1 s frame 5275 | footprint 3445 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 28 SetData calls, 0.88 MB t 276.1 s frame 5276 | footprint 3417 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 24 SetData calls, 0.86 MB t 276.2 s frame 5277 | footprint 2936 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.2 s frame 5278 | footprint 2721 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 80 SetData calls, 0.73 MB t 276.3 s frame 5280 | footprint 2717 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.64 MB t 276.3 s frame 5281 | footprint 2835 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.4 s frame 5282 | footprint 3015 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.6 s frame 5283 | footprint 3417 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.6 s frame 5285 | footprint 3059 MB (peak 5984) | unity allocated 691 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.7 s frame 5286 | footprint 2399 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 76 SetData calls, 0.85 MB t 276.7 s frame 5287 | footprint 2399 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.7 s frame 5287 | footprint 2433 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 55 SetData calls, 0.62 MB t 276.7 s frame 5288 | footprint 2597 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 276.8 s frame 5289 | footprint 2991 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 17 SetData calls, 0.79 MB t 277.0 s frame 5290 | footprint 3366 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 16 SetData calls, 0.78 MB t 277.0 s frame 5291 | footprint 3441 MB (peak 5984) | unity allocated 690 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.0 s frame 5291 | footprint 3337 MB (peak 5984) | unity allocated 692 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 12 SetData calls, 0.60 MB t 277.0 s frame 5292 | footprint 3201 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.0 s frame 5292 | footprint 3089 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 13 SetData calls, 0.43 MB t 277.1 s frame 5293 | footprint 2901 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.1 s frame 5293 | footprint 2861 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.1 s frame 5294 | footprint 2575 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.2 s frame 5295 | footprint 2509 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.2 s frame 5297 | footprint 2433 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.3 s frame 5298 | footprint 2401 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 64 SetData calls, 0.67 MB t 277.3 s frame 5299 | footprint 2402 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 41 SetData calls, 0.41 MB t 277.3 s frame 5300 | footprint 2540 MB (peak 5984) | unity allocated 694 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.3 s frame 5300 | footprint 2575 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.4 s frame 5301 | footprint 2882 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.5 s frame 5302 | footprint 3187 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.5 s frame 5303 | footprint 2707 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.6 s frame 5305 | footprint 2393 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 25 SetData calls, 0.70 MB t 277.7 s frame 5309 | footprint 2394 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 24 SetData calls, 0.69 MB t 277.8 s frame 5310 | footprint 2526 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 23 SetData calls, 0.70 MB t 277.8 s frame 5311 | footprint 2656 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 14 SetData calls, 0.38 MB t 277.9 s frame 5312 | footprint 2780 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.9 s frame 5312 | footprint 2815 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 277.9 s frame 5313 | footprint 2693 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 278.0 s frame 5315 | footprint 2537 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 278.0 s frame 5316 | footprint 2413 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 9 SetData calls, 0.78 MB t 278.5 s frame 5328 | footprint 2394 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.74 MB t 278.5 s frame 5329 | footprint 2428 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 12 SetData calls, 0.73 MB t 278.6 s frame 5331 | footprint 2452 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 8 SetData calls, 0.60 MB t 278.7 s frame 5332 | footprint 2483 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 278.7 s frame 5332 | footprint 2519 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 278.8 s frame 5336 | footprint 2437 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 278.9 s frame 5338 | footprint 2393 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 13 SetData calls, 0.44 MB t 279.2 s frame 5346 | footprint 2394 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 18 SetData calls, 0.46 MB t 279.3 s frame 5347 | footprint 2444 MB (peak 5984) | unity allocated 696 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 7 SetData calls, 0.18 MB t 279.3 s frame 5348 | footprint 2553 MB (peak 5984) | unity allocated 698 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 5 SetData calls, 0.42 MB t 279.4 s frame 5350 | footprint 2551 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.42 MB t 279.4 s frame 5351 | footprint 2513 MB (peak 5984) | unity allocated 697 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem]     upload (mode 0): 4 SetData calls, 0.13 MB t 279.5 s frame 5352 | footprint 2431 MB (peak 5984) | unity allocated 695 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] tick fill done (floods 28, merges 66, upload calls 1633 max 81/Upload, 34.9 MB; union hash 8EAD9E14C25AE7E4; GPU == CPU) t 279.5 s frame 5352 | footprint 2439 MB (peak 5984) | unity allocated 669 MB, reserved 805 MB, gfx driver 0 MB
+[tfmem] frame t 279.6 s frame 5356 | footprint 2405 MB (peak 5984) | unity allocated 671 MB, reserved 805 MB, gfx driver 0 MB
