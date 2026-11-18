@@ -103,6 +103,7 @@ You are running UNATTENDED in a fresh headless session started by
    counter lines vs OFF (flag at +25 %). A new pass gets its own switch AND a capture-only `-costarms <name>_off` arm.
    Without approval in the task file: no new pass at OUTPUT resolution, no new per-pixel ray march. Write `HEAVY` in HANDOFF
    if the task adds either, prints `OVER SHARE`, or crosses a P1/P4 limit: the supervisor then runs the budget check next.
+   **Report worst-case poses, not only noon / no torches** (owner 2026-11-17, task 235): P3 and any perf claim quote the low sun (16 deg) and torches-at-night poses where the task's launch has them.
 13. **Budget check counter** (owner Q-AO (b), N = 5, task 230): the supervisor adds 1 to `tools/overnight/BUDGET_COUNT` (line 1)
    for each drawing/content task it marks done, and queues `tools/overnight/run-budget-check.sh` next when it reaches 5, at once
    after a `HEAVY` task, and before any merge to `main`; an accepted check (PASS or `--rebaseline`) sets it to 0, WARN to 2.

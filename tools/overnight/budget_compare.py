@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""budget_compare.py -- task 230: the comparison half of tools/overnight/run-budget-check.sh (PERF_BUDGET_GUARD.md sec. 3).
+"""budget_compare.py -- the comparison half of tools/overnight/run-budget-check.sh (PERF_BUDGET_GUARD.md sec. 3).
 
-Reads one DAY cost split (walk_near + forest_eye, arms = PERF_BUDGET.json steps' off_arm) and one NIGHT cost split
-(-costpaths torch, arms tf_on + tl_none), compares them with PERF_BUDGET.json's baseline (a ratchet) and hard limits,
-prints ONE table and ends with BUDGET PASS | WARN | FAIL | NOT CLEAN. Exit 1 on FAIL, 3 on NOT CLEAN, 0 otherwise.
+Task 230 wrote it for noon walk_near; task 235 (owner 2026-11-17, "I want 1 for now") made it judge WORST-CASE poses:
+a low sun and torches both occur in play, so a gain that only shows at noon / with no torch near is not a gain for the
+30 fps target. The poses and launches come from PERF_BUDGET.json ("poses", "launches"):
+  worst:   walk_near_16, forest_eye_16 (16 deg morning sun), jungle_eye_noon (GPU pool full), torch_camp_night (28 torches)
+  control: walk_near_noon, forest_eye_noon (startsun_off arm in the same launch): reported, never decide the verdict.
+Prints ONE pose x step table (FULL / sun / sky fill / flood / rest, p50 ms and % of 33.3 ms), the worst pose per step,
+the ratchet rows and BUDGET PASS | WARN | FAIL | NOT CLEAN. Exit 1 on FAIL, 3 on NOT CLEAN, 2 on a refused rebaseline.
 
-  python3 -I tools/overnight/budget_compare.py --day D.txt --night N.txt [--budget PERF_BUDGET.json]
-          [--dirty "<why>"] [--rebaseline "<who approved>"] [--stricter 0.8 --write-copy out.json]
+  python3 -I tools/overnight/budget_compare.py --log walk=W.txt --log forest=F.txt --log jungle=J.txt --log night=N.txt
+          [--budget PERF_BUDGET.json] [--dirty "<why>"] [--rebaseline "<who approved>"] [--stricter 0.8 --write-copy out.json]
 
---stricter F --write-copy OUT: write a copy of the budget file with every baseline number scaled by F (the failure-path
-test: 0.8 = a baseline 20 % stricter), then exit. Row rules (sec. 2): higher is worse; FAIL when the number is worse than
-its baseline by more than its tolerance, WARN at half; a step whose own noise (|FULL before - after|) is larger than its
-tolerance is downgraded FAIL -> WARN ("noisy"). Targets and shares are reported as distance only. Hard limits fail always.
+Rows: higher is worse; FAIL when worse than the baseline by more than the tolerance, WARN at half. A row whose own noise
+(steps: |FULL before - after|; FULL: the range of its FULL passes) is larger than its tolerance is downgraded FAIL -> WARN
+("noisy"). Only WORST-CASE rows (and the hard limits) decide the verdict; control rows are info. Day flood is not timed:
+since task 229 a FULL line `flood skip` means the plain kernel drew = 0 ms by construction (`twin` by day = PROBLEM).
+rest = FULL - sun - sky fill - flood (shells, tier-0 march, FSR 3, CPU, overlap).
 """
 import argparse, datetime, json, re, sys
 
 NUM = r'(-?\d+(?:\.\d+)?)'
+FRAME_MS = 33.3
+STEP_COLS = ('sun_shadow', 'sky_fill', 'torch_flood', 'rest')
+STEP_LABEL = {'sun_shadow': 'sun', 'sky_fill': 'sky fill', 'torch_flood': 'flood', 'rest': 'rest', 'shells': 'shells'}
 
 
 def parse_costsplit(path, arms):
@@ -86,62 +94,6 @@ def tol_of(spec, base):
     return max(float(m.group(1)), float(m.group(2)) / 100.0 * abs(base or 0.0))
 
 
-def build_current(day, night, steps, forest=None):
-    cur, problems = {}, []
-    wn = day.get('walk_near')
-    if not wn or not wn['full']:
-        problems.append('day log: no walk_near FULL row')
-    else:
-        d = {'full_p50_ms': wn['full']['p50'], 'full_p95_ms': wn['full']['p95'], 'full_p99_ms': wn['full']['p99'],
-             'frames_over_33ms_pct': wn['full']['over33'], 'full_range_ms': wn['full']['range'],
-             'step_delta_ms': {}, 'step_noise_ms': {}, 'flood_full': sorted(wn['flood_full']), 'deficit': wn['deficit']}
-        for st in steps:
-            a = wn['arms'].get(st['off_arm'])
-            if a is None:
-                problems.append('day log: walk_near has no %s row' % st['off_arm']); continue
-            if st['name'] == 'ceiling':
-                d['ceiling_p50_ms'] = a['p50']; d['ceiling_noise_ms'] = a['noise']
-            else:
-                d['step_delta_ms'][st['name']] = a['saved']; d['step_noise_ms'][st['name']] = a['noise']
-        cur['walk_near'] = d
-    fe = (forest or day).get('forest_eye')   # the FOREST launch (FULL only) when given; else the day log's
-    if fe and fe['full']:
-        cur['forest_eye'] = {'full_p50_ms': fe['full']['p50'], 'full_p95_ms': fe['full']['p95'], 'full_p99_ms': fe['full']['p99'],
-                             'frames_over_33ms_pct': fe['full']['over33'], 'deficit': fe['deficit'],
-                             'step_delta_ms': {st['name']: fe['arms'][st['off_arm']]['saved'] for st in steps
-                                               if st['name'] != 'ceiling' and st['off_arm'] in fe['arms']}}
-    tc = night.get('torch_camp') if night else None
-    if night is not None:
-        if not tc or 'tf_on' not in tc['arms'] or 'tl_none' not in tc['arms']:
-            problems.append('night log: torch_camp tf_on / tl_none rows missing')
-        else:
-            on, none = tc['arms']['tf_on'], tc['arms']['tl_none']
-            cur['torch'] = {'play_p50_ms': on['p50'], 'play_p95_ms': on['p95'], 'points_p50_ms': tc['full']['p50'] if tc['full'] else None,
-                            'none_p50_ms': none['p50'], 'flood_step_ms': round(on['p50'] - none['p50'], 1),
-                            'flood_noise_ms': max(on['noise'], none['noise'])}
-    mem = {}
-    dm = [p['mem'] for p in day.values() if p['mem']]
-    fm = [p['mem'] for p in (forest or {}).values() if p['mem']]
-    nm = [p['mem'] for p in (night or {}).values() if p['mem']]
-    if wn and wn['mem']:
-        mem['gpu_refusals_walk_near'] = wn['mem']['gpu_refusals']
-    if dm:
-        mem['day_peak_mb'] = max(m['process_peak_mb'] for m in dm)
-        mem['gpu_body_pool_peak'] = max(m['gpu_body_pool_peak'] for m in dm)
-        mem['gpu_refusals_after_paths'] = max(m['gpu_refusals'] for m in dm)
-        mem['cpu_pool_peak'] = max(m['cpu_pool_peak'] for m in dm)
-        mem['cpu_valve'] = dm[-1]['cpu_valve']
-    if nm:
-        mem['night_peak_mb'] = max(m['process_peak_mb'] for m in nm)
-    if fm:
-        mem['forest_peak_mb'] = max(m['process_peak_mb'] for m in fm)
-    pk = [v for v in (mem.get('day_peak_mb'), mem.get('forest_peak_mb'), mem.get('night_peak_mb')) if v is not None]
-    if pk:
-        mem['process_peak_mb'] = max(pk)
-    cur['memory'] = mem
-    return cur, problems
-
-
 def get(d, *ks):
     for k in ks:
         if not isinstance(d, dict) or k not in d:
@@ -150,16 +102,99 @@ def get(d, *ks):
     return d
 
 
+def all_arms(bud):
+    arms = set()
+    for L in bud['launches'].values():
+        arms.update(L['arms'])
+    return sorted(arms)
+
+
+def build_current(logs, bud):
+    """logs: {launch: parsed costsplit}. -> cur {'poses': {key: {...}}, 'memory': {...}}, problems"""
+    cur, problems = {'poses': {}}, []
+    for pd in bud['poses']:
+        key, L = pd['key'], pd['launch']
+        lg = logs.get(L)
+        if lg is None:
+            problems.append('%s: no %s log' % (key, L)); continue
+        p = lg.get(pd['path'])
+        if not p:
+            problems.append('%s: %s log has no %s path' % (key, L, pd['path'])); continue
+        src = pd.get('full', 'full')
+        if src == 'full':
+            if not p['full']:
+                problems.append('%s: no FULL row' % key); continue
+            f = p['full']; rng = f['range']
+        else:
+            f = p['arms'].get(src)
+            if f is None:
+                problems.append('%s: no %s row (its FULL)' % (key, src)); continue
+            rng = f['noise']
+        d = {'role': pd['role'], 'full_p50_ms': f['p50'], 'full_p95_ms': f['p95'], 'frames_over_33ms_pct': f['over33'],
+             'full_noise_ms': rng, 'deficit': p['deficit'], 'step_ms': {}, 'step_noise_ms': {}}
+        for step, arm in (pd.get('steps') or {}).items():
+            a = p['arms'].get(arm)
+            if a is None:
+                problems.append('%s: no %s row' % (key, arm)); continue
+            d['step_ms'][step] = a['saved']; d['step_noise_ms'][step] = a['noise']
+        if pd.get('ceiling'):
+            a = p['arms'].get(pd['ceiling'])
+            if a is None:
+                problems.append('%s: no %s row' % (key, pd['ceiling']))
+            else:
+                d['ceiling_p50_ms'] = a['p50']; d['ceiling_noise_ms'] = a['noise']
+        fl = pd.get('flood')
+        if fl == 'day':
+            d['flood_state'] = sorted(p['flood_full'])
+            if p['flood_full'] and p['flood_full'] <= {'skip', '-'}:
+                d['step_ms']['torch_flood'] = 0.0   # 229: the plain kernel drew, flood step 0 by construction
+            else:
+                problems.append('%s: FULL flood state %s by day (229 expects skip): time a flood_off arm' % (key, d['flood_state']))
+        elif fl:   # "tf_on-tl_none"
+            a, b = (p['arms'].get(x) for x in fl.split('-'))
+            if a is None or b is None:
+                problems.append('%s: %s rows missing' % (key, fl))
+            else:
+                d['step_ms']['torch_flood'] = round(a['p50'] - b['p50'], 1)
+                d['step_noise_ms']['torch_flood'] = max(a['noise'], b['noise'])
+                d['points_full_p50_ms'] = p['full']['p50'] if p['full'] else None
+        if pd['role'] == 'worst' and all(s in d['step_ms'] for s in ('sun_shadow', 'sky_fill', 'torch_flood')):
+            d['step_ms']['rest'] = round(d['full_p50_ms'] - sum(d['step_ms'][s] for s in ('sun_shadow', 'sky_fill', 'torch_flood')), 1)
+        cur['poses'][key] = d
+    mem = {}
+    for L, lg in logs.items():
+        ms = [p['mem'] for p in lg.values() if p['mem']]
+        if not ms:
+            continue
+        mem['%s_peak_mb' % L] = max(m['process_peak_mb'] for m in ms)
+        mem['%s_gpu_refusals' % L] = max(m['gpu_refusals'] for m in ms)
+        mem['%s_gpu_body_pool_peak' % L] = max(m['gpu_body_pool_peak'] for m in ms)
+        mem['%s_cpu_pool_peak' % L] = max(m['cpu_pool_peak'] for m in ms)
+        mem['cpu_valve'] = ms[-1]['cpu_valve']
+    wn = get(logs, 'walk', 'walk_near', 'mem')
+    if wn:
+        mem['gpu_refusals_walk_near'] = wn['gpu_refusals']
+    pk = [v for k, v in mem.items() if k.endswith('_peak_mb')]
+    if pk:
+        mem['process_peak_mb'] = max(pk)
+    for k in ('gpu_refusals', 'gpu_body_pool_peak', 'cpu_pool_peak'):
+        v = [x for kk, x in mem.items() if kk.endswith('_' + k) and kk != 'gpu_refusals_walk_near']
+        if v:
+            mem[k + '_max'] = max(v)
+    cur['memory'] = mem
+    return cur, problems
+
+
 def compare(cur, bud, noise_downgrade=True):
     base, tol, tg, hl = bud.get('baseline', {}), bud['tolerance'], bud['targets'], bud['hard_limits']
     shares = {s['name']: s.get('share_ms') for s in bud['steps']}
     rows = []   # (name, value, base, delta, tol, share/target, status, note)
 
-    def ratchet(name, val, b, tspec, extra='', noise=None, info=False, unit=''):
+    def ratchet(name, val, b, tspec, extra='', noise=None, info=False):
         if val is None:
-            rows.append((name, None, b, None, None, extra, 'MISSING', '')); return
+            rows.append((name, None, b, None, None, extra, 'info' if info else 'MISSING', '')); return
         if b is None:
-            rows.append((name, val, None, None, None, extra, 'NEW', 'no baseline yet')); return
+            rows.append((name, val, None, None, None, extra, 'info' if info else 'NEW', 'no baseline yet')); return
         t = tol_of(tspec, b)
         dlt = val - b
         st = 'FAIL' if dlt > t else 'WARN' if dlt > 0.5 * t else 'PASS'
@@ -178,48 +213,84 @@ def compare(cur, bud, noise_downgrade=True):
             rows.append((name, None, limit, None, None, extra, 'MISSING', '')); return
         rows.append((name, val, limit, val - limit, 0, extra, 'FAIL' if val > limit else 'PASS', 'hard limit %g' % limit))
 
-    wn, bwn = cur.get('walk_near', {}), base.get('walk_near', {})
-    ratchet('walk_near FULL p50 ms', wn.get('full_p50_ms'), bwn.get('full_p50_ms'), tol['full_p50_ms'],
-            'target %.1f (%+.1f)' % (tg['frame_p50_ms'], (wn.get('full_p50_ms') or 0) - tg['frame_p50_ms']))
-    ratchet('walk_near FULL p95 ms', wn.get('full_p95_ms'), bwn.get('full_p95_ms'), tol['full_p95_ms'],
-            'target %.1f (%+.1f)' % (tg['frame_p95_ms'], (wn.get('full_p95_ms') or 0) - tg['frame_p95_ms']))
-    v = wn.get('frames_over_33ms_pct')
-    rows.append(('walk_near frames > 33 ms %', v, bwn.get('frames_over_33ms_pct'), None, None,
-                 'target %.1f' % tg['frames_over_33ms_pct'], 'info', 'target distance only'))
-    for st in bud['steps']:
-        n = st['name']
-        if n == 'ceiling':
-            ratchet('walk_near ceiling p50 ms', wn.get('ceiling_p50_ms'), bwn.get('ceiling_p50_ms'), tol['full_p50_ms'],
-                    '(sky probe + sun + shells off)', noise=wn.get('ceiling_noise_ms'))
+    for pd in bud['poses']:
+        k = pd['key']; d = get(cur, 'poses', k) or {}; b = get(base, 'poses', k) or {}
+        info = pd['role'] != 'worst'
+        tag = '%s%s' % (k, '' if not info else ' (control)')
+        v = d.get('full_p50_ms')
+        ratchet('%s FULL p50' % tag, v, b.get('full_p50_ms'), tol['full_p50_ms'],
+                '' if v is None else 'target %.1f (%+.1f)' % (tg['frame_p50_ms'], v - tg['frame_p50_ms']), noise=d.get('full_noise_ms'), info=info)
+        if info:
             continue
-        val = get(wn, 'step_delta_ms', n)
-        sh = 0.0 if n == 'torch_flood' else shares.get(n)
-        ex = '' if sh is None else 'share %.1f%s' % (sh, ' OVER SHARE' if val is not None and val > sh + 1e-9 and sh > 0 else '')
-        if n == 'torch_flood':
-            ex = 'day share 0 (night row below)'
-        ratchet('walk_near step %s ms' % n, val, get(bwn, 'step_delta_ms', n), tol['step_delta_ms'], ex,
-                noise=get(wn, 'step_noise_ms', n))
-    t, bt = cur.get('torch', {}), base.get('torch', {})
-    ratchet('torch night play p50 ms (tf_on)', t.get('play_p50_ms'), bt.get('play_p50_ms'), tol['full_p50_ms'],
-            'target %.1f (%+.1f)' % (tg['frame_p50_ms'], (t.get('play_p50_ms') or 0) - tg['frame_p50_ms']))
-    fs = t.get('flood_step_ms'); sh = shares.get('torch_flood')
-    ratchet('torch night step torch_flood ms', fs, bt.get('flood_step_ms'), tol['step_delta_ms'],
-            'share %.1f%s (tf_on - tl_none)' % (sh, ' OVER SHARE' if fs is not None and fs > sh else ''), noise=t.get('flood_noise_ms'))
-    fe, bfe = cur.get('forest_eye', {}), base.get('forest_eye', {})
-    ratchet('forest_eye FULL p50 ms (secondary)', fe.get('full_p50_ms'), bfe.get('full_p50_ms'), tol['full_p50_ms'],
-            'deficit %s' % fe.get('deficit'), info=True)
-    for n, val in sorted((fe.get('step_delta_ms') or {}).items()):
-        ratchet('forest_eye step %s ms (secondary)' % n, val, get(bfe, 'step_delta_ms', n), tol['step_delta_ms'],
-                '' if shares.get(n) is None else 'share %.1f' % shares[n], info=True)
+        v = d.get('full_p95_ms')
+        ratchet('%s FULL p95' % tag, v, b.get('full_p95_ms'), tol['full_p95_ms'],
+                'target %.1f (%+.1f)' % (tg['frame_p95_ms'], (v or 0) - tg['frame_p95_ms']), noise=d.get('full_noise_ms'))
+        for s in ('sun_shadow', 'sky_fill', 'torch_flood', 'shells'):
+            if s not in (d.get('step_ms') or {}) and s not in (pd.get('steps') or {}):
+                continue
+            val = get(d, 'step_ms', s); sh = shares.get(s)
+            ex = '' if sh is None else 'share %.1f%s' % (sh, ' OVER SHARE' if val is not None and val > sh + 1e-9 else '')
+            if s == 'torch_flood' and pd.get('flood') == 'day':
+                ex = 'skip by day (229): 0 by construction'
+            ratchet('%s step %s' % (tag, STEP_LABEL[s]), val, get(b, 'step_ms', s), tol['step_delta_ms'], ex,
+                    noise=get(d, 'step_noise_ms', s))
+        if 'ceiling_p50_ms' in d or pd.get('ceiling'):
+            ratchet('%s ceiling p50' % tag, d.get('ceiling_p50_ms'), b.get('ceiling_p50_ms'), tol['full_p50_ms'],
+                    '(sky probe + sun + shells off)', noise=d.get('ceiling_noise_ms'))
     m, bm = cur.get('memory', {}), base.get('memory', {})
-    ratchet('memory process peak MB', m.get('process_peak_mb'), bm.get('process_peak_mb'), tol['process_peak_mb'],
-            'day %s / forest %s / night %s' % (m.get('day_peak_mb'), m.get('forest_peak_mb'), m.get('night_peak_mb')))
+    pk = ' / '.join('%s %s' % (L, m.get('%s_peak_mb' % L)) for L in bud['launches'])
+    ratchet('memory process peak MB', m.get('process_peak_mb'), bm.get('process_peak_mb'), tol['process_peak_mb'], pk)
     hard('memory process peak MB (hard)', m.get('process_peak_mb'), hl['process_peak_mb'])
     hard('GPU body refusals at walk_near (hard)', m.get('gpu_refusals_walk_near'), hl['gpu_body_refusals_at_walk_near'])
-    ratchet('GPU body refusals after day paths', m.get('gpu_refusals_after_paths'), bm.get('gpu_refusals_after_paths'), tol['gpu_refusals'])
-    rows.append(('GPU body pool peak', m.get('gpu_body_pool_peak'), bm.get('gpu_body_pool_peak'), None, None, 'cap 254,400', 'info', ''))
-    rows.append(('CPU brick pool peak', m.get('cpu_pool_peak'), bm.get('cpu_pool_peak'), None, None, 'valve %s' % m.get('cpu_valve'), 'info', ''))
+    ratchet('GPU body refusals (max of launches)', m.get('gpu_refusals_max'), bm.get('gpu_refusals_max'), tol['gpu_refusals'],
+            ' / '.join('%s %s' % (L, m.get('%s_gpu_refusals' % L)) for L in bud['launches']))
+    rows.append(('GPU body pool peak (max)', m.get('gpu_body_pool_peak_max'), bm.get('gpu_body_pool_peak_max'), None, None, 'cap 254,400', 'info', ''))
+    rows.append(('CPU brick pool peak (max)', m.get('cpu_pool_peak_max'), bm.get('cpu_pool_peak_max'), None, None, 'valve %s' % m.get('cpu_valve'), 'info', ''))
     return rows
+
+
+def cell(ms):
+    return '-' if ms is None else '%.1f (%d%%)' % (ms, round(100.0 * ms / FRAME_MS))
+
+
+def print_matrix(cur, bud):
+    """The pose x step table, p50 ms and the share of 33.3 ms; then the worst pose per step and the worst pose's top 3."""
+    print('POSE x STEP, p50 ms (%% of %.1f ms = 30 fps)' % FRAME_MS)
+    print('%-18s %-7s %14s %14s %14s %14s %14s   %6s %5s %7s  %s' % ('pose', 'role', 'FULL', 'sun', 'sky fill', 'flood',
+                                                                     'rest', 'p95', '>33%', 'deficit', 'note'))
+    for pd in bud['poses']:
+        d = get(cur, 'poses', pd['key'])
+        if not d:
+            print('%-18s %-7s %14s' % (pd['key'], pd['role'], 'MISSING')); continue
+        st = d['step_ms']
+        note = []
+        if 'shells' in st: note.append('of rest: shells %.1f' % st['shells'])
+        if 'ceiling_p50_ms' in d: note.append('ceiling %.1f' % d['ceiling_p50_ms'])
+        if d.get('points_full_p50_ms') is not None: note.append('FULL = tf_on; sun/sky vs the point-light FULL %.1f' % d['points_full_p50_ms'])
+        if d.get('flood_state'): note.append('flood %s' % '/'.join(d['flood_state']))
+        print('%-18s %-7s %14s %14s %14s %14s %14s   %6.1f %5.1f %7s  %s' % (
+            pd['key'], pd['role'], cell(d['full_p50_ms']), cell(st.get('sun_shadow')), cell(st.get('sky_fill')),
+            cell(st.get('torch_flood')), cell(st.get('rest')), d['full_p95_ms'], d['frames_over_33ms_pct'],
+            '-' if d['deficit'] is None else d['deficit'], '; '.join(note)))
+    shares = {s['name']: s.get('share_ms') for s in bud['steps']}
+    worst = [(k, d) for k, d in cur['poses'].items() if d['role'] == 'worst']
+    if not worst:
+        return
+    print()
+    print('WORST POSE PER STEP (these rows decide the verdict):')
+    k, d = max(worst, key=lambda kd: kd[1]['full_p50_ms'])
+    print('  %-10s %-18s %6.1f ms = %.1fx %.1f ms (%+.1f ms from 30 fps)' % ('FULL', k, d['full_p50_ms'], d['full_p50_ms'] / FRAME_MS,
+                                                                           FRAME_MS, d['full_p50_ms'] - FRAME_MS))
+    for s in STEP_COLS:
+        c = [(kk, dd['step_ms'][s]) for kk, dd in worst if s in dd['step_ms']]
+        if not c:
+            continue
+        kk, v = max(c, key=lambda x: x[1])
+        sh = shares.get(s)
+        print('  %-10s %-18s %6.1f ms = %3d%% of %.1f ms%s' % (STEP_LABEL[s], kk, v, round(100 * v / FRAME_MS), FRAME_MS,
+              '' if sh is None else '; share %.1f%s' % (sh, ' OVER SHARE' if v > sh else '')))
+    top = sorted(((STEP_LABEL[s], d['step_ms'][s]) for s in STEP_COLS if s in d['step_ms']), key=lambda x: -x[1])[:3]
+    print('  top 3 steps at the worst pose (%s): %s' % (k, ', '.join('%s %.1f' % t for t in top)))
 
 
 def fmt(v, w=8):
@@ -247,7 +318,7 @@ def set_count(path, n, why):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--budget', default='PERF_BUDGET.json')
-    ap.add_argument('--day'); ap.add_argument('--night'); ap.add_argument('--forest', default=None)
+    ap.add_argument('--log', action='append', default=[], help='LAUNCH=costsplit.txt (walk, forest, jungle, night)')
     ap.add_argument('--dirty', default=None)
     ap.add_argument('--rebaseline', default=None)
     ap.add_argument('--stricter', type=float, default=None); ap.add_argument('--write-copy', default=None)
@@ -260,36 +331,41 @@ def main():
             if isinstance(x, bool): return x
             if isinstance(x, int): return int(round(x * a.stricter))
             if isinstance(x, float): return round(x * a.stricter, 1)
-            if isinstance(x, dict): return {k: (v if k in ('date', 'sources', 'settings') else scale(v)) for k, v in x.items()}
+            if isinstance(x, dict): return {k: (v if k in ('date', 'sources', 'settings', 'role') else scale(v)) for k, v in x.items()}
             return x
         bud['baseline'] = scale(bud['baseline'])
-        bud['status'] = 'TEST COPY: baseline x %.2f (task 230 failure-path test)' % a.stricter
+        bud['status'] = 'TEST COPY: baseline x %.2f (failure-path test)' % a.stricter
         json.dump(bud, open(a.write_copy, 'w'), indent=2)
         print('wrote %s (baseline x %.2f)' % (a.write_copy, a.stricter)); return 0
-    steps = bud['steps']
-    arms = [s['off_arm'] for s in steps] + ['tf_on', 'tl_none']
-    day, dn = parse_costsplit(a.day, arms)
-    night, nn = parse_costsplit(a.night, arms) if a.night else (None, [])
-    forest = parse_costsplit(a.forest, arms)[0] if a.forest else None   # secondary: its notes never make the check dirty
-    cur, problems = build_current(day, night, steps, forest)
+    arms = all_arms(bud)
+    logs, paths, notes = {}, {}, []
+    for kv in a.log:
+        name, _, path = kv.partition('=')
+        if name not in bud['launches']:
+            print('unknown launch %r (PERF_BUDGET.json launches: %s)' % (name, ', '.join(bud['launches']))); return 2
+        logs[name], n = parse_costsplit(path, arms); paths[name] = path
+        notes += ['%s: %s' % (name, x) for x in n]
+    cur, problems = build_current(logs, bud)
     rows = compare(cur, bud)
-    print('BUDGET CHECK (task 230; PERF_BUDGET_GUARD.md sec. 3) -- %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
-    print('budget file %s (status: %s; baseline %s)' % (a.budget, bud.get('status', '?')[:60], get(bud, 'baseline', 'date')))
-    print('day log %s' % a.day); print('night log %s' % a.night); print('forest log %s' % a.forest)
+    print('BUDGET CHECK (tasks 230, 235: worst-case poses; PERF_BUDGET_GUARD.md sec. 3) -- %s' % datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
+    print('budget file %s (status: %s; baseline %s)' % (a.budget, bud.get('status', '?')[:70], get(bud, 'baseline', 'date')))
+    for L in bud['launches']:
+        print('%-6s log %s' % (L, paths.get(L)))
     if a.settings: print('settings: %s' % a.settings)
-    print('walk_near FULL runs range %s ms; FULL flood state %s (day: expect skip)' % (get(cur, 'walk_near', 'full_range_ms'), get(cur, 'walk_near', 'flood_full')))
     print()
-    print('%-38s %9s %9s %8s %7s  %-6s  %s' % ('number', 'now', 'baseline', 'delta', 'tol', 'status', 'share / target / note'))
+    print_matrix(cur, bud)
+    print()
+    print('%-44s %9s %9s %8s %7s  %-6s  %s' % ('number', 'now', 'baseline', 'delta', 'tol', 'status', 'share / target / note'))
     for (n, v, b, d, t, ex, st, note) in rows:
-        print('%-38s %9s %9s %8s %7s  %-6s  %s' % (n, fmt(v).strip(), fmt(b).strip(), '-' if d is None else '%+.1f' % d,
+        print('%-44s %9s %9s %8s %7s  %-6s  %s' % (n, fmt(v).strip(), fmt(b).strip(), '-' if d is None else '%+.1f' % d,
                                                   '-' if t is None else '%.1f' % t, st, '; '.join(x for x in (ex, note) if x)))
     for p in problems:
         print('PROBLEM: ' + p)
-    dirty = a.dirty or ('; '.join(dn + nn) if (dn or nn) else None)
+    dirty = a.dirty or ('; '.join(notes) if notes else None)
     statuses = [r[6] for r in rows]
     if dirty:
         verdict = 'NOT CLEAN'
-    elif 'FAIL' in statuses or problems:
+    elif 'FAIL' in statuses or 'MISSING' in statuses or problems:
         verdict = 'FAIL'
     elif 'WARN' in statuses:
         verdict = 'WARN'
@@ -297,6 +373,7 @@ def main():
         verdict = 'PASS'
     print()
     if dirty: print('not clean: %s' % dirty)
+    print('verdict = the WORST-CASE rows + hard limits (owner 2026-11-17); control (noon) rows are info only')
     print('BUDGET %s' % verdict)
     if a.rebaseline:
         hard_fail = any(r[6] == 'FAIL' and '(hard)' in r[0] for r in rows)
@@ -305,7 +382,7 @@ def main():
             return 2
         nb = dict(cur)
         nb['date'] = datetime.date.today().isoformat()
-        nb['sources'] = [a.day, a.night]
+        nb['sources'] = [paths[L] for L in bud['launches'] if L in paths]
         nb['settings'] = a.settings
         bud['baseline'] = nb
         bud['status'] = 'ACCEPTED -- baseline from run-budget-check.sh, %s (%s)' % (nb['date'], a.rebaseline)

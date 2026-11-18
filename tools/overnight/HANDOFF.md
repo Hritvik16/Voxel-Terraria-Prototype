@@ -1,54 +1,45 @@
-# 236-bug-night-torch-memory-peak-6gb: FIXED. Night torch scene peak 5,985 -> 2,538 MB; play's torch fill spiked too (3,445 -> 2,422 MB).
+# 235-perf-budget-worst-case-poses: DONE. The budget check now judges worst-case poses. The first clean run is rebaselined: worst pose forest_eye at 16 deg, 135.4 ms p50 (4.1x the 30 fps frame).
 
-## Cause (proven, not inferred)
-Not the flood's CPU memory: its own accounting is ~48 MB, Unity's "allocated" stayed flat, and an EditMode flood of 3.8 M voxels adds only +16-29 MB.
-macOS `footprint` samples during the fill: the swing was **IOAccelerator (Metal)**; "Untagged" (native heap) stayed flat.
-`TorchFloodPool.Upload` issued ONE `GraphicsBuffer.SetData` per dirty data run, up to 239 calls per upload. On Metal **each call cost ~4 MB of
-GPU memory** (about the whole data buffer, whatever it wrote): 239 calls -> +949 MB, 230 -> +900 MB. That memory was held until the GPU finished the frame.
-The capture's synchronous `Rebuild` = 14 merges' uploads (903 calls) in ONE frame = +3.5 GB.
-**Play spikes too**: the per-frame `Tick` fill (28 torches at once, capture arm `tf_tick` = play's path) did up to 81 calls per frame. Footprint
-3,445 MB (launch 1: 3,603), over the 3 GB limit. So placing several torches in play crossed it.
+## What changed (scripts, JSON and docs only; no Assets code). Commit: see `git log -1` ("235: ...")
+- `tools/overnight/run-budget-check.sh`: runs 4 cost splits after the warm-up, read from `PERF_BUDGET.json` "launches". The header says why (owner 2026-11-17).
+  Input during a launch's TIMED path makes it dirty. Input during a still-only path is reported only. `--compare walk=W forest=F jungle=J night=N`.
+- `tools/overnight/budget_compare.py`: per-pose rows, one pose x step table, the worst pose per step, and top 3 steps at the worst pose. The verdict uses the WORST-CASE rows and the hard limits only; noon rows are a control (info).
+  A FULL row is now also downgraded to "noisy" when its FULL range exceeds its tolerance. A MISSING row now = FAIL.
+- `PERF_BUDGET.json` v2: `worst_case`, `launches`, `poses`, and the pinned `jungle_eye_pose`. The v1 noon baseline moved to `previous_baselines`. The new baseline + history entry were written by `--rebaseline "owner 2026-11-17, task 235"`.
+- PREAMBLE rule 12 and `PERF_BUDGET_GUARD.md` sec. 3 each got one line: "report worst-case poses, not only noon / no torches". There is also a TASKS.md paragraph. `BUDGET_COUNT` -> 0 (accepted check).
+- Design: forest_eye and jungle_eye keep a streaming deficit, so EVERY run there waits NearSettle's 180 s cap (~3.7 min a run). Those launches therefore time only sun_off and skyfill0 (+ startsun_off at forest).
+  Day flood is not timed: every day FULL line said `flood skip` = 0 by construction (229). rest = FULL - sun - sky - flood.
 
-## What changed (commits c140a9a code+docs, 541ee9c evidence)
-- `TorchFloodPool.cs`: `-tfupload 1|0` (default 1; 0 = before 236). Mode 1 = ONE SetData per buffer per Upload over the dirty span (`DirtySpan`; the
-  words in between already equal the CPU copy), and the synchronous Flush uploads once at its end. Counters `UploadCalls/UploadCallsMax`, `UnionHash()`,
-  `MemMark` hook (null = off). No API/layout change; the CPU union is untouched.
-- `MemWatch.cs`: `-tfmemmarks` diagnostic (`[tfmem]` line per frame whose footprint moved >= 32 MB, plus marks in Rebuild/Flush/Upload).
-- `PlaygroundCapture.TorchCost.cs`: capture arm `tf_tick` (flood ON from an empty pool, filled only by play's Tick).
-- `TorchFloodMemoryTests.cs` (new): DirtySpan = one span, clears, ignores stale bits past the length; one flood's CPU transient < 64 MB.
-- KNOWN_ISSUES entry, PERF_BUDGET_GUARD's 6 GB note -> FIXED, TASKS.md paragraph.
+## Evidence (warm steady state; warm-up `Logs/tg2world_20261117_235342.txt`; run `Logs/budget/2026-11-17_235256/`, table `check.txt`)
+CLEAN (0 input moments, no pause), BUDGET PASS, rebaselined. p50 ms (% of 33.3):
+| pose | FULL | sun | sky fill | flood | rest | p95 | >33 ms | deficit |
+|---|---|---|---|---|---|---|---|---|
+| forest_eye 16 deg | **135.4 (407 %)** | 54.7 (164 %) | 25.5 (77 %) | 0 (skip) | 55.2 (166 %) | 198.2 | 97.9 % | 573 |
+| jungle_eye noon | 70.0 (210 %) | 15.5 (47 %) | -0.8 (~0) | 0 (skip) | 55.3 (166 %) | 99.9 | 99.5 % | 942 |
+| torch_camp night (tf_on) | 52.7 (158 %) | 0.4 | 0.9 | 8.4 (25 %) | 43.0 (129 %) | 76.5 | 90.9 % | 0 |
+| walk_near 16 deg | 35.4 (106 %) | 12.9 (39 %) | -0.5 (~0) | 0 (skip) | 23.0 (69 %) | 86.9 | 56.8 % | 0 |
+| control: forest_eye noon | 99.2 (298 %) | | | | | 138.6 | 97.3 % | 573 |
+| control: walk_near noon (same arc) | 34.1 (102 %) | | | | | 64.0 | 53.9 % | 0 |
+- The poses furthest over 33.3 ms: forest_eye 16 deg +102.1 ms, jungle_eye +36.7, torch_camp +19.4, walk_near 16 deg +2.1.
+- Top 3 steps at the worst pose (forest_eye 16 deg): rest 55.2, sun 54.7, sky fill 25.5. The low sun alone costs +36.2 ms there vs noon (135.4 vs 99.2, same launch; 233 measured +26.8).
+- Noise: forest FULL passes 145.2 / 134.0 / 134.1 / 134.3 (the first pass is high, so its sky-fill delta has noise 11.2 and is about 20 ms if you use the after-pass). walk_near FULL range 13.5 (the sun step's noise is 13.5), jungle 4.4, night 8.8.
+- Shells (walk_near 16 deg only): 7.0 ms (share 4.0). Ceiling 18.6 ms.
+- Memory (rule 11): peak 2,621 MB (forest launch; walk 2,535, jungle 2,521, night 2,512): under 3,000. GPU refusals: walk_near 0 (hard limit PASS), jungle 4,472 (pool full at 254,400, the known issue). CPU pool peak 496,071, valve 484,500.
+- Stills looked at (`Screenshots/235/sheet_worst_case.png`): forest 16 deg shows long low-sun shadows; noon does not. Jungle: tall dark trunks, sky through the canopy. Night: a slope lit by torches, 0.5 h sky. Both walk_near stills open on a close sandstone wall.
+- Fast suite PASS 1107 FAIL 0 SKIP 25 (`Logs/overnight/235/fast.out`). Nothing under Assets changed.
+- Time: 99 min (warm-up 5 min, walk 10, forest 43, jungle 31, night 9). That is OVER the ~40 min the task named. The 4-launch split already keeps each launch under ~45 min, and the deficit wait is the cost.
 
-## Evidence (plan `Logs/overnight/236/PLAN.md`; same build, back to back, `-costpaths torch -costarms tf_on,tf_tick -tfmemmarks`)
-| | `-tfupload 0` (old) | `-tfupload 1` (new) |
-|---|---|---|
-| process peak (night launch) | 5,984.9 MB | **2,538.1 MB** |
-| rebuild: SetData calls / most per upload | 903 / 239 | 3 / 3 |
-| play fill (tf_tick): max footprint | 3,445 MB | 2,422 MB |
-| play fill: calls / most per frame / bytes | 1,607 / 81 / 33.7 MB | 158 / 3 / 105.5 MB |
-| IOAccelerator max (footprint samples) | 4,657 MB | 1,156 MB |
-| CPU union hash after rebuild | 0B365D765B03507C | 0B365D765B03507C |
-| GPU == CPU (VerifyGpu), rebuild and both fills | yes | yes |
-| GPU body pool peak / refused; CPU pool peak | 103,611 / 0; 225,775 | 103,611 / 0; 225,775 |
-Reports: `Logs/overnight/236/costsplit_upload0_old.txt`, `costsplit_upload1_new.txt`; marks: `up0_tfmem.txt`, `up1_tfmem.txt`; categories: `fp_up0.txt`, `fp_up1.txt`, `fp_tick.txt`.
-Day level (task 230) 2,568 MB; the night is now below it.
-Stills: cross-launch byte compare is meaningless (even the flood-OFF `full` arm differs: real-time yaw sweep, FSR history), so identity = union hash + VerifyGpu.
-Looked at `Screenshots/236/tf_on_old_vs_new.png`: the same torch-lit slope and posts in both halves, with a slight yaw offset.
-Tests: own filter PASS 2. Fast suite **PASS 1107 FAIL 0 SKIP 25** (`Logs/overnight/236/fast_suite.out`).
-Rule 11/12: no pass added, GPU buffer sizes unchanged. Upload bytes rise (34 -> 105 MB per 28-torch fill, ≤ 1.7 MB per merge frame: a memcpy).
-No frame timing taken (rule 10). Not HEAVY.
-
-## Left / notes
-- Parked task 170's patch (`tools/overnight/later/170-*.patch`) edits `Upload` (GrowGpu, partial-run uploads): it now conflicts and must be rebased over 236.
-  Its per-run upload idea is exactly what cost memory here.
-- Capture caveat (not fixed, out of scope): with `-costarms tf_tick,tf_on`, tf_on REUSES tf_tick's pool and does not Rebuild (`_costBaseFlood` is
-  read after the torch scene turns the flood off). Put tf_on first. Noted in KNOWN_ISSUES.
-- Next: the supervisor's clean `run-budget-check.sh` (needs a new build; idle Mac) can now pass the 3,000 MB hard limit and be `--rebaseline`d.
-- Lesson for other GPU buffers (fluid, shells, mirror): count SetData calls per frame, not bytes.
+## Caveats / next
+- **walk_near at 16 deg is NOT a worst case.** The capture picks the walk arc from the sun's azimuth, so at 16 deg it is a different arc (it starts facing a wall, and the minimap says "underground -12 m") than the old noon arc (67 ms in 230).
+  Its noon control is the same arc (34.1). Suggested follow-up (capture-only code, needs a task): `-costwalkarc <deg>` to pin the arc to the old noon one (-180 deg), then rebaseline the walk rows.
+- Shorter check: a capture option to cap NearSettle's deficit wait (e.g. 20 s) would cut forest/jungle from ~3.7 to ~1 min a run (check ~100 -> ~45 min). Not done: capture code is out of this task's scope.
+- Not mine, not committed: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`, the 236 queue-file deletion.
 
 ## For the doc
-- Night torch scene memory peak: **5,985 -> 2,538 MB** (limit 3,000; day 2,568). `Logs/overnight/236/costsplit_upload{0_old,1_new}.txt`
-- Play was affected too: placing 28 torches peaked at **3,445 -> 2,422 MB** while the flood filled (`up0_tfmem.txt` / `up1_tfmem.txt`)
-- Cause: 903 tiny GPU uploads in one frame, ~4 MB of Metal memory each. Now 3 uploads (one per buffer).
-- Same light: CPU flood hash identical, GPU copy verified equal. GPU pool refusals 0 -> 0.
-- Image: `Screenshots/236/tf_on_old_vs_new.png`. Left = old upload, right = new, the night torch scene with the flood ON; the lighting is the same
-  (posts and lit slope match; a small yaw offset comes from the real-time sweep).
+- How far is the worst case from 30 fps? Forest at a morning sun (16 deg) runs at **135 ms a frame, about 7 fps**, which is **4.1x** the 33.3 ms budget. Jungle at noon runs at 70 ms (about 14 fps), torches at night at 53 ms (about 19 fps), and the walk arc at 35 ms (about 28 fps).
+  Even with the sun shadows, sky fill and torch flood all free, forest 16 deg would still be about 55 ms ("rest": the near march, trees, FSR and CPU), so no single lighting fix reaches 30 fps there.
+- Worst pose per step: sun 54.7 ms (forest 16 deg; share 5.0), sky fill 25.5 ms (forest 16 deg; share 2.5), torch flood 8.4 ms (night; share 1.0), rest 55 ms (forest and jungle).
+- The low sun alone: forest 99.2 ms at noon -> 135.4 ms at 16 deg (+36 ms, same launch).
+- Memory: peak 2,621 MB (under 3 GB). Jungle GPU pool full (4,472 refusals, known).
+- Table: `Logs/budget/2026-11-17_235256/check.txt`.
+- Image `Screenshots/235/sheet_worst_case.png`: top row is forest 16 deg | forest noon | jungle noon, bottom row is torches at night | walk_near 16 deg | walk_near noon. Compare the long shadows in the top-left panel (the costly low sun) with the short noon shadows next to it. The two bottom-right panels show why the walk row is not a worst case: a wall fills the frame.

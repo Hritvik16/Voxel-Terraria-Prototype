@@ -2101,3 +2101,12 @@ over the dirty span (`DirtySpan`), and Flush uploads once at its end. Night `-co
 Same CPU union (hash), GPU == CPU (`VerifyGpu`). Diagnostics: `-tfmemmarks` (`[tfmem]` per-frame footprint jumps + Rebuild/Flush/Upload
 marks, MemWatch.Mark) and the capture arm `tf_tick` (flood ON from an empty pool, filled only by play's Tick). Tests
 `TorchFloodMemoryTests` (DirtySpan one span + clears; one flood's CPU transient < 64 MB). Logs `Logs/overnight/236/`.
+
+**Task 235 (performance tooling, owner 2026-11-17 "I want 1 for now": judge performance on WORST-CASE poses, not noon).**
+`tools/overnight/run-budget-check.sh` now runs four cost splits after the warm-up, read from `PERF_BUDGET.json` v2 "launches" / "poses":
+walk (walk_near at `-startsun 16`; arms skyfill0, sun_off, shells_off, ceiling, startsun_off = noon control), forest (forest_eye at 16 deg;
+skyfill0, sun_off, startsun_off), jungle (jungle_eye at noon, GPU pool full; skyfill0, sun_off), night (torch_camp; tf_on, tl_none, skyfill0, sun_off).
+`budget_compare.py` prints one pose x step table (FULL / sun / sky fill / flood / rest, p50 and % of 33.3 ms), the worst pose per step and the
+ratchet rows; the verdict counts only worst-case rows + hard limits (noon = control, info). Day flood is not timed (229: `flood skip` = 0).
+rest = FULL - sun - sky - flood. `--compare walk=W forest=F jungle=J night=N`. ~100 min: forest/jungle keep a streaming deficit, so every run
+there waits NearSettle's 180 s cap. First run (`Logs/budget/2026-11-17_235256/check.txt`, rebaselined): worst forest_eye at 16 deg 135.4 ms.

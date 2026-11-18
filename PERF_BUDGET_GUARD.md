@@ -78,6 +78,12 @@ As built (task 230); the differences from the plan above all come from the cost-
   did the same per frame, 3.4-3.6 GB). One SetData per buffer per upload (`-tfupload 1`, default): night peak 5,985 -> 2,538 MB,
   under the 3,000 MB hard limit; the day stays at ~2.57 GB. KNOWN_ISSUES has the entry. The next clean check can be accepted.
 
+- **Worst-case poses decide the verdict (task 235, owner 2026-11-17: report worst-case poses, not only noon / no torches).**
+  Four launches after the warm-up (`PERF_BUDGET.json` "launches"/"poses"): walk_near and forest_eye at a 16 deg morning sun,
+  jungle_eye at noon (GPU pool full), torch_camp at night (tf_on); noon walk_near / forest_eye = `startsun_off` control rows (info).
+  One pose x step table (FULL / sun / sky fill / flood / rest, p50 and % of 33.3 ms) + the worst pose per step. ~1 h 45 min:
+  forest_eye / jungle_eye keep a streaming deficit, so every run there waits NearSettle's 180 s cap.
+
 ## 4. The per-task proxy (no timing; PREAMBLE rule 12, in force now)
 
 Every task that adds or changes drawing or content reports, from the launches it already does:

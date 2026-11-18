@@ -1,0 +1,61 @@
+BUDGET CHECK (tasks 230, 235: worst-case poses; PERF_BUDGET_GUARD.md sec. 3) -- 2026-11-18 01:32
+budget file PERF_BUDGET.json (status: PROVISIONAL v2 (task 235) -- worst-case poses; no v2 baseline until ta; baseline None)
+walk   log Logs/budget/2026-11-17_235256/costsplit_walk.txt
+forest log Logs/budget/2026-11-17_235256/costsplit_forest.txt
+jungle log Logs/budget/2026-11-17_235256/costsplit_jungle.txt
+night  log Logs/budget/2026-11-17_235256/costsplit_night.txt
+settings: [play flags] -quality high -renderrows 432 -shellwait 60; walk: -startsun 16 -costtimedpaths walk_near -costarms skyfill0,sun_off,shells_off,ceiling,startsun_off | forest: -startsun 16 -costfixed forest_eye -costtimedpaths forest_eye -costarms skyfill0,sun_off,startsun_off | jungle: -startsun 0 -costfixed jungle_eye -costtimedpaths jungle_eye -costarms skyfill0,sun_off | night: -costpaths torch -costarms tf_on,tl_none,skyfill0,sun_off
+
+POSE x STEP, p50 ms (% of 33.3 ms = 30 fps)
+pose               role              FULL            sun       sky fill          flood           rest      p95  >33% deficit  note
+walk_near_16       worst      35.4 (106%)     12.9 (39%)     -0.5 (-2%)       0.0 (0%)     23.0 (69%)     86.9  56.8       0  of rest: shells 7.0; ceiling 18.6; flood skip
+forest_eye_16      worst     135.4 (407%)    54.7 (164%)     25.5 (77%)       0.0 (0%)    55.2 (166%)    198.2  97.9     573  flood skip
+jungle_eye_noon    worst      70.0 (210%)     15.5 (47%)     -0.8 (-2%)       0.0 (0%)    55.3 (166%)     99.9  99.5     942  flood skip
+torch_camp_night   worst      52.7 (158%)       0.4 (1%)       0.9 (3%)      8.4 (25%)    43.0 (129%)     76.5  90.9       0  FULL = tf_on; sun/sky vs the point-light FULL 65.9
+walk_near_noon     control    34.1 (102%)              -              -              -              -     64.0  53.9       0  
+forest_eye_noon    control    99.2 (298%)              -              -              -              -    138.6  97.3     573  
+
+WORST POSE PER STEP (these rows decide the verdict):
+  FULL       forest_eye_16       135.4 ms = 4.1x 33.3 ms (+102.1 ms from 30 fps)
+  sun        forest_eye_16        54.7 ms = 164% of 33.3 ms; share 5.0 OVER SHARE
+  sky fill   forest_eye_16        25.5 ms =  77% of 33.3 ms; share 2.5 OVER SHARE
+  flood      torch_camp_night      8.4 ms =  25% of 33.3 ms; share 1.0 OVER SHARE
+  rest       jungle_eye_noon      55.3 ms = 166% of 33.3 ms
+  top 3 steps at the worst pose (forest_eye_16): rest 55.2, sun 54.7, sky fill 25.5
+
+number                                             now  baseline    delta     tol  status  share / target / note
+walk_near_16 FULL p50                             35.4         -        -       -  NEW     target 33.3 (+2.1); no baseline yet
+walk_near_16 FULL p95                             86.9         -        -       -  NEW     target 33.3 (+53.6); no baseline yet
+walk_near_16 step sun                             12.9         -        -       -  NEW     share 5.0 OVER SHARE; no baseline yet
+walk_near_16 step sky fill                        -0.5         -        -       -  NEW     share 2.5; no baseline yet
+walk_near_16 step flood                            0.0         -        -       -  NEW     skip by day (229): 0 by construction; no baseline yet
+walk_near_16 step shells                           7.0         -        -       -  NEW     share 4.0 OVER SHARE; no baseline yet
+walk_near_16 ceiling p50                          18.6         -        -       -  NEW     (sky probe + sun + shells off); no baseline yet
+forest_eye_16 FULL p50                           135.4         -        -       -  NEW     target 33.3 (+102.1); no baseline yet
+forest_eye_16 FULL p95                           198.2         -        -       -  NEW     target 33.3 (+164.9); no baseline yet
+forest_eye_16 step sun                            54.7         -        -       -  NEW     share 5.0 OVER SHARE; no baseline yet
+forest_eye_16 step sky fill                       25.5         -        -       -  NEW     share 2.5 OVER SHARE; no baseline yet
+forest_eye_16 step flood                           0.0         -        -       -  NEW     skip by day (229): 0 by construction; no baseline yet
+jungle_eye_noon FULL p50                          70.0         -        -       -  NEW     target 33.3 (+36.7); no baseline yet
+jungle_eye_noon FULL p95                          99.9         -        -       -  NEW     target 33.3 (+66.6); no baseline yet
+jungle_eye_noon step sun                          15.5         -        -       -  NEW     share 5.0 OVER SHARE; no baseline yet
+jungle_eye_noon step sky fill                     -0.8         -        -       -  NEW     share 2.5; no baseline yet
+jungle_eye_noon step flood                         0.0         -        -       -  NEW     skip by day (229): 0 by construction; no baseline yet
+torch_camp_night FULL p50                         52.7         -        -       -  NEW     target 33.3 (+19.4); no baseline yet
+torch_camp_night FULL p95                         76.5         -        -       -  NEW     target 33.3 (+43.2); no baseline yet
+torch_camp_night step sun                          0.4         -        -       -  NEW     share 5.0; no baseline yet
+torch_camp_night step sky fill                     0.9         -        -       -  NEW     share 2.5; no baseline yet
+torch_camp_night step flood                        8.4         -        -       -  NEW     share 1.0 OVER SHARE; no baseline yet
+walk_near_noon (control) FULL p50                 34.1         -        -       -  info    target 33.3 (+0.8); no baseline yet
+forest_eye_noon (control) FULL p50                99.2         -        -       -  info    target 33.3 (+65.9); no baseline yet
+memory process peak MB                          2621.1         -        -       -  NEW     walk 2534.5 / forest 2621.1 / jungle 2520.8 / night 2511.9; no baseline yet
+memory process peak MB (hard)                   2621.1     3,000   -378.9     0.0  PASS    hard limit 3000
+GPU body refusals at walk_near (hard)                0         0     +0.0     0.0  PASS    hard limit 0
+GPU body refusals (max of launches)              4,472         -        -       -  NEW     walk 0 / forest 0 / jungle 4472 / night 0; no baseline yet
+GPU body pool peak (max)                       254,400         -        -       -  info    cap 254,400
+CPU brick pool peak (max)                      496,071         -        -       -  info    valve 484500
+
+verdict = the WORST-CASE rows + hard limits (owner 2026-11-17); control (noon) rows are info only
+BUDGET PASS
+REBASELINED PERF_BUDGET.json (owner 2026-11-17, task 235)
+tools/overnight/BUDGET_COUNT -> 0

@@ -1,7 +1,7 @@
 {
   "_what": "Performance budget for the guard in PERF_BUDGET_GUARD.md (task 220). Read by tools/overnight/run-budget-check.sh (task 230; owner Q-AO (b), N = 5). The baseline is a RATCHET: the check fails when a number gets worse than the baseline by more than its tolerance; the targets are reported as distance only (today every arm is 3x over them, so failing on them would fail every run and teach everyone to ignore it).",
-  "version": 1,
-  "status": "PROVISIONAL -- numbers below are copied from tasks 212 and 219; the first run of run-budget-check.sh replaces 'baseline' with its own run (same script, same poses), and tasks 227-229 re-baseline when they cut cost.",
+  "version": 2,
+  "status": "ACCEPTED -- baseline from run-budget-check.sh, 2026-11-18 (owner 2026-11-17, task 235)",
   "machine": "MacBook Air M1, 8 GB, fanless; AC power; warm steady state (one discarded warm-up launch first)",
   "settings": {
     "_why": "Play's own look (owner 2026-11-16 Q-AN: keep the look). 219 showed the presets change memory, not time (Low 108.0 vs High 111.4 ms), so the check runs what the owner plays.",
@@ -10,7 +10,7 @@
     "upscaler": "fsr3 pinned at 432 rows (play's dyn floor; dyn sits there whenever a frame is > 30 ms)",
     "flags": "tools/play-flags.sh ($PLAY_SETTINGS_FLAGS): trees, shells, torch flood, sky fill 2, FSR 3",
     "shell_wait_s": 60,
-    "launch": "run-budget-check.sh: $PLAY_SETTINGS_FLAGS -quality high -renderrows 432 -shellwait 60; day adds -startsun 0 (noon) -costfixed forest_eye -costarms <steps' off_arm>; night adds -costpaths torch -costarms tf_on,tl_none"
+    "launch": "run-budget-check.sh: $PLAY_SETTINGS_FLAGS -quality high -renderrows 432 -shellwait 60, then each launch's flags and -costarms from 'launches' below (task 235)"
   },
   "targets": {
     "_note": "Reported as 'distance to target', never a FAIL until the baseline is inside them.",
@@ -34,12 +34,133 @@
     "warn_at": "half of each tolerance"
   },
   "paths": {
-    "walk_near": "MODE=walk arc (task 212), noon 12.00 h, sun 78 deg -- DAY: sky fill, sun, shells; flood should cost ~0 here (task 229)",
+    "walk_near": "MODE=walk arc (task 212) heading straight away from the sun; the arc depends on the sun azimuth, so at -startsun 16 it is a different arc than at noon. Flood ~0 by day (task 229)",
     "torch": "-costpaths torch (task 151): night 0.50 h, 28-32 torches round a still pose. The scene's FULL is the OLD point lights; the check times arms tf_on (play's torch flood) and tl_none (no torch light): night play p50 = tf_on, torch_flood step = tf_on - tl_none (task 230)",
-    "forest_eye": "-costfixed forest (task 210/219), eye height, noon -- dense trees; SECONDARY (219 had a streaming deficit at this pose: report, do not fail on it)",
+    "forest_eye": "-costfixed forest (task 210/219), eye height -- dense trees; at 16 deg morning sun the worst frame of the day cycle (233: +27 ms vs noon). WORST-CASE since task 235 (its streaming deficit is reported, not a failure by itself)",
     "forest_eye_pose": "forest_eye|3366.4,532.5,4950.0|3366.4,529.7,4928.0",
-    "_pose_note": "forest_eye_pose is pinned here (copied from Logs/TerrainGen/trees210/poses.txt) so the check's pose cannot drift with that file."
+    "_pose_note": "forest_eye_pose and jungle_eye_pose are pinned here (copied from Logs/TerrainGen/trees210/poses.txt) so the check's poses cannot drift with that file.",
+    "jungle_eye_pose": "jungle_eye|5772.8,530.4,5001.2|5772.8,535.3,4979.2",
+    "jungle_eye": "-costfixed jungle (task 210/232), eye height, noon -- the heaviest GPU-pool pose (pool full, refusals; streaming deficit ~950)"
   },
+  "worst_case": {
+    "_why": "Owner 2026-11-17 (task 235, \"I want 1 for now\"): judge performance on WORST-CASE poses, not noon. A low sun and torches both occur in play, so a gain that only shows at noon / with no torch near is not a gain for the 30 fps target. The verdict counts the worst-case rows; the noon rows are a control.",
+    "_cost": "forest_eye and jungle_eye keep a streaming deficit, so each run there waits NearSettle's 180 s cap (~3.7 min a run; runs = 1 + 3 x arms): those launches time only the arms the table needs. Day flood is not timed (229: FULL line says skip = 0 by construction). rest = FULL - sun - sky fill - flood."
+  },
+  "launches": {
+    "walk": {
+      "flags": "-startsun 16 -costtimedpaths walk_near",
+      "arms": [
+        "skyfill0",
+        "sun_off",
+        "shells_off",
+        "ceiling",
+        "startsun_off"
+      ],
+      "timed": [
+        "walk_near"
+      ]
+    },
+    "forest": {
+      "flags": "-startsun 16 -costfixed {forest_eye_pose} -costtimedpaths forest_eye",
+      "arms": [
+        "skyfill0",
+        "sun_off",
+        "startsun_off"
+      ],
+      "timed": [
+        "forest_eye"
+      ]
+    },
+    "jungle": {
+      "flags": "-startsun 0 -costfixed {jungle_eye_pose} -costtimedpaths jungle_eye",
+      "arms": [
+        "skyfill0",
+        "sun_off"
+      ],
+      "timed": [
+        "jungle_eye"
+      ]
+    },
+    "night": {
+      "flags": "-costpaths torch",
+      "arms": [
+        "tf_on",
+        "tl_none",
+        "skyfill0",
+        "sun_off"
+      ],
+      "timed": [
+        "torch_camp"
+      ]
+    }
+  },
+  "poses": [
+    {
+      "key": "walk_near_16",
+      "role": "worst",
+      "launch": "walk",
+      "path": "walk_near",
+      "full": "full",
+      "steps": {
+        "sun_shadow": "sun_off",
+        "sky_fill": "skyfill0",
+        "shells": "shells_off"
+      },
+      "ceiling": "ceiling",
+      "flood": "day"
+    },
+    {
+      "key": "forest_eye_16",
+      "role": "worst",
+      "launch": "forest",
+      "path": "forest_eye",
+      "full": "full",
+      "steps": {
+        "sun_shadow": "sun_off",
+        "sky_fill": "skyfill0"
+      },
+      "flood": "day"
+    },
+    {
+      "key": "jungle_eye_noon",
+      "role": "worst",
+      "launch": "jungle",
+      "path": "jungle_eye",
+      "full": "full",
+      "steps": {
+        "sun_shadow": "sun_off",
+        "sky_fill": "skyfill0"
+      },
+      "flood": "day"
+    },
+    {
+      "key": "torch_camp_night",
+      "role": "worst",
+      "launch": "night",
+      "path": "torch_camp",
+      "full": "tf_on",
+      "steps": {
+        "sun_shadow": "sun_off",
+        "sky_fill": "skyfill0"
+      },
+      "flood": "tf_on-tl_none",
+      "_note": "night play = tf_on (the scene FULL is the old point lights); flood = tf_on - tl_none; sun / sky fill = their arm vs that point-light FULL"
+    },
+    {
+      "key": "walk_near_noon",
+      "role": "control",
+      "launch": "walk",
+      "path": "walk_near",
+      "full": "startsun_off"
+    },
+    {
+      "key": "forest_eye_noon",
+      "role": "control",
+      "launch": "forest",
+      "path": "forest_eye",
+      "full": "startsun_off"
+    }
+  ],
   "steps": [
     {
       "name": "sky_fill",
@@ -57,71 +178,226 @@
     },
     {
       "name": "torch_flood",
-      "off_arm": "flood_off",
+      "off_arm": "-",
       "share_ms": 1.0,
       "lighting": true,
-      "_8_17": "Reserve: torches at night (share is for the NIGHT path; day share 0)"
+      "_8_17": "Reserve: torches at night (share is for the NIGHT path; day share 0)",
+      "_note": "timed at night only (tf_on - tl_none); by day 0 by construction since 229 (FULL line flood skip)"
     },
     {
       "name": "shells",
       "off_arm": "shells_off",
       "share_ms": 4.0,
       "lighting": false,
-      "_8_17": "Shells row"
+      "_8_17": "Shells row",
+      "_note": "timed at walk_near_16 only (cheap pose); elsewhere inside rest"
     },
     {
       "name": "ceiling",
       "off_arm": "ceiling",
       "share_ms": null,
       "lighting": false,
-      "_note": "sky probe + sun + shells off together: what is left (CPU, FSR 3, tier-0 march, shading/post)"
+      "_note": "timed at walk_near_16 only; sky probe + sun + shells off together"
     }
   ],
-  "_steps_rule": "A look/content task that adds a pass appends a step here with its off_arm (a -costarms name it registers) and the share it takes (from 'shading/post' 5.0 ms or a named reserve, per AMENDMENT_8_17 section 3).",
+  "_steps_rule": "A look/content task that adds a pass appends a step here with its off_arm (a -costarms name it registers) and the share it takes (from 'shading/post' 5.0 ms or a named reserve, per AMENDMENT_8_17 section 3). Task 235: also add its off_arm to the launches whose poses it draws at (PERF_BUDGET.json launches).",
   "baseline": {
-    "date": "2026-11-15/16",
-    "sources": [
-      "Logs/costsplit_2026-11-15_143504.txt and _160531.txt (task 212, play flags, 432 rows, warm AC)",
-      "Logs/overnight/219/costsplit_high_432.txt (task 219, High 432, warm AC, clean)"
-    ],
-    "walk_near": {
-      "full_p50_ms": 107.0,
-      "full_p95_ms": 204.0,
-      "full_p99_ms": 224.0,
-      "frames_over_33ms_pct": 80,
-      "step_delta_ms": {
-        "sky_fill": 40.4,
-        "sun_shadow": 28.1,
-        "torch_flood": 27.8,
-        "shells": 8.4
+    "poses": {
+      "walk_near_16": {
+        "role": "worst",
+        "full_p50_ms": 35.4,
+        "full_p95_ms": 86.9,
+        "frames_over_33ms_pct": 56.8,
+        "full_noise_ms": 13.5,
+        "deficit": 0,
+        "step_ms": {
+          "sun_shadow": 12.9,
+          "sky_fill": -0.5,
+          "shells": 7.0,
+          "torch_flood": 0.0,
+          "rest": 23.0
+        },
+        "step_noise_ms": {
+          "sun_shadow": 13.5,
+          "sky_fill": 1.5,
+          "shells": 4.0
+        },
+        "ceiling_p50_ms": 18.6,
+        "ceiling_noise_ms": 2.4,
+        "flood_state": [
+          "skip"
+        ]
       },
-      "ceiling_p50_ms": 24.6
-    },
-    "forest_eye": {
-      "full_p50_ms": 148.4,
-      "full_p95_ms": 242.7,
-      "full_p99_ms": 247.0,
-      "frames_over_33ms_pct": 100,
-      "streaming_deficit_chunks": 556
-    },
-    "torch": {
-      "_note": "not yet measured with play flags at 432 rows; the first check run fills it"
+      "forest_eye_16": {
+        "role": "worst",
+        "full_p50_ms": 135.4,
+        "full_p95_ms": 198.2,
+        "frames_over_33ms_pct": 97.9,
+        "full_noise_ms": 11.2,
+        "deficit": 573,
+        "step_ms": {
+          "sun_shadow": 54.7,
+          "sky_fill": 25.5,
+          "torch_flood": 0.0,
+          "rest": 55.2
+        },
+        "step_noise_ms": {
+          "sun_shadow": 0.0,
+          "sky_fill": 11.2
+        },
+        "flood_state": [
+          "skip"
+        ]
+      },
+      "jungle_eye_noon": {
+        "role": "worst",
+        "full_p50_ms": 70.0,
+        "full_p95_ms": 99.9,
+        "frames_over_33ms_pct": 99.5,
+        "full_noise_ms": 4.4,
+        "deficit": 942,
+        "step_ms": {
+          "sun_shadow": 15.5,
+          "sky_fill": -0.8,
+          "torch_flood": 0.0,
+          "rest": 55.3
+        },
+        "step_noise_ms": {
+          "sun_shadow": 3.8,
+          "sky_fill": 4.4
+        },
+        "flood_state": [
+          "skip"
+        ]
+      },
+      "torch_camp_night": {
+        "role": "worst",
+        "full_p50_ms": 52.7,
+        "full_p95_ms": 76.5,
+        "frames_over_33ms_pct": 90.9,
+        "full_noise_ms": 1.2,
+        "deficit": 0,
+        "step_ms": {
+          "sun_shadow": 0.4,
+          "sky_fill": 0.9,
+          "torch_flood": 8.4,
+          "rest": 43.0
+        },
+        "step_noise_ms": {
+          "sun_shadow": 0.0,
+          "sky_fill": 8.3,
+          "torch_flood": 1.2
+        },
+        "points_full_p50_ms": 65.9
+      },
+      "walk_near_noon": {
+        "role": "control",
+        "full_p50_ms": 34.1,
+        "full_p95_ms": 64.0,
+        "frames_over_33ms_pct": 53.9,
+        "full_noise_ms": 10.9,
+        "deficit": 0,
+        "step_ms": {},
+        "step_noise_ms": {}
+      },
+      "forest_eye_noon": {
+        "role": "control",
+        "full_p50_ms": 99.2,
+        "full_p95_ms": 138.6,
+        "frames_over_33ms_pct": 97.3,
+        "full_noise_ms": 0.2,
+        "deficit": 573,
+        "step_ms": {},
+        "step_noise_ms": {}
+      }
     },
     "memory": {
-      "process_peak_mb": 2607,
-      "gpu_body_pool_peak": 254400,
-      "gpu_refusals_walk_near": 0,
-      "gpu_refusals_after_three_poses": 555,
-      "cpu_pool_peak": 493665,
+      "walk_peak_mb": 2534.5,
+      "walk_gpu_refusals": 0,
+      "walk_gpu_body_pool_peak": 137730,
+      "walk_cpu_pool_peak": 280111,
       "cpu_valve": 484500,
-      "_note": "219 High, three poses in one launch; refusals come from the forest/jungle poses"
-    }
+      "forest_peak_mb": 2621.1,
+      "forest_gpu_refusals": 0,
+      "forest_gpu_body_pool_peak": 245704,
+      "forest_cpu_pool_peak": 496071,
+      "jungle_peak_mb": 2520.8,
+      "jungle_gpu_refusals": 4472,
+      "jungle_gpu_body_pool_peak": 254400,
+      "jungle_cpu_pool_peak": 493060,
+      "night_peak_mb": 2511.9,
+      "night_gpu_refusals": 0,
+      "night_gpu_body_pool_peak": 103611,
+      "night_cpu_pool_peak": 225775,
+      "gpu_refusals_walk_near": 0,
+      "process_peak_mb": 2621.1,
+      "gpu_refusals_max": 4472,
+      "gpu_body_pool_peak_max": 254400,
+      "cpu_pool_peak_max": 496071
+    },
+    "date": "2026-11-18",
+    "sources": [
+      "Logs/budget/2026-11-17_235256/costsplit_walk.txt",
+      "Logs/budget/2026-11-17_235256/costsplit_forest.txt",
+      "Logs/budget/2026-11-17_235256/costsplit_jungle.txt",
+      "Logs/budget/2026-11-17_235256/costsplit_night.txt"
+    ],
+    "settings": "[play flags] -quality high -renderrows 432 -shellwait 60; walk: -startsun 16 -costtimedpaths walk_near -costarms skyfill0,sun_off,shells_off,ceiling,startsun_off | forest: -startsun 16 -costfixed forest_eye -costtimedpaths forest_eye -costarms skyfill0,sun_off,startsun_off | jungle: -startsun 0 -costfixed jungle_eye -costtimedpaths jungle_eye -costarms skyfill0,sun_off | night: -costpaths torch -costarms tf_on,tl_none,skyfill0,sun_off"
   },
+  "previous_baselines": [
+    {
+      "_note": "v1 (noon walk_near) provisional baseline from 212 + 219, replaced by task 235's worst-case v2",
+      "baseline": {
+        "date": "2026-11-15/16",
+        "sources": [
+          "Logs/costsplit_2026-11-15_143504.txt and _160531.txt (task 212, play flags, 432 rows, warm AC)",
+          "Logs/overnight/219/costsplit_high_432.txt (task 219, High 432, warm AC, clean)"
+        ],
+        "walk_near": {
+          "full_p50_ms": 107.0,
+          "full_p95_ms": 204.0,
+          "full_p99_ms": 224.0,
+          "frames_over_33ms_pct": 80,
+          "step_delta_ms": {
+            "sky_fill": 40.4,
+            "sun_shadow": 28.1,
+            "torch_flood": 27.8,
+            "shells": 8.4
+          },
+          "ceiling_p50_ms": 24.6
+        },
+        "forest_eye": {
+          "full_p50_ms": 148.4,
+          "full_p95_ms": 242.7,
+          "full_p99_ms": 247.0,
+          "frames_over_33ms_pct": 100,
+          "streaming_deficit_chunks": 556
+        },
+        "torch": {
+          "_note": "not yet measured with play flags at 432 rows; the first check run fills it"
+        },
+        "memory": {
+          "process_peak_mb": 2607,
+          "gpu_body_pool_peak": 254400,
+          "gpu_refusals_walk_near": 0,
+          "gpu_refusals_after_three_poses": 555,
+          "cpu_pool_peak": 493665,
+          "cpu_valve": 484500,
+          "_note": "219 High, three poses in one launch; refusals come from the forest/jungle poses"
+        }
+      }
+    }
+  ],
   "history": [
     {
       "date": "2026-11-16",
       "by": "task 220",
       "what": "provisional baseline from 212 + 219"
+    },
+    {
+      "date": "2026-11-18",
+      "by": "owner 2026-11-17, task 235",
+      "what": "rebaseline by run-budget-check.sh; verdict vs the previous baseline: PASS"
     }
   ]
 }
