@@ -5,8 +5,10 @@ Owner answer to Q-AN the same day: keep the look, move toward Lay of the Land's 
 (tasks 225-229). So the guard must track the lighting cost (sky fill, sun shadows, torch flood) at every check, and say how a
 look task that adds a pass (polish, haze, bloom) is costed.
 
-Status: PLAN. `PERF_BUDGET.json` (the budget file) is written, provisional. `tools/overnight/PREAMBLE.md` rule 12 (the
-per-task part, the same in every option) is in force. `run-budget-check.sh` is NOT written: the owner picks an option first.
+Status: IN FORCE. **Owner pick (Q-AO, 2026-11-16): option (b), milestone, N = 5** -- the check runs after every 5
+drawing/content tasks, at once after any heavy task, and before every merge to `main`. `PERF_BUDGET.json` holds the accepted
+baseline (first one: task 230's run). `tools/overnight/PREAMBLE.md` rule 12 (per-task proxies) and rule 13 (the counter
+`tools/overnight/BUDGET_COUNT`) are in force. The check is `tools/overnight/run-budget-check.sh` (task 230, sec. 3).
 
 ## 1. The question for the owner (recommendation first)
 
@@ -38,7 +40,7 @@ get likely. N = 3 costs ~12 min a task for little gain because the early trigger
 - **Steps** (AMENDMENT_8_17 sec. 3's shares): sky fill 2.5 ms, sun shadows 5.0, torch flood 1.0 (night), shells 4.0, plus the
   "ceiling" (all three off). Each step names its `-costarms` OFF arm; new passes add a step (sec. 5).
 
-## 3. The milestone check (`run-budget-check.sh`, to be written after the pick)
+## 3. The milestone check (`tools/overnight/run-budget-check.sh`, task 230)
 
 One script, holds the Unity lock, ~35 min:
 1. Build the release player (skip with `SKIP_BUILD=1`).
@@ -57,6 +59,23 @@ One script, holds the Unity lock, ~35 min:
 6. `--rebaseline "<who approved>"` writes the run into `baseline` and appends to `history` (perf tasks; owner-approved adds).
 
 It quotes frame time, so only the supervisor's check task or a performance task runs it (rule 10 unchanged).
+
+As built (task 230); the differences from the plan above all come from the cost-split machinery (no capture code changed):
+- **Three launches after the one warm-up, not one**: DAY (walk_near, every step's arm; `-costfixed forest_eye` only to drop
+  walk_open, `-costtimedpaths walk_near`), FOREST (`-costarms none`: forest_eye FULL timed, secondary) and NIGHT (torch).
+  `-costpaths torch` replaces the walk paths, and the machinery cannot time FULL alone at one path and arms at another.
+  The first run timed every arm at forest_eye: 60 of the day launch's 73 min. The split is NOT yet run for real (owner pause).
+- **Night arms are `tf_on` and `tl_none`**, not FULL / `flood_off`: the torch scene's FULL is the OLD point lights
+  (`PlaygroundCapture.TorchCost.cs`), so night play = `tf_on` p50 and the torch flood step = `tf_on` - `tl_none` p50.
+- **Input watch per path**: the watcher logs which cost-split path the live report is on; input during forest_eye
+  (secondary) is reported, not counted. A dirty DAY or NIGHT launch runs again once; still dirty = NOT CLEAN.
+- The comparison is `tools/overnight/budget_compare.py` (`--compare DAY NIGHT [FOREST]` reruns it on old logs). A step whose
+  own noise (|FULL before - after|) exceeds its tolerance is downgraded FAIL -> WARN ("noisy"). `--rebaseline` is refused
+  when the run is NOT CLEAN or a hard limit failed. A full run sets `tools/overnight/BUDGET_COUNT` (PASS / rebaseline 0,
+  WARN 2). Output: `Logs/budget/<stamp>/check.txt`.
+- **Open (task 230's run, 2026-11-17): the NIGHT launch peaks at ~6.0 GB** (6,025 / 6,055 MB; task 229's night 6,037) when
+  the `tf_on` arm builds the torch flood synchronously (`TorchFloodPool.Rebuild`); the day stays at ~2.57 GB. That fails
+  the 3,000 MB hard limit on every run, so no baseline can be accepted until it is fixed or the owner rules on it.
 
 ## 4. The per-task proxy (no timing; PREAMBLE rule 12, in force now)
 
@@ -100,8 +119,8 @@ Every task that adds or changes drawing or content reports, from the launches it
 > **Cost proxy line (task 220, PERF_BUDGET_GUARD.md):** a task file that adds or changes drawing or content carries a
 > `Cost:` line: its step (8.17), the proxies it reports (P1 always; P2 for passes; P3 if its launch prints frame time;
 > P4 for content; P5 for marches) and its limits (default: refusals not up, peak +50 MB, no output-res pass, no new
-> ray march). Count drawing/content tasks done since the last `BUDGET PASS` in `tools/overnight/budget_count`; at N (the
-> owner's option) or after a heavy task, queue the check task next. Before a merge to `main`, the check passes.
+> ray march). Count drawing/content tasks done since the last accepted check in `tools/overnight/BUDGET_COUNT`; at N = 5 (the
+> owner's option (b)) or after a heavy task, queue the check task next. Before a merge to `main`, the check passes.
 
 ## 8. Order with tasks 225-229
 

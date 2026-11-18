@@ -2077,3 +2077,17 @@ Cost-split arms `startsun_off`, `startsunNN`, `skypale_off`, `grade_off`, `look2
 new capture options `-coststillarms a,b` (still-only arms) and `-costtimedpaths p,q` (only these paths run timed arms).
 Tests `Look233Tests` (start sun morning/noon, lighting luma kept, night unchanged, shader pins). Runner `Logs/overnight/233/run.sh`,
 sheets `sheets.py` -> `Screenshots/233/sheets/`, metrics `metrics.txt`. Result: HANDOFF 233.
+
+**Task 230 (performance tooling, owner Q-AO (b) 2026-11-16: milestone budget check, N = 5): `tools/overnight/run-budget-check.sh`.**
+Holds the Unity lock; build (`BUILD_ONLY=1 ./run-cost-split.sh`, play's player: `DEV_KERNELS=0` default, `BUILD_ARGS` passed
+through; both new env hooks in `run-cost-split.sh`, its default unchanged) unless `SKIP_BUILD=1`; warm-up; then three cost splits
+at play flags, High, 432 rows, `-shellwait 60`: DAY (walk_near at noon `-startsun 0`, arms = `PERF_BUDGET.json` steps' `off_arm`,
+`-costtimedpaths walk_near`), FOREST (`-costarms none`, forest_eye FULL, secondary) and NIGHT (`-costpaths torch -costarms
+tf_on,tl_none`: the torch scene's FULL is the old point lights, so night play = tf_on, flood step = tf_on - tl_none). `hididle`
+(`tools/overnight/hididle.c`, built to `Logs/budget/hididle`) logs input with the live path: input in DAY/NIGHT reruns that launch
+once, still dirty = `BUDGET NOT CLEAN`; forest_eye input is reported only. `tools/overnight/budget_compare.py` prints ONE table
+(ratchet rows vs baseline with `PERF_BUDGET.json` tolerances, WARN at half, noisy step FAIL -> WARN; shares / targets as distance;
+hard limits 3,000 MB and walk_near refusals 0) and `BUDGET PASS|WARN|FAIL|NOT CLEAN` (exit 0/0/1/3); `--rebaseline "<who>"`
+(refused when NOT CLEAN or a hard limit fails); `--compare DAY NIGHT [FOREST]` on old logs; `--stricter F --write-copy` (test
+copies). A full run sets `tools/overnight/BUDGET_COUNT` (PREAMBLE rule 13). Output `Logs/budget/<stamp>/check.txt`. First run
+(2026-11-17, 165 min with reruns): NOT CLEAN (owner input + pause), and the night launch peaks at ~6.0 GB on the tf_on flood build.

@@ -1,0 +1,118 @@
+run 20261117_192617
+caffeinate pid 76877 (-dimsu -w 76843)
+power start: 19:26:17 source=AC Power charge=58%; charging
+player pid 77200
+peak phys_footprint: 2478 MB   (owner cap 3 GB; samples in Logs/tg2world_20261117_192617_mem.txt; breakdown at peak in Logs/tg2world_20261117_192617_mem_peak_breakdown.txt)
+STREAM PROBE -- streamwalk_20261117_192617 -- 2026-11-17_192717
+device Apple M1  1920x1080  FULLSCREEN  RELEASE  preset Performance  gate 0  shadow rung 0  HUD OFF  fluid not opened  clock 17:35
+streamer: 7 chunk-gen workers (default, ProcessorCount 8), load radius 10 chunks (128.0 m), evict 12, band layers 7, admit cap 16/frame, clipmap cap 16 chunks / 3.0 MB per frame (exempt radius 1)
+motion WALK: circle r 150 m round spawn (4016, 4000), eye 1.6 m over ground, 5 m/s, 180 s
+settle at the shot pose (fill of a fresh band): 13.0 s after the first 600 frames, 572 frames, deficit 0, pending 0, dirty 0
+LOD hand-offs (code): tier0 0.1 m <= 64 m, tier1 0.2 m <= 128 m, tier2 0.4 m <= 290 m but voxel DATA only inside the load square (+-128 m XZ, 89.6 m tall band); far band F0..F4 texels 0.8/1.6/3.2/6.4/12.8 m, rings ~352 m x 2^L
+shot pose: eye 4165.6 789.7 3999.6 m, voxel at eye 0, ground top (map) 788.1 m, first solid voxel below the eye (CPU store) 788.0 m, band layers 58..64 (742.4-832.0 m), mirror origin int3(309, 57, 296)
+isolated generate, main thread, workers idle: 8 solid chunks of this band, p50 53.6 ms  max 58.4 ms
+still_beauty.png — fully loaded, camera still
+still_tier.png — fully loaded, camera still -- LOD tier view
+still_band.png — fully loaded, camera still -- band view
+moving_beauty/tier/band.png -- the still pose, mid-motion at 5 m/s (3 consecutive frames, camera moving); deficit 2934, chunks missing on the GPU inside 64 m 495
+
+  frame time                                   n  13670  p50    11.67  p95    27.28  max    68.67 ms   (>33 ms: 277 of 13670; 180 s)
+
+1. CPU GENERATION (worker threads: 7) -- 19194 chunks reached the GPU (9823 uniform)
+  generate (GenerateBaseline), all             n  19194  p50     0.88  p95   209.52  max   879.17 ms
+  generate, non-uniform chunks only            n   9371  p50    34.11  p95   233.81  max   879.17 ms
+  cascade downsample on the worker             n  19194  p50     0.08  p95    40.30  max   554.54 ms
+  generate, non-uniform: worker THREAD CPU     n   9371  p50    28.80  p95   186.74  max   216.29 ms
+  generate, non-uniform: wall - CPU (not running) n   9371  p50     4.35  p95    57.82  max   673.68 ms
+  generate, non-uniform: wall / CPU            n   9371  p50     1.10  p95     1.77  max    18.31 x
+  generate, non-uniform, no GC during the work n   9322  p50    34.07  p95   233.02  max   879.17 ms
+  generate, non-uniform, >=1 GC during the work n     49  p50   150.82  p95   270.56  max   285.84 ms   (49 of 9371 chunks)
+  GC over the walk: collections gen0/1/2 10/10/10 (0.06/s; cumulative allocated bytes: not in Unity's GC API), mono used 383 -> 407 MB, heap 547 -> 439 MB, incremental GC True
+  forced full GC.Collect after the walk (pause estimate, not during it): 5.5 ms
+  request -> dispatch (pending queue)          n  19194  p50  2980.05  p95 14127.17  max 36526.70 ms
+  dispatch -> worker start (job queue)         n  19194  p50   286.10  p95  1003.74  max  2979.88 ms
+  admitted 18794 in 180 s = 104.4 chunks/s; worker busy 88% of 7 threads (lower bound: counts only chunks that reached the GPU)
+2. MAIN-THREAD ADMISSION (DrainCompletions, per chunk)
+  worker done -> admitted (completion queue)   n  19194  p50     5.45  p95    20.79  max   293.80 ms
+  admit one chunk, total                       n  19194  p50     0.90  p95     2.64  max    11.98 ms
+    of which transfer scratch -> shared pool   n  19194  p50     0.00  p95     0.14  max     2.95 ms
+    of which cascade tier 1/2 writes           n  19194  p50     0.76  p95     1.28  max    10.90 ms
+  per-frame transfer (frames that admitted)    n   6277  p50     0.06  p95     0.29  max     3.23 ms
+3. CPU -> GPU (tier-0 clipmap UploadDirty)
+  admitted -> uploaded                         n  19194  p50     2.85  p95    14.68  max  1451.62 ms
+  admitted -> uploaded                         n  19194  p50        0  p95        0  max       97 frames
+  bytes uploaded per frame (all frames)        n  13670  p50   615424  p95  1006080  max  2159104 B   cap 3145728; frames over cap 0
+  chunks uploaded per frame                    n  13670  p50        1  p95       16  max       36 
+  upload pass total (frames that uploaded)     n   7065  p50     0.22  p95     1.08  max     7.12 ms
+    sort dirty set                             n   7065  p50     0.00  p95     0.08  max     0.22 ms
+    staging: 4096-handle chunk table (convert) n   7065  p50     0.10  p95     0.60  max     3.01 ms
+    clipmap SetData (copy)                     n   7065  p50     0.01  p95     0.04  max     1.96 ms
+    air-mip RebuildRegion (convert)            n   7065  p50     0.02  p95     0.21  max     0.89 ms
+    air-mip PackRegion (convert)               n   7065  p50     0.01  p95     0.08  max     0.30 ms
+    brick-body SetData runs (copy)             n   7065  p50     0.01  p95     0.08  max     0.64 ms
+    packed air-mip SetData (copy)              n   7065  p50     0.04  p95     0.08  max     1.20 ms
+  cascade UploadDirty per frame (all frames)   n  13670  p50     0.00  p95     0.00  max    10.27 ms
+4. TIME TO VISIBLE (request -> first frame in the GPU mirror)
+  request -> uploaded                          n  19194  p50  3317.19  p95 14946.27  max 37200.21 ms
+  request -> uploaded                          n  19194  p50      248  p95     1049  max     2293 frames
+  distance at request (nearest point)          n  19194  p50      114  p95      165  max      187 m
+  distance when uploaded                       n  19194  p50       93  p95      150  max      188 m
+  LATE: inside 64 m before uploaded, missing for n   4901  p50  1420.93  p95  4839.50  max 26187.80 ms   (4901 of 19194 chunks)
+  LATE, frames                                 n   4901  p50       97  p95      345  max     1798 frames
+  chunks missing on GPU, per frame             n  13670  p50     1213  p95     2234  max     2669 
+    of which inside 64 m (full-detail ring)    n  13670  p50        0  p95      199  max      311 
+  dropped from the trace: 23428 un-requested (camera moved on), 403 discarded on arrival, 51 evicted before upload; still open at the end 2910
+5. LOAD DEFICIT (chunks in the load square + band not resident; every 10th frame)
+  deficit                                      n   1367  p50     1212  p95     2234  max     2664 
+  deficit, nearest point inside 128 m          n   1367  p50      737  p95     1664  max     2076 
+  task 24: detail radius at speed OFF: voxels hand over at the residency edge; R_d(v) below is what ON would use
+    smoothed horizontal speed (0.5 s window)   n   1367  p50      5.0  p95      5.0  max      5.4 m/s
+    R_d(v)                                     n   1367  p50    124.8  p95    124.9  max    127.4 m
+  deficit, nearest point inside the R_d(v) square (Chebyshev) n   1367  p50     1101  p95     2028  max     2601 
+  band switches 30, discarded on arrival 403
+  10 s windows:
+      0-  10 s  frame p50   8.8 p95  18.5 max   49.5 ms   deficit mean  386.5 max  1287   admitted  184.5/s
+     10-  20 s  frame p50  10.0 p95  27.1 max   43.4 ms   deficit mean   25.7 max   218   admitted   65.6/s
+     20-  30 s  frame p50  14.8 p95  26.9 max   31.6 ms   deficit mean  847.1 max  1391   admitted   92.2/s
+     30-  40 s  frame p50   9.5 p95  18.2 max   31.1 ms   deficit mean 1014.6 max  1336   admitted   91.5/s
+     40-  50 s  frame p50   8.8 p95  17.5 max   34.1 ms   deficit mean  327.4 max   957   admitted  120.4/s
+     50-  60 s  frame p50   8.1 p95  17.8 max   35.3 ms   deficit mean  813.6 max  1937   admitted  137.4/s
+     60-  70 s  frame p50  19.0 p95  38.6 max   51.8 ms   deficit mean 1153.4 max  1709   admitted  140.9/s
+     70-  80 s  frame p50  12.1 p95  24.6 max   49.8 ms   deficit mean 1178.4 max  2159   admitted   54.1/s
+     80-  90 s  frame p50   8.9 p95  15.9 max   32.2 ms   deficit mean 1777.8 max  2134   admitted   98.5/s
+     90- 100 s  frame p50  15.4 p95  35.7 max   61.3 ms   deficit mean 1764.7 max  2038   admitted   59.1/s
+    100- 110 s  frame p50  21.2 p95  46.8 max   68.7 ms   deficit mean 1641.0 max  1901   admitted   64.9/s
+    110- 120 s  frame p50  21.3 p95  42.6 max   59.9 ms   deficit mean 1778.0 max  2086   admitted   60.2/s
+    120- 130 s  frame p50  12.2 p95  21.4 max   41.7 ms   deficit mean 1815.2 max  2054   admitted   98.7/s
+    130- 140 s  frame p50  10.4 p95  20.3 max   31.9 ms   deficit mean 1711.7 max  2009   admitted  181.1/s
+    140- 150 s  frame p50  11.2 p95  23.2 max   37.2 ms   deficit mean 2170.4 max  2664   admitted   71.3/s
+    150- 160 s  frame p50  15.0 p95  27.1 max   38.0 ms   deficit mean 2193.0 max  2621   admitted  109.3/s
+    160- 170 s  frame p50  14.4 p95  26.4 max   42.9 ms   deficit mean  777.7 max  1516   admitted  170.7/s
+7. WORST-CASE REQUIREMENT (StreamingRequirement; KNOWN_ISSUES "STREAMING REQUIREMENT")
+  worst case: 60 m/s, diagonal dive (worst 3-D heading), 21x21 chunks x 7 layers, every chunk full cost; prefetch margin 0.0 m (request radius 10, detail radius 10)
+  throughput (gen p50 70 ms, 7 workers): REQUIRED 2285.4/s, CAPACITY 100.4/s -> NOT MET (short by 22.8x)
+  throughput (gen p99 461 ms, 7 workers): REQUIRED 2285.4/s, CAPACITY 15.2/s -> NOT MET (short by 150.5x)
+    level flight only (no dive): REQUIRED 974.5/s; measured admitted this run 104.4/s (incl. 9823 uniform chunks)
+  latency WITH the detail radius at speed (task 24, OFF this run -- what ON would require):
+    at 60 m/s: R_d 89.8 m (margin 38.2 m): REQUIRED request->GPU p99 <= 0.620 s, MEASURED p99 21.289 s -> NOT MET (short by 34.3x)
+    at this arm's speed p50 5.0 m/s: R_d 124.8 m (margin 3.2 m): REQUIRED p99 <= 0.620 s, MEASURED p99 21.289 s -> NOT MET (short by 34.3x)
+  latency: REQUIRED request->GPU p99 <= 0 s (margin 0.0 m), MEASURED p99 21.289 s -> NOT MET (no throughput can meet a zero budget: the worst case itself must change)
+  main thread: 38.1 admits/frame x admit p50 0.90 ms = 34.5 ms vs a 16.7 ms frame -> NOT MET (short by 2.1x); MAX_CHUNK_LOADS_PER_FRAME 16
+  bursts: X/Z plane 147, corner 287, Y recentre 882 chunks; cold start / teleport 3087 chunks -> 1.35 s at the required rate (PROPOSED target, not set)
+  largest worst-case speed sustained at this capacity: 2.64 m/s (p50), 0.40 m/s (p99) -- information only
+cascade tier 1 pool: cap 221000  in use 10198  peak 114413  pressure reliefs 0 (slots freed 0)  still exhausted 0
+cascade tier 2 pool: cap 41000  in use 1617  peak 13210  pressure reliefs 0 (slots freed 0)  still exhausted 0
+
+per-frame rows: streamprobe_frames.tsv; per-chunk rows: streamprobe_chunks.tsv
+walk start 49.04 s since launch, s0 0.0 m, 5.0 m/s -- chunks' workStartS is on the same scale
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/StreamProbe/2026-11-17_192717_streamwalk_20261117_192617
+[StreamManager] VERTICAL STREAMING (sizeClass 2): band +-3 layers, lag 1, content top layer 93 (Y 11905)
+[StreamManager] PrimeWindow: 847 chunks in 4701ms via the worker pipeline (5.5ms/chunk wall)
+[FarField] tg2 WORLD (aligned): world map v4 (biome x3.25, 6 biomes, record 6291456 B) built in 9 ms, offset int2(0, 0), sea shift 0, material rules ON, stamp fit ON, material variant spray OFF (default), landform signatures ON (default; plane 3072 KB in 34 ms)
+[Phase4Bootstrapper] Total startup: 15428ms
+cascade tier 1 pool: cap 221000  in use 10198  peak 114413  pressure reliefs 0 (slots freed 0)  still exhausted 0
+cascade tier 2 pool: cap 41000  in use 1617  peak 13210  pressure reliefs 0 (slots freed 0)  still exhausted 0
+Player.log totals: 0 lines with 'Exception', 2 with 'exhausted'
+power end: 19:30:50 source=AC Power charge=59%; charging
+log: Logs/tg2world_20261117_192617.txt
+TG2WORLD_DONE

@@ -1,0 +1,147 @@
+{
+  "_what": "Performance budget for the guard in PERF_BUDGET_GUARD.md (task 220). Read by tools/overnight/run-budget-check.sh (task 230; owner Q-AO (b), N = 5). The baseline is a RATCHET: the check fails when a number gets worse than the baseline by more than its tolerance; the targets are reported as distance only (today every arm is 3x over them, so failing on them would fail every run and teach everyone to ignore it).",
+  "version": 1,
+  "status": "TEST COPY: baseline x 0.80 (task 230 failure-path test)",
+  "machine": "MacBook Air M1, 8 GB, fanless; AC power; warm steady state (one discarded warm-up launch first)",
+  "settings": {
+    "_why": "Play's own look (owner 2026-11-16 Q-AN: keep the look). 219 showed the presets change memory, not time (Low 108.0 vs High 111.4 ms), so the check runs what the owner plays.",
+    "preset": "High",
+    "render_rows": 432,
+    "upscaler": "fsr3 pinned at 432 rows (play's dyn floor; dyn sits there whenever a frame is > 30 ms)",
+    "flags": "tools/play-flags.sh ($PLAY_SETTINGS_FLAGS): trees, shells, torch flood, sky fill 2, FSR 3",
+    "shell_wait_s": 60,
+    "launch": "run-budget-check.sh: $PLAY_SETTINGS_FLAGS -quality high -renderrows 432 -shellwait 60; day adds -startsun 0 (noon) -costfixed forest_eye -costarms <steps' off_arm>; night adds -costpaths torch -costarms tf_on,tl_none"
+  },
+  "targets": {
+    "_note": "Reported as 'distance to target', never a FAIL until the baseline is inside them.",
+    "frame_p50_ms": 33.3,
+    "frames_over_33ms_pct": 5.0,
+    "frame_p95_ms": 33.3,
+    "process_peak_mb": 3000
+  },
+  "hard_limits": {
+    "_note": "These DO fail the check regardless of the baseline.",
+    "process_peak_mb": 7000,
+    "gpu_body_refusals_at_walk_near": 0
+  },
+  "tolerance": {
+    "_basis": "212's two launches (Logs/costsplit_2026-11-15_143504.txt, _160531.txt): FULL p50 at walk_near 104.3-108.2 ms across 12 F passes (spread ~4 ms, ~4 %); lighting deltas F - X repeat within ~2-3 ms. 224: process peak launch-to-launch spread ~+-50 MB.",
+    "full_p50_ms": "max(5 ms, 5 %)",
+    "full_p95_ms": "max(10 ms, 8 %)",
+    "step_delta_ms": "max(3 ms, 15 %)",
+    "process_peak_mb": 50,
+    "gpu_refusals": "max(20, 10 %)",
+    "warn_at": "half of each tolerance"
+  },
+  "paths": {
+    "walk_near": "MODE=walk arc (task 212), noon 12.00 h, sun 78 deg -- DAY: sky fill, sun, shells; flood should cost ~0 here (task 229)",
+    "torch": "-costpaths torch (task 151): night 0.50 h, 28-32 torches round a still pose. The scene's FULL is the OLD point lights; the check times arms tf_on (play's torch flood) and tl_none (no torch light): night play p50 = tf_on, torch_flood step = tf_on - tl_none (task 230)",
+    "forest_eye": "-costfixed forest (task 210/219), eye height, noon -- dense trees; SECONDARY (219 had a streaming deficit at this pose: report, do not fail on it)",
+    "forest_eye_pose": "forest_eye|3366.4,532.5,4950.0|3366.4,529.7,4928.0",
+    "_pose_note": "forest_eye_pose is pinned here (copied from Logs/TerrainGen/trees210/poses.txt) so the check's pose cannot drift with that file."
+  },
+  "steps": [
+    {
+      "name": "sky_fill",
+      "off_arm": "skyfill0",
+      "share_ms": 2.5,
+      "lighting": true,
+      "_8_17": "Sky light row"
+    },
+    {
+      "name": "sun_shadow",
+      "off_arm": "sun_off",
+      "share_ms": 5.0,
+      "lighting": true,
+      "_8_17": "Sun shadows row"
+    },
+    {
+      "name": "torch_flood",
+      "off_arm": "flood_off",
+      "share_ms": 1.0,
+      "lighting": true,
+      "_8_17": "Reserve: torches at night (share is for the NIGHT path; day share 0)"
+    },
+    {
+      "name": "shells",
+      "off_arm": "shells_off",
+      "share_ms": 4.0,
+      "lighting": false,
+      "_8_17": "Shells row"
+    },
+    {
+      "name": "ceiling",
+      "off_arm": "ceiling",
+      "share_ms": null,
+      "lighting": false,
+      "_note": "sky probe + sun + shells off together: what is left (CPU, FSR 3, tier-0 march, shading/post)"
+    }
+  ],
+  "_steps_rule": "A look/content task that adds a pass appends a step here with its off_arm (a -costarms name it registers) and the share it takes (from 'shading/post' 5.0 ms or a named reserve, per AMENDMENT_8_17 section 3).",
+  "baseline": {
+    "walk_near": {
+      "full_p50_ms": 53.9,
+      "full_p95_ms": 93.7,
+      "full_p99_ms": 106.9,
+      "frames_over_33ms_pct": 71.0,
+      "full_range_ms": 4.4,
+      "step_delta_ms": {
+        "sky_fill": 9.2,
+        "sun_shadow": 16.7,
+        "torch_flood": -0.2,
+        "shells": 4.8
+      },
+      "step_noise_ms": {
+        "sky_fill": 1.0,
+        "sun_shadow": 0.1,
+        "torch_flood": 1.7,
+        "shells": 4.2
+      },
+      "flood_full": [
+        "skip"
+      ],
+      "deficit": 0,
+      "ceiling_p50_ms": 18.3,
+      "ceiling_noise_ms": 0.2
+    },
+    "forest_eye": {
+      "full_p50_ms": 83.0,
+      "full_p95_ms": 150.2,
+      "full_p99_ms": 186.2,
+      "frames_over_33ms_pct": 79.5,
+      "deficit": 474,
+      "step_delta_ms": {
+        "sky_fill": 10.3,
+        "sun_shadow": 19.0,
+        "torch_flood": 12.3,
+        "shells": 11.4
+      }
+    },
+    "torch": {
+      "play_p50_ms": 47.2,
+      "play_p95_ms": 87.0,
+      "points_p50_ms": 64.1,
+      "none_p50_ms": 39.7,
+      "flood_step_ms": 7.5,
+      "flood_noise_ms": 1.0
+    },
+    "memory": {
+      "gpu_refusals_walk_near": 0,
+      "day_peak_mb": 2054.3,
+      "gpu_body_pool_peak": 196563,
+      "gpu_refusals_after_paths": 0,
+      "cpu_pool_peak": 395903,
+      "cpu_valve": 387600,
+      "night_peak_mb": 4820.1,
+      "process_peak_mb": 4820.1
+    },
+    "date": "test"
+  },
+  "history": [
+    {
+      "date": "2026-11-16",
+      "by": "task 220",
+      "what": "provisional baseline from 212 + 219"
+    }
+  ]
+}
