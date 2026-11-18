@@ -1,6 +1,6 @@
 # 235-perf-budget-worst-case-poses: DONE. The budget check now judges worst-case poses. The first clean run is rebaselined: worst pose forest_eye at 16 deg, 135.4 ms p50 (4.1x the 30 fps frame).
 
-## What changed (scripts, JSON and docs only; no Assets code). Commit: see `git log -1` ("235: ...")
+## What changed (scripts, JSON and docs only; no Assets code). Commit 92bacb1
 - `tools/overnight/run-budget-check.sh`: runs 4 cost splits after the warm-up, read from `PERF_BUDGET.json` "launches". The header says why (owner 2026-11-17).
   Input during a launch's TIMED path makes it dirty. Input during a still-only path is reported only. `--compare walk=W forest=F jungle=J night=N`.
 - `tools/overnight/budget_compare.py`: per-pose rows, one pose x step table, the worst pose per step, and top 3 steps at the worst pose. The verdict uses the WORST-CASE rows and the hard limits only; noon rows are a control (info).
