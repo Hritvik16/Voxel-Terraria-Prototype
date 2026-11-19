@@ -2123,3 +2123,13 @@ mid-snapshot, == scratch), `Reserve_GrowsToGrowCapExactly_KeepsContents`; all ea
 (`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1"`, `Logs/costsplit_2026-11-19_090913.txt`, 28 torches): CPU allocated 31.0 -> 15.9 MB,
 GPU 20.0 -> 9.25 MB, scratch peak 26-27 -> 13.1 MB, fill 5.3 -> 14.4 s (one job), exact + GPU readback + twin probe PASS at every step;
 main-thread p99 NOT under 1 ms (fill 3.6, edits 2.6-6.1 ms): upload (236's one span per buffer re-sends ~4 MB per 1,024-brick merge) and merge apply.
+
+**Task 241 (plan only, owner 2026-11-19 "I'd rather have you autonomously do this"): per-system budgets per quality tier.** No code, no
+launch. `PERF_SLICE_BUDGETS.md`: three tiers (A = M1 Air 8 GB "low": 30 fps typical, dense forest at dawn/dusk capped at 50 ms, 3,000 MB;
+B = M-series Pro class; C = 60 fps), tier-A ms slices (8.17 sec. 3 shares) beside 235's measured worst-pose splits, MB per pool (CPU pool
+278, GPU bodies 124, flood 38, shells est. 388, ...; headroom 379 MB), GPU-class scaling (`Logs/overnight/241/scale.py`: forest 16 deg
+needs ~4.9x the M1 GPU for 30 fps at 432 rows, so hardware is not the forest fix), the feature admission rule (declare ms/MB per tier +
+slice; proposals for new `PERF_BUDGET.json` proxies, gates NOT edited), "Making the forest fit" (levers F1-F7: low-sun cap, bounce at low
+sun, solid crown cores, foliage early-out, dyn rows, coarser far leaves, density last) and architecture alternatives (no renderer
+replacement; a sun shadow map / foliage light proxy only on named evidence). Chart `Screenshots/241/budget_bars.png` (git-ignored; script
+`Logs/overnight/241/bars.py`). Owner decisions D1-D6 in its sec. 5.

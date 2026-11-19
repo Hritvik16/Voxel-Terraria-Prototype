@@ -1,61 +1,53 @@
-STOP_FOR_OWNER -- 170's memory trim is DONE and committed (d00fc53). Its main-thread target (p99 < 1 ms) is NOT met, and edits got
-worse: per edit, p99 went from 1.2-1.6 ms to 2.6-6.1 ms, and the upload from ~8 MB to ~200 MB. The flood is ON in play.
-Question: how should the upload be fixed? (a) a small scatter-upload compute pass (a new GPU pass: rule 12 card + `_off` arm; recommended),
-(b) allocation that keeps dirty words together, (c) accept it, or put MergeBatch back to 4,096 (4x fewer uploads, apply spikes ~2.8 ms).
+# 241-perf-slice-budgets: DONE (plan only) -- `PERF_SLICE_BUDGETS.md`: 3 tiers, per-system ms/MB slices, admission rule, forest levers, architecture alternatives
 
-# 170-torch-flood-memory-trim: DONE for memory (CPU 31 -> 15.9 MB, GPU 20 -> 9.25 MB, scratch 27 -> 13.1 MB, output exact); main-thread p99 < 1 ms NOT reached
+No code, no build, no Unity, no launch, no timing. Owner decisions D1-D6 are in the doc's sec. 5 (not a STOP: nothing is blocked on them).
 
-## What changed (commit d00fc53 on engine-phase; a later session committed this tree, the code unchanged since its tests)
-- `TorchFloodPool.cs`: `MaxJobs` 2 -> 1; `MergeBatch` 4,096 -> 1,024; snapshots sliced by box brick plane (`ContinueSnapshot`),
-  budget `FrameBudgetMs` 0.5 counted from the snapshot phase's start (it was counted from the Tick's start, which starved the single slot:
-  fill 26.8 s); `TrimIdle`; `GrowGpu` sizes the GPU tables/data buffers to the CPU list capacity and re-uploads a grown buffer whole.
-  The inherited GPU-side copy on growth (`CSFloodCopy`) FAILED the in-player readback (run 1: `tables[0] 00000000 vs 8000FC90`, twin
-  probe 511 levels). I removed it; the compute file is back to HEAD. New counters: `GpuGrows`, `GrowTicks`/`GrowTickMsMax`, `SnapshotYields`.
-- `TorchFloodBuild.cs`: `SnapshotBegin` + `SnapshotPlanes`; `GrowCap` = need + 1/4 rounded up to 64 Ki words (up from 1/8: about 3x fewer
-  growth steps); `Reserve` = ONE exact reallocation through `UnsafeList` Ptr/m_capacity. The inherited Resize + TrimExcess copied twice
-  through a power-of-two block. Per-torch cache lists `TrimExcess` on the worker.
-- `PlaygroundCapture.TorchFloodL3.cs`: the report prints jobs, merge batch, snapshot yields, GPU grows, list growth ticks.
-- Tests: `Budgeted_EditsMidSnapshot_EqualsScratch`, `Reserve_GrowsToGrowCapExactly_KeepsContents`. `TASKS.md` paragraph.
-- Why this design is the efficient one (rule 11): there is one scratch, not two. Lists grow by at most 25 % slack, not 100 %. Nothing is
-  kept that is not drawn, and the caches stay because the owner asked to keep them.
+## What changed
+- NEW `PERF_SLICE_BUDGETS.md` (repo root). TASKS.md paragraph. Arithmetic scripts `Logs/overnight/241/scale.py` (GPU-class scaling)
+  and `Logs/overnight/241/bars.py` (chart) -- local only, `Logs/overnight/` is git-ignored. Commit: the "241: PERF_SLICE_BUDGETS.md" commit on engine-phase.
+- Not touched: `PERF_BUDGET.json`, gates, product code. Previous HANDOFF (170's STOP_FOR_OWNER scatter-upload question) is still open
+  for the owner; it lives in `tools/overnight/blocked/` / commit 0582866.
+
+## Main findings (every number sourced in the doc; est. = arithmetic, guess = judgement)
+- M1 Air = tier A ("low") at best, and only with 237's low-sun/bounce/dyn-rows package and a 50 ms (20 fps) cap for the dense forest at
+  dawn/dusk. Today it misses tier A at 3 of 4 worst poses (235: forest 16 deg 135.4, jungle 70.0, night 52.7, walk 35.4 ms).
+- Hardware is not the forest fix: 30 fps at forest 16 deg needs ~4.9x the M1 GPU at 432 rows, ~7x at 540; 60 fps at 720 rows ~30x
+  (est., model: CPU floor 7.1 unscaled + GPU/k, pixel share from 219). Ignores bandwidth, Metal vs other APIs, thermals (stated).
+- Tier-A slices = 8.17's adopted shares (sum 33.3). Memory: CPU pool 278.3 MB, GPU bodies 124.2, flood 38.3 (170), shells est. 388,
+  fluid est. 240; process peak 2,512-2,621 MB, headroom 379 -> proposal: ~250 MB reserved for the placement phase.
+- Forest levers F1-F7 with est./guess savings, look cost, memory, risk, amendment, and the one capture each. Recommended order: forest
+  cost-split capture -> F1+F2 (low-sun cap, bounce) -> F3 solid crown cores (content; also frees GPU bodies) -> sun-steps counter + F4
+  foliage early-out -> F5 dyn floor -> F6 (amendment) -> F7 density last. Stack: 50 ms reachable at mid-guesses with 360 rows.
+- Architecture: lighting in foliage at low sun is design-shaped (sun + sky = 80 of 135 ms); "rest" (55 ms forest/jungle, 43 night)
+  never split, so a bug is not ruled out (124: halving sun rays saved 0 ms). Recommendation: no renderer replacement; a sun shadow map
+  (a) or foliage light proxy (c) only on the named evidence; meshing (b) not justified (+200-800 MB guess, attacks only the march).
+
+## Flags for the supervisor / owner
+- **Unexplained:** walk_near noon 60.6 ms (232, TASKS.md) vs 34.1 ms (235) a day later; 235's walk arc heads away from the sun, so it may
+  just be a lighter view. "Walk 35 ms" should not be read as solved.
+- PREAMBLE rule 12 / PERF_BUDGET_GUARD name a P5 `[sun]` rays/steps counter; I found no such counter in code (only `-shelliters`,
+  `-farsteps`). Doc sec. 4 proposes it (capture-only, ~20 lines).
+- The task asked to add the doc to the owner doc tab; PREAMBLE rule 7 forbids claude.ai docs in this session -> supervisor, please copy
+  "For the doc" below.
 
 ## Evidence
-- `FILTER=TorchFlood`: PASS 29 FAIL 0 SKIP 1 (report-only), incl. Nightly `Fuzz_Long`; scratch == Encode(oracle), incremental == scratch.
-- Fast suite: PASS 1109 FAIL 0 SKIP 25 (`Logs/overnight/170_fast.out`).
-- In-player, 3 launches (`Screenshots/170/tfl3_170.txt`; final = `Logs/costsplit_2026-11-19_090913.txt`): at camp fill and after D1/D2/D3a/D3b,
-  live == scratch IDENTICAL, GPU readback == CPU, GPU vs twin 0 levels, all PASS. The scene now places 28 torches, not 31 (4 refused).
-  No frame-time arms.
+- Fast suite not needed (no code). Sources read: 235 check.txt + [mem] lines, PLAN_PATH_TO_33MS, PERF_BUDGET_GUARD/.json, PERF_EXACT_CUTS,
+  8.17 sec. 3-4, 8.14 preset table, 219 table.md, 170 HANDOFF, RESEARCH_LAY_OF_THE_LAND. Arms named in captures were grep-checked to exist.
+- Image looked at: `Screenshots/241/budget_bars.png` -- one bar per worst pose with the 33.3 / 50 ms lines; renders correctly, labels clear.
 
-| (before = 169 ON arm `Screenshots/169/tfl3_169.txt`, 31 torches, pre-236) | before | after (final) |
-|---|---|---|
-| CPU allocated (union + caches) | 21.1 + 9.9 = 31.0 MB | 9.30 + 6.60 = 15.9 MB |
-| GPU allocated | 20.0 MB | 9.25 MB |
-| job scratch peak | 26.1 MB (2 jobs) | 13.1 MB (1 job) |
-| camp fill until idle | 5.3 s, 95 frames | 14.4 s, 176 frames |
-| main thread per busy frame, fill: mean / p99 / max | 0.79 / 3.1 / 10.4 ms | 0.85 / 3.6 / 9.8 ms (run 2: 0.70 / 2.4 / 12.9) |
-| edits D1-D3b: p99 / settle | 1.2-1.6 ms / 2.0 s | 2.6-6.1 ms / 4.0-4.6 s |
-| uploaded per edit | ~8 MB | 187-214 MB |
-
-## Unfinished: main-thread p99 < 1 ms (owner question)
-- The worst frames are upload (max 3-4.6 ms) and merge apply (max 2.7-5.5 ms). They are not snapshots (max 0.5 ms in edits) and not
-  list growth (0 growth ticks in edits). Cause: task 236's one `SetData` span per buffer per Upload re-sends first..last dirty word. The
-  dirty table/data offsets are scattered (free-list reuse), so each 1,024-brick merge re-sends about the whole 4-9 MB buffer. 4x more merges
-  means 4x the bytes. Splitting the span means more calls, and 236 measured about 4 MB of Metal staging per call.
-- Options: (a) a scatter upload: ONE SetData of the packed dirty words + offsets into a small buffer, then a compute scatter. That is a new
-  GPU pass (rule 12 card + `_off` arm), and run 1 shows dispatch/SetData ordering needs care. (b) Locality-preserving allocation, so dirty
-  words cluster. (c) Accept: MergeBatch back to 4,096 means 4x fewer uploads, but apply spikes about 2.8 ms. Recommend (a).
-- Fill is 2.7x slower than 169 because one job runs floods in series. That is the owner's Q106 (a) trade; the snapshot budget fix took it
-  from 26.8 s to 14.4 s.
-- HEAD's play has the flood ON (task 175), so this trim reaches play. No process memory peak line in this capture, so there is no ledger
-  number to quote. The pool's own memory went down by 28 MB (CPU 15 + GPU 11 + scratch 13 at peak).
-
-## Not committed
-- `Assets/Scenes/Playground.unity` and `Logs/TerrainGen/*` are build/test side effects, left as they were. Stale `blocked/170-*` files: superseded.
+## Next step
+Owner answers D1-D6. If D4 = yes: queue ONE performance task = 237 sec. 2's forest cost split (+ sun arms, + `-startsun 0 skyfill0`,
++ one `-trees2 0` FULL launch). It decides F1/F2 and splits the forest "rest".
 
 ## For the doc
-**170 -- torch flood memory trim.** Same light, exactly (live == from-scratch, GPU == CPU at every step), using less memory:
-- CPU memory 31.0 -> 15.9 MB; GPU 20.0 -> 9.25 MB; flood scratch peak 26 -> 13 MB (one flood job at a time).
-- Camp of 28 torches lights in 14.4 s (was 5.3 s with two jobs: the owner's one-job trade).
-- Not reached: the main-thread worst frames (p99) are 2.6-6 ms, against a < 1 ms target. The GPU upload re-sends whole buffers. Fixing it
-  needs an owner call (recommended: a small scatter-upload pass).
-- Report: `Screenshots/170/tfl3_170.txt`. No images: nothing visible changed (the light is byte-identical).
+**241 -- performance budgets per machine tier (plan, no timing).** `PERF_SLICE_BUDGETS.md`.
+- The M1 Air can be the **minimum spec ("tier A")**: 30 fps on typical views, dense forest at dawn/dusk allowed 20 fps, memory < 3 GB --
+  only after the cuts in its sec. 5/6. Today: forest dawn 135 ms, jungle 70, night camp 53, walk 35 (task 235).
+- **Better hardware does not fix the forest**: 30 fps there needs ~4.9x the Air's GPU even at today's resolution (est.).
+- Making the forest fit, in order: shorter low-sun shadows + cheaper bounce at low sun (~-30..-60 ms, guess) -> solid crown cores
+  (guess -10..-25) -> foliage shortcut for light rays -> lower resolution in heavy views -> fewer trees LAST. Mid-guess: ~50 ms.
+- Architecture: not proven broken; don't replace the renderer. A cheaper sun-shadow design is the first big change IF the next forest
+  capture shows the sun still > 20 ms after the cheap cuts.
+- Six decisions for you (D1-D6): tier A = Air with a 20 fps forest cap? keep High view range? what to drop first? etc.
+- Image: `Screenshots/241/budget_bars.png` -- one bar per worst pose; look at how far each bar runs past the 33 ms dashed line, and that
+  in the forest bar orange (sun) + blue (sky fill) are 80 of the 135 ms.
