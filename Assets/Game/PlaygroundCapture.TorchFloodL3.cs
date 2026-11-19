@@ -108,6 +108,7 @@ public partial class PlaygroundCapture
     private IEnumerator L3Wait(TorchFloodPool pool, string what)
     {
         pool.BusyTickMs.Clear();
+        pool.GrowTicks = 0; pool.GrowTickMsMax = 0;
         int f0 = pool.FloodsDone, m0 = pool.MergesDone; long u0 = pool.UploadBytesTotal;
         pool.ResetEditStats();
         float t0 = Time.realtimeSinceStartup;
@@ -129,7 +130,7 @@ public partial class PlaygroundCapture
         for (int i = 0; i < 6; i++) ph.Append($"{(i > 0 ? ", " : "")}{names[i]} {pool.PhaseSumMs[i]:F1}/{pool.PhaseMaxMs[i]:F2}");
         pool.ResetPhaseStats();
         return $"main thread per busy frame: n {t.Count}, mean {sum / t.Count:F3} ms, p50 {t[t.Count / 2]:F3}, p99 {t[(int)(0.99f * (t.Count - 1))]:F3}, " +
-               $"max {t[t.Count - 1]:F3} (phase sum/max ms: {ph})";
+               $"max {t[t.Count - 1]:F3} (phase sum/max ms: {ph}; list growth ticks {pool.GrowTicks}, max {pool.GrowTickMsMax:F2} ms)";
     }
 
     private static string L3Stats(TorchFloodPool pool)
@@ -142,7 +143,8 @@ public partial class PlaygroundCapture
                $"of which direct {direct / n:N0}, anchored total {pool.AnchoredSum:N0}), merges {pool.MergesDone}; {pool.Chunks} lit chunks, air bricks {pool.AirBricks}, mixed {pool.MixedBricks}, " +
                $"escapes {pool.Escapes}; GPU {pool.GpuBytes / 1048576.0:F2} MB allocated; CPU content: union {pool.UnionContentBytes / 1048576.0:F2} + caches " +
                $"{pool.CacheContentBytes / 1048576.0:F2} MB, allocated: union {pool.UnionBytes / 1048576.0:F2} + caches {pool.CacheBytes / 1048576.0:F2}; " +
-               $"job scratch peak {pool.ScratchPeakBytes / 1048576.0:F2} MB (now {pool.ScratchBytes / 1048576.0:F2}); uploaded {pool.UploadBytesTotal / 1048576.0:F2} MB; {L3Ticks(pool)}";
+               $"job scratch peak {pool.ScratchPeakBytes / 1048576.0:F2} MB (now {pool.ScratchBytes / 1048576.0:F2}); uploaded {pool.UploadBytesTotal / 1048576.0:F2} MB; " +
+               $"jobs {pool.MaxJobs}, merge batch {pool.MergeBatch}, snapshot yields {pool.SnapshotYields}, GPU grows {pool.GpuGrows}; {L3Ticks(pool)}";
     }
 
     /// The live union vs a fresh from-scratch pool (no GPU), each flood run alone on this thread and timed.

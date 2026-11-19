@@ -2110,3 +2110,16 @@ skyfill0, sun_off, startsun_off), jungle (jungle_eye at noon, GPU pool full; sky
 ratchet rows; the verdict counts only worst-case rows + hard limits (noon = control, info). Day flood is not timed (229: `flood skip` = 0).
 rest = FULL - sun - sky - flood. `--compare walk=W forest=F jungle=J night=N`. ~100 min: forest/jungle keep a streaming deficit, so every run
 there waits NearSettle's 180 s cap. First run (`Logs/budget/2026-11-17_235256/check.txt`, rebaselined): worst forest_eye at 16 deg 135.4 ms.
+
+**Task 170 (torch flood memory trim, owner Q106 1 (a); per-torch caches kept): one flood slot, exact-size growth, sliced snapshots.**
+`TorchFloodPool`: `MaxJobs` 2 -> 1 (one job scratch, ~13 MB, only while flooding), `MergeBatch` 4,096 -> 1,024, the box `Snapshot` runs as
+`SnapshotBegin` + `SnapshotPlanes` a few brick planes per Tick under `FrameBudgetMs` 0.5 counted from the snapshot phase's start (at least one
+plane per Tick; an edit / chunk change mid-snapshot re-floods the torch as during the job, so it converges exactly), `TrimIdle` drops burst slack
+when idle. `TorchFloodBuild`: union lists grow by `Reserve` to `GrowCap` = need + 1/4 rounded to 64 Ki words in ONE exact reallocation (not
+NativeList's power of two); per-torch cache lists `TrimExcess` on the worker; the GPU tables / data buffers are sized to the list capacity
+(`GrowGpu`, a grown buffer re-uploaded whole: a GPU-side copy was tried and its readback FAILED in player). Report line adds jobs, merge batch,
+snapshot yields, GPU grows, list growth ticks. Tests `TorchFloodL3Tests`: `Budgeted_EditsMidSnapshot_EqualsScratch` (budget 0, edits/removals
+mid-snapshot, == scratch), `Reserve_GrowsToGrowCapExactly_KeepsContents`; all earlier cases incl. `Fuzz_Long` exact. In-player
+(`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1"`, `Logs/costsplit_2026-11-19_090913.txt`, 28 torches): CPU allocated 31.0 -> 15.9 MB,
+GPU 20.0 -> 9.25 MB, scratch peak 26-27 -> 13.1 MB, fill 5.3 -> 14.4 s (one job), exact + GPU readback + twin probe PASS at every step;
+main-thread p99 NOT under 1 ms (fill 3.6, edits 2.6-6.1 ms): upload (236's one span per buffer re-sends ~4 MB per 1,024-brick merge) and merge apply.

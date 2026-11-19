@@ -1,0 +1,73 @@
+# task 170 (torch flood memory trim) -- in-player probe, tg2 torch camp, night; three launches, same scene (28 torches)
+
+## Logs/costsplit_2026-11-19_085052.txt
+(run 1: GPU-side buffer copy on growth -> GPU readback FAIL; replaced)
+TORCH FLOOD L3 (task 165): 28 torches, reach 12.0 m, dir mode 0; task 169 cuts: anchored bricks ON, edit lit-only ON
+  A async build: 316 frames, 27.56 s until idle; floods 28 (job wall mean 316.9 ms, max 366.0; searched voxels mean 1,982,996, lit bricks mean 7,833 of which direct 2,838, anchored total 12,108), merges 224; 122 lit chunks, air bricks 98459, mixed 14871, escapes 9; GPU 9.25 MB allocated; CPU content: union 8.54 + caches 6.60 MB, allocated: union 9.30 + caches 6.60; job scratch peak 13.04 MB (now 0.00); uploaded 321.73 MB; jobs 1, merge batch 1024, snapshot yields 202, GPU grow copies 24; main thread per busy frame: n 316, mean 0.725 ms, p50 0.581, p99 3.725, max 12.386 (phase sum/max ms: edits+poll 14.0/0.27, flood done 4.6/0.31, merge apply 69.9/10.37, upload 52.6/3.72, snapshots 47.2/4.27, merge start 31.8/1.81)
+  probe (A camp): 84 pixels' air cells (2 lit on the GPU); GPU vs C# twin max |diff| 511 levels -> FAIL
+  exact (A camp): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6484 ms on one thread (floods 6348 ms: per torch mean 226.7, median 236.3, max 274.8 ms)
+  gpu readback (A camp): dir / tables / every reachable data word DIFFER -> FAIL: tables[0] 00000000 vs 8000FC90
+  D1 wall beside torch int3(40236, 8466, 40116) (400 voxels): idle after 64 frames, 5.37 s; floods 6, merges 43, uploaded 170986 KB; edit -> torch: re-flood 6, skipped (lit test) 3; main thread per busy frame: n 64, mean 0.911 ms, p50 0.650, p99 4.376, max 5.182 (phase sum/max ms: edits+poll 4.9/0.16, flood done 1.3/0.36, merge apply 10.1/4.80, upload 31.1/4.17, snapshots 6.9/0.52, merge start 5.9/0.58)
+  probe (D1 wall): 84 pixels' air cells (9 lit on the GPU); GPU vs C# twin max |diff| 511 levels -> FAIL
+  exact (D1 wall): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6401 ms on one thread (floods 6260 ms: per torch mean 223.6, median 229.2, max 299.8 ms)
+  gpu readback (D1 wall): dir / tables / every reachable data word DIFFER -> FAIL: tables[0] 00000000 vs 8000FC90
+  D2 pit beside torch int3(40156, 8571, 40196) (1000 voxels): idle after 65 frames, 5.58 s; floods 7, merges 50, uploaded 146045 KB; edit -> torch: re-flood 7, skipped (lit test) 4; main thread per busy frame: n 65, mean 0.586 ms, p50 0.573, p99 1.199, max 1.235 (phase sum/max ms: edits+poll 3.0/0.10, flood done 1.7/0.42, merge apply 9.3/0.89, upload 11.6/0.63, snapshots 6.7/0.48, merge start 6.2/0.35)
+  probe (D2 pit): 84 pixels' air cells (10 lit on the GPU); GPU vs C# twin max |diff| 511 levels -> FAIL
+  exact (D2 pit): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6283 ms on one thread (floods 6144 ms: per torch mean 219.4, median 223.6, max 294.1 ms)
+  gpu readback (D2 pit): dir / tables / every reachable data word DIFFER -> FAIL: tables[0] 00000000 vs 8000FC90
+  D3a torch int3(40076, 8630, 40116) broken: idle after 74 frames, 6.09 s; floods 7, merges 58, uploaded 63971 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 74, mean 0.608 ms, p50 0.612, p99 1.429, max 4.471 (phase sum/max ms: edits+poll 3.7/0.25, flood done 1.9/0.39, merge apply 10.9/1.08, upload 11.4/0.83, snapshots 7.1/0.48, merge start 6.4/0.29)
+  exact (D3a broken): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 27 torches 6074 ms on one thread (floods 5949 ms: per torch mean 220.3, median 223.1, max 297.8 ms)
+  gpu readback (D3a broken): dir / tables / every reachable data word DIFFER -> FAIL: tables[0] 00000000 vs 8000FC90
+  D3b torch int3(40076, 8630, 40116) placed again: idle after 65 frames, 5.42 s; floods 8, merges 55, uploaded 61839 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 65, mean 0.530 ms, p50 0.547, p99 1.101, max 1.473 (phase sum/max ms: edits+poll 3.0/0.14, flood done 1.8/0.29, merge apply 8.6/1.11, upload 9.4/0.76, snapshots 6.2/0.46, merge start 5.9/0.31)
+  probe (D3b replaced): 84 pixels' air cells (10 lit on the GPU); GPU vs C# twin max |diff| 511 levels -> FAIL
+  exact (D3b replaced): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6244 ms on one thread (floods 6104 ms: per torch mean 218.0, median 218.9, max 291.2 ms)
+  gpu readback (D3b replaced): dir / tables / every reachable data word DIFFER -> FAIL: tables[0] 00000000 vs 8000FC90
+TORCH FLOOD L3 done
+
+## Logs/costsplit_2026-11-19_090205.txt
+(run 2: whole re-upload on growth; snapshot budget from Tick start)
+TORCH FLOOD L3 (task 165): 28 torches, reach 12.0 m, dir mode 0; task 169 cuts: anchored bricks ON, edit lit-only ON
+  A async build: 326 frames, 26.76 s until idle; floods 28 (job wall mean 307.1 ms, max 446.7; searched voxels mean 1,982,996, lit bricks mean 7,833 of which direct 2,838, anchored total 12,108), merges 221; 122 lit chunks, air bricks 98459, mixed 14871, escapes 9; GPU 9.25 MB allocated; CPU content: union 8.54 + caches 6.60 MB, allocated: union 9.30 + caches 6.60; job scratch peak 13.05 MB (now 0.00); uploaded 336.63 MB; jobs 1, merge batch 1024, snapshot yields 211, GPU grows 19; main thread per busy frame: n 326, mean 0.701 ms, p50 0.609, p99 2.364, max 12.886 (phase sum/max ms: edits+poll 14.7/0.31, flood done 4.8/0.41, merge apply 55.2/2.98, upload 60.9/1.13, snapshots 50.5/4.50, merge start 32.6/1.75; list growth ticks 16, max 3.38 ms)
+  probe (A camp): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (A camp): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6321 ms on one thread (floods 6189 ms: per torch mean 221.0, median 225.7, max 283.5 ms)
+  gpu readback (A camp): dir / tables / every reachable data word == the CPU copy -> PASS
+  D1 wall beside torch int3(40236, 8466, 40116) (400 voxels): idle after 69 frames, 5.67 s; floods 6, merges 46, uploaded 182488 KB; edit -> torch: re-flood 6, skipped (lit test) 3; main thread per busy frame: n 69, mean 0.896 ms, p50 0.695, p99 3.942, max 4.434 (phase sum/max ms: edits+poll 5.2/0.24, flood done 1.5/0.47, merge apply 13.4/4.26, upload 30.2/3.41, snapshots 8.0/1.62, merge start 5.5/0.53; list growth ticks 0, max 0.00 ms)
+  probe (D1 wall): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D1 wall): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6324 ms on one thread (floods 6186 ms: per torch mean 220.9, median 229.5, max 297.8 ms)
+  gpu readback (D1 wall): dir / tables / every reachable data word == the CPU copy -> PASS
+  D2 pit beside torch int3(40156, 8571, 40196) (1000 voxels): idle after 86 frames, 7.07 s; floods 7, merges 56, uploaded 158907 KB; edit -> torch: re-flood 7, skipped (lit test) 4; main thread per busy frame: n 86, mean 0.773 ms, p50 0.711, p99 3.128, max 3.332 (phase sum/max ms: edits+poll 4.8/0.17, flood done 1.8/0.38, merge apply 13.0/2.87, upload 29.5/2.62, snapshots 9.7/0.50, merge start 8.2/0.75; list growth ticks 0, max 0.00 ms)
+  probe (D2 pit): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D2 pit): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 5973 ms on one thread (floods 5854 ms: per torch mean 209.1, median 212.6, max 299.3 ms)
+  gpu readback (D2 pit): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3a torch int3(40076, 8630, 40116) broken: idle after 72 frames, 5.75 s; floods 7, merges 60, uploaded 69232 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 72, mean 0.651 ms, p50 0.585, p99 1.356, max 8.426 (phase sum/max ms: edits+poll 4.1/0.40, flood done 2.0/0.42, merge apply 9.5/0.99, upload 10.2/0.74, snapshots 6.9/0.42, merge start 6.6/0.23; list growth ticks 0, max 0.00 ms)
+  exact (D3a broken): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 27 torches 5841 ms on one thread (floods 5725 ms: per torch mean 212.0, median 213.9, max 300.0 ms)
+  gpu readback (D3a broken): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3b torch int3(40076, 8630, 40116) placed again: idle after 88 frames, 7.18 s; floods 8, merges 64, uploaded 70116 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 88, mean 0.603 ms, p50 0.623, p99 1.590, max 2.571 (phase sum/max ms: edits+poll 4.4/0.12, flood done 2.1/0.37, merge apply 13.0/2.22, upload 15.8/1.94, snapshots 9.6/0.49, merge start 8.3/0.25; list growth ticks 0, max 0.00 ms)
+  probe (D3b replaced): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D3b replaced): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6018 ms on one thread (floods 5891 ms: per torch mean 210.4, median 213.8, max 290.6 ms)
+  gpu readback (D3b replaced): dir / tables / every reachable data word == the CPU copy -> PASS
+TORCH FLOOD L3 done
+
+## Logs/costsplit_2026-11-19_090913.txt
+(run 3 = FINAL code: snapshot budget counts snapshot work only)
+TORCH FLOOD L3 (task 165): 28 torches, reach 12.0 m, dir mode 0; task 169 cuts: anchored bricks ON, edit lit-only ON
+  A async build: 176 frames, 14.43 s until idle; floods 28 (job wall mean 321.8 ms, max 410.8; searched voxels mean 1,982,996, lit bricks mean 7,833 of which direct 2,838, anchored total 12,108), merges 165; 122 lit chunks, air bricks 98459, mixed 14871, escapes 9; GPU 9.25 MB allocated; CPU content: union 8.54 + caches 6.60 MB, allocated: union 9.30 + caches 6.60; job scratch peak 13.12 MB (now 0.00); uploaded 321.00 MB; jobs 1, merge batch 1024, snapshot yields 25, GPU grows 19; main thread per busy frame: n 176, mean 0.831 ms, p50 0.673, p99 3.598, max 9.753 (phase sum/max ms: edits+poll 4.5/0.10, flood done 8.3/0.93, merge apply 31.8/2.74, upload 42.5/1.31, snapshots 30.3/3.95, merge start 22.7/3.80; list growth ticks 16, max 3.02 ms)
+  probe (A camp): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (A camp): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 8169 ms on one thread (floods 7986 ms: per torch mean 285.2, median 287.3, max 393.1 ms)
+  gpu readback (A camp): dir / tables / every reachable data word == the CPU copy -> PASS
+  D1 wall beside torch int3(40236, 8466, 40116) (400 voxels): idle after 51 frames, 4.38 s; floods 6, merges 39, uploaded 212746 KB; edit -> torch: re-flood 6, skipped (lit test) 3; main thread per busy frame: n 51, mean 1.312 ms, p50 0.936, p99 4.047, max 6.452 (phase sum/max ms: edits+poll 4.4/0.56, flood done 2.5/0.76, merge apply 6.6/3.60, upload 37.0/3.38, snapshots 13.5/5.09, merge start 3.7/0.18; list growth ticks 0, max 0.00 ms)
+  probe (D1 wall): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D1 wall): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 7399 ms on one thread (floods 7241 ms: per torch mean 258.6, median 260.5, max 363.8 ms)
+  gpu readback (D1 wall): dir / tables / every reachable data word == the CPU copy -> PASS
+  D2 pit beside torch int3(40156, 8571, 40196) (1000 voxels): idle after 54 frames, 4.57 s; floods 7, merges 42, uploaded 214106 KB; edit -> torch: re-flood 7, skipped (lit test) 4; main thread per busy frame: n 54, mean 1.545 ms, p50 1.393, p99 4.746, max 6.046 (phase sum/max ms: edits+poll 3.2/0.57, flood done 3.5/0.80, merge apply 7.2/5.45, upload 53.9/4.58, snapshots 11.6/2.16, merge start 5.2/1.14; list growth ticks 0, max 0.00 ms)
+  probe (D2 pit): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D2 pit): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 7866 ms on one thread (floods 7693 ms: per torch mean 274.7, median 290.0, max 353.2 ms)
+  gpu readback (D2 pit): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3a torch int3(40076, 8630, 40116) broken: idle after 50 frames, 4.19 s; floods 7, merges 48, uploaded 208784 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 50, mean 1.227 ms, p50 0.875, p99 6.093, max 12.410 (phase sum/max ms: edits+poll 2.0/0.12, flood done 2.6/0.46, merge apply 8.3/4.51, upload 26.3/2.64, snapshots 6.3/0.64, merge start 4.6/0.91; list growth ticks 0, max 0.00 ms)
+  exact (D3a broken): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 27 torches 6928 ms on one thread (floods 6785 ms: per torch mean 251.3, median 257.9, max 335.8 ms)
+  gpu readback (D3a broken): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3b torch int3(40076, 8630, 40116) placed again: idle after 48 frames, 4.01 s; floods 8, merges 44, uploaded 187040 KB; edit -> torch: re-flood 7, skipped (lit test) 3; main thread per busy frame: n 48, mean 0.953 ms, p50 0.817, p99 2.647, max 3.762 (phase sum/max ms: edits+poll 2.5/0.76, flood done 3.6/0.88, merge apply 6.6/3.56, upload 22.1/3.01, snapshots 5.0/0.52, merge start 3.8/0.35; list growth ticks 0, max 0.00 ms)
+  probe (D3b replaced): 84 pixels' air cells (80 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D3b replaced): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 28 torches 6868 ms on one thread (floods 6722 ms: per torch mean 240.1, median 240.4, max 327.4 ms)
+  gpu readback (D3b replaced): dir / tables / every reachable data word == the CPU copy -> PASS
+TORCH FLOOD L3 done

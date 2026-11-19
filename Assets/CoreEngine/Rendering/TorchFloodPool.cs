@@ -22,7 +22,8 @@
 //      union (ApplyJob, Burst on the main thread) and uploads only the dirty
 //      ranges; schedules the next merge batch;
 //   5. starts new flood jobs (a main-thread Snapshot of the box, then the job)
-//      while a slot is free and the frame's budget (FrameBudgetMs) lasts.
+//      while a slot is free (task 170: ONE slot) and the snapshot budget
+//      (FrameBudgetMs) lasts; a snapshot runs a few box brick planes per Tick.
 // Lights stream in over a few frames. Correct at every quiet point: the union
 // equals a from-scratch rebuild exactly (TorchFloodL3Tests), and the from-scratch
 // rebuild equals Encode(task 157's oracle) exactly.
@@ -191,16 +192,22 @@ namespace VoxelEngine.Rendering
             public NativeArray<int> stats = new NativeArray<int>(8, Allocator.Persistent);
             public Stopwatch sw = new Stopwatch();
             public bool busy;
+            /// Task 170: the next box brick plane to snapshot; -1 = the snapshot is done (the job runs or is idle).
+            public int snapZ = -1;
         }
 
         private ChunkStore _store;
         private readonly float _reachM;
         /// Tests: false (no GraphicsBuffers in batchmode -nographics).
         public bool Gpu;
-        public int MaxJobs = 2;
-        public int MergeBatch = 4096;
-        /// Main-thread budget per Tick for starting new floods (each one Snapshots its box).
+        /// Task 170 (owner Q106 1 (a)): ONE flood job at a time (its scratch, ~13 MB, exists only while flooding).
+        public int MaxJobs = 1;
+        /// Task 170: bricks per merge (the main-thread ApplyJob is ~0.7 us per brick).
+        public int MergeBatch = 1024;
+        /// Main-thread budget per Tick for snapshot work (task 170: sliced by box brick plane, at least one per Tick; the time
+        /// counts from the snapshot phase's start, so busy merge / upload phases do not starve the single flood slot).
         public double FrameBudgetMs = 0.5;
+        private double _snapT0;
 
         private readonly Dictionary<int3, TorchRec> _recs = new Dictionary<int3, TorchRec>();
         private readonly Dictionary<int3, List<TorchRec>> _chunkRecs = new Dictionary<int3, List<TorchRec>>();
@@ -364,14 +371,33 @@ namespace VoxelEngine.Rendering
                 var sig = Signature(lights);
                 if (!SameSig(sig, _builtSig)) { SetTorches(sig); _builtSig = sig; }
             }
+            long cap0 = (long)_tables.Capacity + _data.Capacity;
             Step(true);
             if (!_uploaded && Gpu) Upload();
             bool busy = Busy;
             ScratchPeakBytes = Math.Max(ScratchPeakBytes, ScratchBytes);
-            if (was || busy) BusyTickMs.Add((float)sw.Elapsed.TotalMilliseconds);
+            if (was || busy)
+            {
+                float ms = (float)sw.Elapsed.TotalMilliseconds;
+                BusyTickMs.Add(ms);
+                if ((long)_tables.Capacity + _data.Capacity != cap0) { GrowTicks++; GrowTickMsMax = Math.Max(GrowTickMsMax, ms); }
+            }
             if (!busy && _slots.Count > 0) FreeSlots();   // the job scratch exists only while flooding
+            if (!busy && was) TrimIdle();
             if (was && !busy) MemMark?.Invoke($"tick fill done (floods {FloodsDone}, merges {MergesDone}, upload calls {UploadCalls} max {UploadCallsMax}/Upload, " +
                                               $"{UploadBytesTotal / 1048576.0:F1} MB; union hash {UnionHash():X16}; GPU {(Gpu ? VerifyGpu() ?? "== CPU" : "-")})");
+        }
+
+        /// Task 170: busy Ticks in which the union's tables / data lists grew (a list copy + a whole GPU re-upload), and their max ms.
+        public int GrowTicks;
+        public float GrowTickMsMax;
+
+        /// Task 170: when the pool goes idle, the transient lists drop what a burst grew them to.
+        private void TrimIdle()
+        {
+            if (_dirtyBricks.IsEmpty && _dirtyBricks.Capacity > 1024) _dirtyBricks.TrimExcess();
+            if (_mergeOut.Capacity > MergeBatch * 16) { _mergeOut.Clear(); _mergeOut.TrimExcess(); }
+            _free8.TrimExcess(); _free64.TrimExcess();
         }
 
         /// Replaces the torch set (tests and Tick). Removed torches drop their light; added ones are queued.
@@ -525,7 +551,7 @@ namespace VoxelEngine.Rendering
             Phase(0, sw, ref last);
             // finished floods
             foreach (var s in _slots)
-                if (s.busy && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
+                if (s.busy && s.snapZ < 0 && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
             if (_sync) MemMark?.Invoke("  step: floods finished");
             Phase(1, sw, ref last);
             // a finished merge
@@ -534,14 +560,18 @@ namespace VoxelEngine.Rendering
             Phase(2, sw, ref last);
             PhaseSumMs[2] -= LastUploadMsStep; if (LastUploadMsStep > PhaseMaxMs[3]) PhaseMaxMs[3] = LastUploadMsStep;
             PhaseSumMs[3] += LastUploadMsStep; LastUploadMsStep = 0;
-            // new floods
+            // snapshots in progress, then new floods (task 170: a snapshot runs plane by plane under the budget)
+            bool any = false;
+            _snapT0 = sw.Elapsed.TotalMilliseconds;   // the budget counts the snapshot work only, not the phases before it
+            foreach (var s in _slots)
+                if (s.busy && s.snapZ >= 0) ContinueSnapshot(s, budgeted, sw, ref any);
             foreach (var r in _recs.Values)
             {
                 if (!r.need || r.job != null) continue;
-                if (budgeted && sw.Elapsed.TotalMilliseconds > FrameBudgetMs) break;
+                if (budgeted && any && sw.Elapsed.TotalMilliseconds - _snapT0 > FrameBudgetMs) break;
                 Slot s = FreeSlot();
                 if (s == null) break;
-                StartFlood(r, s);
+                StartFlood(r, s, budgeted, sw, ref any);
             }
             JobHandle.ScheduleBatchedJobs();
             if (_sync) MemMark?.Invoke("  step: floods started (snapshots)");
@@ -582,7 +612,7 @@ namespace VoxelEngine.Rendering
             return _store.BrickPool.RawData[(int)(h & 0x3FFFFFFFu) * 512 + CoordMath.LocalVoxelIndex(v & 7)] == 0;
         }
 
-        private void StartFlood(TorchRec r, Slot s)
+        private void StartFlood(TorchRec r, Slot s, bool budgeted, Stopwatch sw, ref bool any)
         {
             r.need = false;
             if (_store.GetChunk(r.v >> 7) == null || Open(r.v))
@@ -591,14 +621,46 @@ namespace VoxelEngine.Rendering
                 DropCache(r);
                 return;
             }
-            TorchFloodBuild.Snapshot(_store, r.lo, r.db, s.s);
+            // r.job is set from the snapshot's first plane: an edit or chunk change from here on re-floods r after
+            // this flood (Step's edit / watch rules), so a sliced snapshot converges exactly as an atomic one does.
+            s.rec = r; r.job = s; s.busy = true;
+            TorchFloodBuild.SnapshotBegin(r.db, s.s);
+            s.snapZ = 0;
+            ContinueSnapshot(s, budgeted, sw, ref any);
+        }
+
+        /// Snapshots planes of s's box until the budget is spent (at least one plane per Tick), then schedules the job.
+        private void ContinueSnapshot(Slot s, bool budgeted, Stopwatch sw, ref bool any)
+        {
+            var r = s.rec;
+            if (!_recs.TryGetValue(r.v, out var cur) || !ReferenceEquals(cur, r))
+            {
+                // the torch was removed mid-snapshot: drop the work
+                s.busy = false; s.rec = null; s.snapZ = -1;
+                if (r.job == s) r.job = null;
+                return;
+            }
+            while (s.snapZ < r.db.z)
+            {
+                if (budgeted && any && sw.Elapsed.TotalMilliseconds - _snapT0 > FrameBudgetMs) { SnapshotYields++; return; }
+                int z1 = budgeted ? s.snapZ + 1 : r.db.z;
+                TorchFloodBuild.SnapshotPlanes(_store, r.lo, r.db, s.s, s.snapZ, z1);
+                s.snapZ = z1;
+                any = true;
+            }
+            s.snapZ = -1;
             s.cache = new TorchFloodCache { torch = r.v, lo = r.lo, db = r.db, seed = r.seed, top = r.top, serial = ++_serial };
             var job = TorchFloodBuild.MakeFloodJob(s.s, s.cache, r.v - r.lo, r.dims, r.db, r.top, s.stats);
-            s.rec = r; r.job = s; s.busy = true;
             s.sw.Restart();
             if (TimeFloods && _sync) { job.Run(); FloodRunMs.Add((float)s.sw.Elapsed.TotalMilliseconds); s.h = default; }
             else s.h = job.Schedule();
         }
+
+        /// Task 170: times a snapshot stopped at the budget and went on in a later Tick.
+        public int SnapshotYields;
+
+        /// Tests: one budgeted round, as Tick does each frame (jobs are collected only once they are done).
+        public void StepBudgeted() => Step(true);
 
         /// Inside Flush: TimeFloods runs each flood alone on this thread (its worker cost, timed).
         private bool _sync;
@@ -662,8 +724,6 @@ namespace VoxelEngine.Rendering
             MergesDone++;
             _version++;
             UpdateDir();
-            if (_tablesB == null || _tables.Length > _tablesB.count) _tablesRealloc = true;
-            if (_dataB == null || _data.Length > _dataB.count) _dataRealloc = true;
             foreach (var c in _retired) c.Dispose();
             _retired.Clear();
             if (Gpu && !(_sync && UploadMode == 1)) Upload();   // task 236: the synchronous Flush uploads once, at its end
@@ -768,7 +828,7 @@ namespace VoxelEngine.Rendering
         /// Drops every torch, cache and union brick (buffers are kept, re-uploaded on the next change).
         public void ResetAll(ChunkStore store)
         {
-            foreach (var s in _slots) if (s.busy) { s.h.Complete(); s.cache?.Dispose(); s.cache = null; s.busy = false; s.rec = null; }
+            foreach (var s in _slots) if (s.busy) { s.h.Complete(); s.cache?.Dispose(); s.cache = null; s.busy = false; s.rec = null; s.snapZ = -1; }
             if (_merging) { _mergeH.Complete(); _merging = false; _mergeDescs.Dispose(); _mergeRec.Dispose(); _mergeBricks.Clear(); }
             foreach (var r in _recs.Values) r.cache?.Dispose();
             foreach (var c in _retired) c.Dispose();
@@ -779,7 +839,7 @@ namespace VoxelEngine.Rendering
             _dirDirty = _tablesRealloc = _dataRealloc = true;
             _version++;
             _store = store;
-            FloodsDone = MergesDone = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; UploadCalls = UploadCallsMax = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+            FloodsDone = MergesDone = 0; GpuGrows = 0; GrowTicks = 0; GrowTickMsMax = 0; SnapshotYields = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; UploadCalls = UploadCallsMax = 0; ScratchPeakBytes = 0; ResetPhaseStats();
             _uploaded = false;
         }
 
@@ -1141,8 +1201,25 @@ namespace VoxelEngine.Rendering
             return new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.ceilpow2(count), 4);
         }
 
+        /// GPU buffer growth steps (task 170; the in-player report).
+        public int GpuGrows;
+
+        /// Task 170: grows a tables / data buffer to the CPU list's capacity (GrowCap: need + 1/4, not a power of two);
+        /// a grown buffer is re-uploaded whole (`full`). Task 170 first tried a GPU-side copy of the old contents plus
+        /// dirty runs; the in-player readback showed the new buffer did not hold the copy (Logs/costsplit_2026-11-19_085052.txt),
+        /// so the proven whole upload stays.
+        private GraphicsBuffer GrowGpu(GraphicsBuffer b, int need, int cap, ref bool full)
+        {
+            need = math.max(need, 1);
+            if (b != null && b.count >= need) return b;
+            b?.Release();
+            full = true;
+            GpuGrows++;
+            return new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.max(need, cap), 4);
+        }
+
         /// Uploads what changed: the directory whole (small), the dirty chunk tables, the dirty data runs
-        /// (gaps under 64 units merged). A buffer that had to grow is re-uploaded whole.
+        /// (gaps under 64 units merged). A tables / data buffer that grows is re-uploaded whole (GrowGpu, task 170).
         private void Upload()
         {
             var sw = Stopwatch.StartNew();
@@ -1150,8 +1227,8 @@ namespace VoxelEngine.Rendering
             long bytes0 = UploadBytesTotal;
             _dirB = Fit(_dirB, _dir.Length, out bool f0);
             if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; UploadCalls++; } _dirDirty = false; }
-            _tablesB = Fit(_tablesB, _tables.Length, out bool f1);
-            if (f1 || _tablesRealloc)
+            _tablesB = GrowGpu(_tablesB, _tables.Length, _tables.Capacity, ref _tablesRealloc);
+            if (_tablesRealloc)
             {
                 if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; UploadCalls++; }
                 for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0;
@@ -1182,8 +1259,8 @@ namespace VoxelEngine.Rendering
                     i = j;
                 }
             }
-            _dataB = Fit(_dataB, _data.Length, out bool f2);
-            if (f2 || _dataRealloc)
+            _dataB = GrowGpu(_dataB, _data.Length, _data.Capacity, ref _dataRealloc);
+            if (_dataRealloc)
             {
                 if (_data.Length > 0) { _dataB.SetData(_data.AsArray(), 0, 0, _data.Length); UploadBytesTotal += 4L * _data.Length; UploadCalls++; }
                 for (int i = 0; i < _dirtyData.Length; i++) _dirtyData[i] = 0;
