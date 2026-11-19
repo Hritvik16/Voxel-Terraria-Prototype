@@ -83,6 +83,17 @@ namespace VoxelEngine.Rendering
         /// (IOAccelerator), held until the GPU has finished that frame: hundreds of runs per merge piled up ~1 GB per
         /// frame in play's fill and +3.5 GB in the capture's synchronous rebuild (14 merges in one frame).
         public static int UploadMode = 1;
+        /// Task 242 (owner 2026-11-19, answer (a) to 170): -tfscatter 0|1 (default 1). 1 = the SCATTER upload: the dirty 8-word units
+        /// of the tables and data (index + 8 values each) are packed into ONE small staging buffer, sent with ONE SetBufferData, and a
+        /// compute pass (TorchFloodProbe.compute CSFloodScatter) writes them into the GPU tables / data buffers; a buffer that
+        /// grew is sent whole. Recorded in ONE CommandBuffer per Upload. Two rules from the first in-player readback (a table word
+        /// stayed stale after edits when spans and scatters mixed and one staging buffer was refilled every frame): every
+        /// incremental write to the tables / data goes through the dispatch (no span copies into a buffer the scatter also
+        /// writes; a span only past MaxScatterUnits), and the staging is a RING of 3 buffers, so a staging buffer is refilled
+        /// only 3 Uploads later. 0 = 170's path (UploadMode's whole-span SetData). `-costarms tfscatter_off` sets 0 (rule 12).
+        public static bool ScatterOn = true;
+        /// Tests: let Plan send a span where it is fewer bytes than the scatter (the fallback path's coverage; off in the player).
+        public static bool AllowSpan;
 
         public static void ParseArgs()
         {
@@ -101,6 +112,7 @@ namespace VoxelEngine.Rendering
                     case "-tfeditlit": EditLitOnly = v != "0"; break;
                     case "-tfreach": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ReachM); break;
                     case "-tfupload": if (int.TryParse(v, out int um) && (um == 0 || um == 1)) UploadMode = um; break;
+                    case "-tfscatter": ScatterOn = v != "0"; break;
                 }
             }
         }
@@ -224,7 +236,7 @@ namespace VoxelEngine.Rendering
         private NativeHashMap<int3, int> _chunkTable;
         private NativeList<int> _chunkUsed, _freeTables, _free8, _free64;
         private NativeList<ulong> _dirtyData;
-        private NativeList<byte> _dirtyTable;
+        private NativeList<ulong> _dirtyTable;   // task 242: bit per 8-word unit of tables (was a byte per table)
         private NativeList<int3> _added, _removed;
         private NativeArray<int> _counts;     // air bricks, mixed bricks, escapes, chunks
         private NativeHashSet<int3> _dirtyBricks;
@@ -245,6 +257,24 @@ namespace VoxelEngine.Rendering
         // GPU
         private GraphicsBuffer _dirB, _tablesB, _dataB;
         private bool _uploaded;
+        // task 242: the scatter upload
+        private NativeList<uint> _packed;            // [section: n unit indices, then n * 8 values] for tables, then data
+        private NativeArray<int> _scan;              // ScanJob out: n, first unit, last unit
+        private const int STAGE_RING = 3;
+        private readonly GraphicsBuffer[] _stage = new GraphicsBuffer[STAGE_RING];
+        private int _stageI;
+        private readonly List<(GraphicsBuffer b, int frame)> _retireB = new List<(GraphicsBuffer, int)>();
+        private UnityEngine.Rendering.CommandBuffer _cmd;
+        private static ComputeShader _scatCs;
+        private static int _scatK = -1;
+        /// Tests (no GPU): a C# twin of the three GPU buffers, written by the scatter upload exactly as the GPU path writes the
+        /// GPU (whole / span copies and CSFloodScatter's C# twin). Grown arrays start as 0xDEADBEEF, so a word the upload
+        /// misses shows up in VerifyMirror.
+        public bool MirrorTwin;
+        private uint[] _mDir = Array.Empty<uint>(), _mTables = Array.Empty<uint>(), _mData = Array.Empty<uint>();
+        /// Task 242 stats: uploads per buffer by kind (scatter / span / whole), scattered units, staging peaks (GPU buffer, CPU pack).
+        public int ScatterSends, SpanSends, WholeSends;
+        public long ScatterUnits, StagingPeakBytes, PackPeakBytes;
 
         // ---- stats ----
         public LightFloodReference Oracle { get; private set; }
@@ -283,7 +313,9 @@ namespace VoxelEngine.Rendering
             _free8 = new NativeList<int>(1024, Allocator.Persistent);
             _free64 = new NativeList<int>(256, Allocator.Persistent);
             _dirtyData = new NativeList<ulong>(64, Allocator.Persistent);
-            _dirtyTable = new NativeList<byte>(64, Allocator.Persistent);
+            _dirtyTable = new NativeList<ulong>(64, Allocator.Persistent);
+            _packed = new NativeList<uint>(64, Allocator.Persistent);
+            _scan = new NativeArray<int>(3, Allocator.Persistent);
             _added = new NativeList<int3>(16, Allocator.Persistent);
             _removed = new NativeList<int3>(16, Allocator.Persistent);
             _counts = new NativeArray<int>(4, Allocator.Persistent);
@@ -297,6 +329,7 @@ namespace VoxelEngine.Rendering
             _tables.Dispose(); _data.Dispose(); _chunkTable.Dispose(); _chunkUsed.Dispose(); _freeTables.Dispose();
             _free8.Dispose(); _free64.Dispose(); _dirtyData.Dispose(); _dirtyTable.Dispose(); _added.Dispose(); _removed.Dispose();
             _counts.Dispose(); _dirtyBricks.Dispose(); _mergeBricks.Dispose(); _mergeOut.Dispose();
+            _packed.Dispose(); _scan.Dispose();
         }
 
         public int TorchCount => _recs.Count;
@@ -330,8 +363,8 @@ namespace VoxelEngine.Rendering
         public long ScratchBytes { get { long b = 0; foreach (var s in _slots) b += s.s.Bytes + (s.cache != null ? s.cache.Bytes : 0); return b; } }
         public long UnionBytes =>
             4L * (_tables.Capacity + _data.Capacity + _dir.Length + _chunkUsed.Capacity + _freeTables.Capacity + _free8.Capacity + _free64.Capacity)
-            + 8L * _dirtyData.Capacity + _dirtyTable.Capacity + 16L * _chunkTable.Capacity + 16L * _dirtyBricks.Capacity
-            + 4L * _mergeOut.Capacity + 12L * _mergeBricks.Capacity;
+            + 8L * _dirtyData.Capacity + 8L * _dirtyTable.Capacity + 16L * _chunkTable.Capacity + 16L * _dirtyBricks.Capacity
+            + 4L * _mergeOut.Capacity + 12L * _mergeBricks.Capacity + 4L * _packed.Capacity;
         /// What the union holds (the GPU layout's size), without list / buffer growth slack.
         public long UnionContentBytes => 4L * (_dir.Length + 4096L * _counts[3] + 8L * _counts[0] + 64L * _counts[1] + 8L * _counts[2]);
         public long CacheContentBytes
@@ -344,7 +377,8 @@ namespace VoxelEngine.Rendering
                 return b;
             }
         }
-        public long GpuBytes => 4L * ((_dirB?.count ?? 0) + (_tablesB?.count ?? 0) + (_dataB?.count ?? 0));
+        public long GpuBytes => 4L * ((_dirB?.count ?? 0) + (_tablesB?.count ?? 0) + (_dataB?.count ?? 0) + StageCount);
+        private long StageCount { get { long n = 0; foreach (var b in _stage) n += b?.count ?? 0; return n; } }
         public int CacheCount { get { int n = 0; foreach (var r in _recs.Values) if (r.cache != null) n++; return n; } }
 
         public Vector4 Params => new Vector4(Intensity, FalloffK, ReachM, (float)(LightFloodReference.UNITS_PER_VOXEL * 10.0));
@@ -373,7 +407,8 @@ namespace VoxelEngine.Rendering
             }
             long cap0 = (long)_tables.Capacity + _data.Capacity;
             Step(true);
-            if (!_uploaded && Gpu) Upload();
+            if (!_uploaded && Uploads) Upload();
+            ReleaseRetired(false);
             bool busy = Busy;
             ScratchPeakBytes = Math.Max(ScratchPeakBytes, ScratchBytes);
             if (was || busy)
@@ -398,6 +433,9 @@ namespace VoxelEngine.Rendering
             if (_dirtyBricks.IsEmpty && _dirtyBricks.Capacity > 1024) _dirtyBricks.TrimExcess();
             if (_mergeOut.Capacity > MergeBatch * 16) { _mergeOut.Clear(); _mergeOut.TrimExcess(); }
             _free8.TrimExcess(); _free64.TrimExcess();
+            // task 242: the scatter staging exists only while the pool is busy
+            for (int i = 0; i < STAGE_RING; i++) { Retire(_stage[i]); _stage[i] = null; }
+            _packed.Clear(); _packed.TrimExcess();
         }
 
         /// Replaces the torch set (tests and Tick). Removed torches drop their light; added ones are queued.
@@ -726,7 +764,7 @@ namespace VoxelEngine.Rendering
             UpdateDir();
             foreach (var c in _retired) c.Dispose();
             _retired.Clear();
-            if (Gpu && !(_sync && UploadMode == 1)) Upload();   // task 236: the synchronous Flush uploads once, at its end
+            if (Uploads && !(_sync && UploadMode == 1)) Upload();   // task 236: the synchronous Flush uploads once, at its end
         }
 
         private void UpdateDir()
@@ -776,7 +814,7 @@ namespace VoxelEngine.Rendering
             do { Step(false); MemMark?.Invoke($"flush step {guard} (floods {FloodsDone}, merges {MergesDone})"); }
             while (Busy && guard++ < 1000000);   // one Step even when idle: it polls the box chunks
             _sync = false;
-            if (Gpu && (!_uploaded || UploadMode == 1)) Upload();   // task 236: mode 1 deferred every merge's upload to here
+            if (Uploads && (!_uploaded || UploadMode == 1)) Upload();   // task 236: mode 1 deferred every merge's upload to here
         }
 
         /// Synchronous refill from scratch (the capture's "build it now before timing" and the reference).
@@ -840,6 +878,8 @@ namespace VoxelEngine.Rendering
             _version++;
             _store = store;
             FloodsDone = MergesDone = 0; GpuGrows = 0; GrowTicks = 0; GrowTickMsMax = 0; SnapshotYields = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; UploadCalls = UploadCallsMax = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+            ScatterSends = SpanSends = WholeSends = 0; ScatterUnits = StagingPeakBytes = PackPeakBytes = 0;
+            _mDir = Array.Empty<uint>(); _mTables = Array.Empty<uint>(); _mData = Array.Empty<uint>();
             _uploaded = false;
         }
 
@@ -1218,28 +1258,47 @@ namespace VoxelEngine.Rendering
             return new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.max(need, cap), 4);
         }
 
-        /// Uploads what changed: the directory whole (small), the dirty chunk tables, the dirty data runs
-        /// (gaps under 64 units merged). A tables / data buffer that grows is re-uploaded whole (GrowGpu, task 170).
+        private bool Uploads => Gpu || MirrorTwin;
+
+        /// Sends the CPU union to the GPU buffers (or, in tests, to the C# mirror twin). The CPU is the only writer; the GPU copy
+        /// is written FROM it. Task 242: the scatter path by default, 170's whole-span path with -tfscatter 0 (GPU only).
         private void Upload()
+        {
+            if (ScatterOn) UploadScatter();
+            else if (Gpu) UploadWhole();
+        }
+
+        /// Table t is dirty when any of its 512 unit bits (8 ulongs) is set (170's per-table flag, derived for the old path).
+        private bool TableDirty(int t)
+        {
+            for (int q = 0; q < 8; q++) if (_dirtyTable[t * 8 + q] != 0) return true;
+            return false;
+        }
+
+        private void ClearDirtyTables() { for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0; }
+
+        /// 170's upload (-tfscatter 0, the _off arm): the directory whole (small), the dirty chunk tables, the dirty data runs
+        /// (mode 0: gaps under 64 units merged; mode 1: one span). A tables / data buffer that grows is re-uploaded whole (GrowGpu).
+        private void UploadWhole()
         {
             var sw = Stopwatch.StartNew();
             int calls0 = UploadCalls;
             long bytes0 = UploadBytesTotal;
             _dirB = Fit(_dirB, _dir.Length, out bool f0);
             if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; UploadCalls++; } _dirDirty = false; }
+            int nTab = _tables.Length >> 12;
             _tablesB = GrowGpu(_tablesB, _tables.Length, _tables.Capacity, ref _tablesRealloc);
             if (_tablesRealloc)
             {
                 if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; UploadCalls++; }
-                for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0;
                 _tablesRealloc = false;
             }
             else if (UploadMode == 1)
             {
                 // task 236: one call over the dirty tables' span
                 int a = -1, b = -1;
-                for (int i = 0; i < _dirtyTable.Length; i++)
-                    if (_dirtyTable[i] != 0) { if (a < 0) a = i; b = i; _dirtyTable[i] = 0; }
+                for (int i = 0; i < nTab; i++)
+                    if (TableDirty(i)) { if (a < 0) a = i; b = i; }
                 if (a >= 0)
                 {
                     _tablesB.SetData(_tables.AsArray(), a * 4096, a * 4096, (b - a + 1) * 4096);
@@ -1248,17 +1307,17 @@ namespace VoxelEngine.Rendering
             }
             else
             {
-                for (int i = 0; i < _dirtyTable.Length; i++)
+                for (int i = 0; i < nTab; i++)
                 {
-                    if (_dirtyTable[i] == 0) continue;
+                    if (!TableDirty(i)) continue;
                     int j = i;
-                    while (j + 1 < _dirtyTable.Length && _dirtyTable[j + 1] != 0) j++;
+                    while (j + 1 < nTab && TableDirty(j + 1)) j++;
                     _tablesB.SetData(_tables.AsArray(), i * 4096, i * 4096, (j - i + 1) * 4096);
                     UploadBytesTotal += 4L * 4096 * (j - i + 1); UploadCalls++;
-                    for (int k = i; k <= j; k++) _dirtyTable[k] = 0;
                     i = j;
                 }
             }
+            ClearDirtyTables();
             _dataB = GrowGpu(_dataB, _data.Length, _data.Capacity, ref _dataRealloc);
             if (_dataRealloc)
             {
@@ -1326,16 +1385,253 @@ namespace VoxelEngine.Rendering
             UploadBytesTotal += 4L * n; UploadCalls++;
         }
 
+        // ---------------------------------------------------------------------
+        // Task 242: the scatter upload
+        // ---------------------------------------------------------------------
+
+        /// Dispatch limit: 64 threads per group, 8 per unit, at most 65,535 groups.
+        public const int MaxScatterUnits = 65535 * 8;
+        private enum Send { None, Whole, Span, Scatter }
+
+        /// Counts the dirty units below `units` and their first / last (no clearing). out: n, u0, u1.
+        [Unity.Burst.BurstCompile(CompileSynchronously = true, DisableSafetyChecks = true)]
+        private struct ScanJob : IJob
+        {
+            [ReadOnly] public NativeArray<ulong> dirty;
+            public int units;
+            public NativeArray<int> res;
+            public void Execute()
+            {
+                int n = 0, u0 = -1, u1 = -1;
+                for (int w = 0; w < dirty.Length; w++)
+                {
+                    ulong bits = dirty[w];
+                    if (bits == 0) continue;
+                    int keep = units - w * 64;   // bits at or past `units` are stale
+                    if (keep <= 0) break;
+                    if (keep < 64) bits &= (1UL << keep) - 1;
+                    if (bits == 0) continue;
+                    n += math.countbits(bits);
+                    if (u0 < 0) u0 = w * 64 + math.tzcnt(bits);
+                    u1 = w * 64 + 63 - math.lzcnt(bits);
+                }
+                res[0] = n; res[1] = u0; res[2] = u1;
+            }
+        }
+
+        /// Packs the dirty units below `units` at packed[at..]: n unit indices, then their n * 8 words; clears every dirty word.
+        [Unity.Burst.BurstCompile(CompileSynchronously = true, DisableSafetyChecks = true)]
+        private struct PackJob : IJob
+        {
+            public NativeArray<ulong> dirty;
+            [ReadOnly] public NativeArray<uint> src;
+            public int units, at, n;
+            [NativeDisableContainerSafetyRestriction] public NativeArray<uint> packed;
+            public void Execute()
+            {
+                int i = 0;
+                for (int w = 0; w < dirty.Length; w++)
+                {
+                    ulong bits = dirty[w];
+                    if (bits == 0) continue;
+                    dirty[w] = 0;
+                    int keep = units - w * 64;
+                    if (keep <= 0) continue;
+                    if (keep < 64) bits &= (1UL << keep) - 1;
+                    while (bits != 0)
+                    {
+                        int u = w * 64 + math.tzcnt(bits); bits &= bits - 1;
+                        packed[at + i] = (uint)u;
+                        int v = at + n + i * 8, s = u << 3;
+                        for (int k = 0; k < 8; k++) packed[v + k] = src[s + k];
+                        i++;
+                    }
+                }
+            }
+        }
+
+        /// C# twin of CSFloodScatter: dst[(idx[i] << 3) + k] = vals[i * 8 + k] for one section at packed[at..].
+        public static void ScatterTwin(NativeArray<uint> packed, int at, int n, uint[] dst)
+        {
+            for (int t = 0; t < n * 8; t++) dst[((int)packed[at + (t >> 3)] << 3) + (t & 7)] = packed[at + n + t];
+        }
+
+        /// How one buffer is sent: whole (it grew / was reset), nothing, a span, or a scatter (fewer bytes than the span).
+        private Send Plan(NativeList<ulong> dirty, int units, bool whole, out int n, out int u0, out int u1)
+        {
+            n = 0; u0 = u1 = -1;
+            if (whole) { for (int i = 0; i < dirty.Length; i++) dirty[i] = 0; return Send.Whole; }
+            new ScanJob { dirty = dirty.AsArray(), units = units, res = _scan }.Run();
+            n = _scan[0]; u0 = _scan[1]; u1 = _scan[2];
+            if (n == 0) { for (int i = 0; i < dirty.Length; i++) dirty[i] = 0; return Send.None; }
+            bool canScatter = n <= MaxScatterUnits && (!Gpu || _scatK >= 0);
+            if (canScatter && (!AllowSpan || 9L * n < 8L * (u1 - u0 + 1))) return Send.Scatter;   // PackJob clears the bits
+            for (int i = 0; i < dirty.Length; i++) dirty[i] = 0;
+            return Send.Span;
+        }
+
+        private void Retire(GraphicsBuffer b) { if (b != null) _retireB.Add((b, Time.frameCount)); }
+
+        /// Buffers replaced by growth or idle trim are released 3 frames later (a command buffer recorded before may still use them).
+        private void ReleaseRetired(bool all)
+        {
+            for (int i = _retireB.Count - 1; i >= 0; i--)
+                if (all || Time.frameCount - _retireB[i].frame >= 3) { _retireB[i].b.Release(); _retireB.RemoveAt(i); }
+        }
+
+        /// The destination grows to the CPU list's capacity (as GrowGpu); true = it is new and must be sent whole.
+        private bool GrowDst(ref GraphicsBuffer b, ref uint[] m, int need, int cap)
+        {
+            need = math.max(need, 1);
+            if (Gpu)
+            {
+                if (b != null && b.count >= need) return false;
+                Retire(b);
+                b = new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.max(need, cap), 4);
+            }
+            else
+            {
+                if (m.Length >= need) return false;
+                m = new uint[math.max(need, cap)];
+                for (int i = 0; i < m.Length; i++) m[i] = 0xDEADBEEFu;
+            }
+            GpuGrows++;
+            return true;
+        }
+
+        private void UploadScatter()
+        {
+            var sw = Stopwatch.StartNew();
+            int calls0 = UploadCalls;
+            long bytes0 = UploadBytesTotal;
+            if (Gpu && _scatK == -1)
+            {
+                _scatCs = Resources.Load<ComputeShader>("TorchFloodProbe");
+                _scatK = _scatCs != null && _scatCs.HasKernel("CSFloodScatter") ? _scatCs.FindKernel("CSFloodScatter") : -2;
+                if (_scatK < 0) Debug.LogError("[torchflood] CSFloodScatter missing: the scatter upload sends spans");
+            }
+            // the directory (small, its own buffer): whole, as before
+            if (Gpu)
+            {
+                _dirB = Fit(_dirB, _dir.Length, out bool f0);
+                if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; UploadCalls++; } }
+            }
+            else if (_dirDirty || _mDir.Length != _dir.Length) { _mDir = (uint[])_dir.Clone(); UploadBytesTotal += 4L * _dir.Length; }
+            _dirDirty = false;
+
+            int tLen = _tables.Length, dLen = _data.Length;
+            _tablesRealloc |= GrowDst(ref _tablesB, ref _mTables, tLen, _tables.Capacity);
+            _dataRealloc |= GrowDst(ref _dataB, ref _mData, dLen, _data.Capacity);
+            Send st = Plan(_dirtyTable, tLen >> 3, _tablesRealloc, out int nT, out int t0, out int t1);
+            Send sd = Plan(_dirtyData, dLen >> 3, _dataRealloc, out int nD, out int d0, out int d1);
+            _tablesRealloc = _dataRealloc = false;
+            int nTs = st == Send.Scatter ? nT : 0, nDs = sd == Send.Scatter ? nD : 0;
+            int packN = 9 * (nTs + nDs);
+            _packed.Clear();
+            if (packN > 0)
+            {
+                _packed.Resize(packN, NativeArrayOptions.UninitializedMemory);
+                if (nTs > 0) new PackJob { dirty = _dirtyTable.AsArray(), src = _tables.AsArray(), units = tLen >> 3, at = 0, n = nTs, packed = _packed.AsArray() }.Run();
+                if (nDs > 0) new PackJob { dirty = _dirtyData.AsArray(), src = _data.AsArray(), units = dLen >> 3, at = 9 * nTs, n = nDs, packed = _packed.AsArray() }.Run();
+                PackPeakBytes = Math.Max(PackPeakBytes, 4L * _packed.Capacity);
+                ScatterUnits += nTs + nDs;
+            }
+
+            if (Gpu)
+            {
+                _cmd ??= new UnityEngine.Rendering.CommandBuffer { name = "TorchFloodScatter" };
+                SendGpu(_tablesB, _tables, st, tLen, t0, t1);
+                SendGpu(_dataB, _data, sd, dLen, d0, d1);
+                if (packN > 0)
+                {
+                    _stageI = (_stageI + 1) % STAGE_RING;   // the ring: this buffer was last filled 3 Uploads ago
+                    var stage = _stage[_stageI];
+                    if (stage == null || stage.count < packN)
+                    {
+                        Retire(stage);
+                        _stage[_stageI] = stage = new GraphicsBuffer(GraphicsBuffer.Target.Structured, (packN + 16383) & ~16383, 4);
+                        StagingPeakBytes = Math.Max(StagingPeakBytes, 4L * StageCount);
+                    }
+                    _cmd.SetBufferData(stage, _packed.AsArray(), 0, 0, packN);
+                    UploadBytesTotal += 4L * packN; UploadCalls++;
+                    if (nTs > 0) Dispatch(stage, _tablesB, 0, nTs);
+                    if (nDs > 0) Dispatch(stage, _dataB, 9 * nTs, nDs);
+                }
+                if (_cmd.sizeInBytes > 0) Graphics.ExecuteCommandBuffer(_cmd);
+                _cmd.Clear();
+            }
+            else
+            {
+                SendMirror(_mTables, _tables, st, tLen, t0, t1);
+                SendMirror(_mData, _data, sd, dLen, d0, d1);
+                if (packN > 0)
+                {
+                    UploadBytesTotal += 4L * packN;
+                    if (nTs > 0) ScatterTwin(_packed.AsArray(), 0, nTs, _mTables);
+                    if (nDs > 0) ScatterTwin(_packed.AsArray(), 9 * nTs, nDs, _mData);
+                }
+            }
+            Count(st); Count(sd);
+            _uploaded = true;
+            UploadCallsMax = Math.Max(UploadCallsMax, UploadCalls - calls0);
+            if (MemMark != null && UploadBytesTotal > bytes0)
+                MemMark($"    upload (scatter): tables {st} {nT} units, data {sd} {nD} units, {UploadCalls - calls0} sends, {(UploadBytesTotal - bytes0) / 1048576.0:F2} MB");
+            LastUploadMs = sw.Elapsed.TotalMilliseconds;
+            LastUploadMsStep += LastUploadMs;
+        }
+
+        private void Count(Send s)
+        {
+            if (s == Send.Scatter) ScatterSends++;
+            else if (s == Send.Span) SpanSends++;
+            else if (s == Send.Whole) WholeSends++;
+        }
+
+        private void SendGpu(GraphicsBuffer b, NativeList<uint> l, Send s, int len, int u0, int u1)
+        {
+            if (s == Send.Whole && len > 0) { _cmd.SetBufferData(b, l.AsArray(), 0, 0, len); UploadBytesTotal += 4L * len; UploadCalls++; }
+            else if (s == Send.Span) { int o = u0 << 3, n = (u1 - u0 + 1) << 3; _cmd.SetBufferData(b, l.AsArray(), o, o, n); UploadBytesTotal += 4L * n; UploadCalls++; }
+        }
+
+        private void SendMirror(uint[] m, NativeList<uint> l, Send s, int len, int u0, int u1)
+        {
+            if (s == Send.Whole && len > 0) { NativeArray<uint>.Copy(l.AsArray(), 0, m, 0, len); UploadBytesTotal += 4L * len; }
+            else if (s == Send.Span) { int o = u0 << 3, n = (u1 - u0 + 1) << 3; NativeArray<uint>.Copy(l.AsArray(), o, m, o, n); UploadBytesTotal += 4L * n; }
+        }
+
+        private void Dispatch(GraphicsBuffer stage, GraphicsBuffer dst, int at, int n)
+        {
+            _cmd.SetComputeBufferParam(_scatCs, _scatK, "_ScatSrc", stage);
+            _cmd.SetComputeBufferParam(_scatCs, _scatK, "_ScatDst", dst);
+            _cmd.SetComputeIntParam(_scatCs, "_ScatBase", at);
+            _cmd.SetComputeIntParam(_scatCs, "_ScatN", n);
+            _cmd.DispatchCompute(_scatCs, _scatK, (n + 7) >> 3, 1, 1);
+        }
+
         /// Reads the three GPU buffers back and compares them with the CPU copy (capture only; synchronous).
         public string VerifyGpu()
         {
             if (!_uploaded || _dirB == null) return "not uploaded";
             var d = new uint[_dir.Length]; if (d.Length > 0) _dirB.GetData(d, 0, 0, d.Length);
-            for (int i = 0; i < d.Length; i++) if (d[i] != _dir[i]) return $"dir[{i}] {d[i]} vs {_dir[i]}";
             var t = new uint[_tables.Length]; if (t.Length > 0) _tablesB.GetData(t, 0, 0, t.Length);
-            for (int i = 0; i < t.Length; i++) if (t[i] != _tables[i]) return $"tables[{i}] {t[i]:X8} vs {_tables[i]:X8}";
-            // data: only the words a table entry reaches (freed blocks may hold stale words on either side)
             var g = new uint[_data.Length]; if (g.Length > 0) _dataB.GetData(g, 0, 0, g.Length);
+            return VerifyCopy(d, t, g);
+        }
+
+        /// Task 242 (tests): the C# mirror twin vs the CPU copy, as VerifyGpu.
+        public string VerifyMirror()
+        {
+            if (!MirrorTwin) return "no mirror twin";
+            if (!_uploaded) return "not uploaded";
+            if (_mDir.Length < _dir.Length || _mTables.Length < _tables.Length || _mData.Length < _data.Length) return "mirror shorter than the CPU copy";
+            return VerifyCopy(_mDir, _mTables, _mData);
+        }
+
+        private string VerifyCopy(uint[] d, uint[] t, uint[] g)
+        {
+            for (int i = 0; i < _dir.Length; i++) if (d[i] != _dir[i]) return $"dir[{i}] {d[i]} vs {_dir[i]}";
+            for (int i = 0; i < _tables.Length; i++) if (t[i] != _tables[i]) return $"tables[{i}] {t[i]:X8} vs {_tables[i]:X8}";
+            // data: only the words a table entry reaches (freed blocks may hold stale words on either side)
             for (int ti = 0; ti < _chunkUsed.Length; ti++)
                 for (int bi = 0; bi < 4096; bi++)
                 {
@@ -1406,6 +1702,9 @@ namespace VoxelEngine.Rendering
             _slots.Clear();
             _dirB?.Release(); _tablesB?.Release(); _dataB?.Release();
             _dirB = _tablesB = _dataB = null;
+            for (int i = 0; i < STAGE_RING; i++) { _stage[i]?.Release(); _stage[i] = null; }
+            ReleaseRetired(true);
+            _cmd?.Release(); _cmd = null;
             Oracle?.Dispose(); Oracle = null;
             _uploaded = false;
             if (ReferenceEquals(_inst, this)) _inst = null;

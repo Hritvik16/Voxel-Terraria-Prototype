@@ -12,6 +12,8 @@
 //      D1 a 2 x 2 m stone wall (0.1 m thick) 1 m beside an inner-ring torch, D2 a 1 x 1 x 1 m pit dug 1.5 m from
 //      another, D3 a torch broken (light unregistered, voxel -> air) and placed again
 //   stills: tfl3_camp.png after A, tfl3_wall.png after D1 (same pose; look at the wall's far side going dark).
+// TASK 242: the upload is the scatter pass (TorchFloodPool.ScatterOn); `-costarms tfscatter_off` (or -tfscatter 0) runs 170's
+//   whole-span upload instead, from the same build (PREAMBLE rule 12's _off arm). Each wait prints the upload's sends by kind.
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -30,6 +32,9 @@ public partial class PlaygroundCapture
         L("");
         L($"TORCH FLOOD L3 (task 165): {_costTorches.Count} torches, reach {TorchFloodPool.ReachM:F1} m, dir mode {TorchFloodPool.DirMode}; " +
           $"task 169 cuts: anchored bricks {(TorchFloodBuild.AnchorsOn ? "ON" : "OFF")}, edit lit-only {(TorchFloodPool.EditLitOnly ? "ON" : "OFF")}");
+        string armsArg = ArgValue("-costarms");
+        if (!string.IsNullOrEmpty(armsArg) && armsArg.Contains("tfscatter_off")) TorchFloodPool.ScatterOn = false;
+        L($"  upload: {(TorchFloodPool.ScatterOn ? "SCATTER (task 242: dirty units packed + CSFloodScatter)" : "whole span (170; tfscatter_off)")}, upload mode {TorchFloodPool.UploadMode}");
         var edits = new EditService();
         edits.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
 
@@ -110,12 +115,14 @@ public partial class PlaygroundCapture
         pool.BusyTickMs.Clear();
         pool.GrowTicks = 0; pool.GrowTickMsMax = 0;
         int f0 = pool.FloodsDone, m0 = pool.MergesDone; long u0 = pool.UploadBytesTotal;
+        int c0 = pool.UploadCalls, ss0 = pool.ScatterSends, sp0 = pool.SpanSends, sw0 = pool.WholeSends;
         pool.ResetEditStats();
         float t0 = Time.realtimeSinceStartup;
         int frames = 0;
         do { yield return null; frames++; } while (pool.Busy && frames < 3000);
         L($"  {what}: idle after {frames} frames, {Time.realtimeSinceStartup - t0:F2} s; floods {pool.FloodsDone - f0}, merges {pool.MergesDone - m0}, " +
-          $"uploaded {(pool.UploadBytesTotal - u0) / 1024.0:F0} KB; edit -> torch: re-flood {pool.EditRefloods}, skipped (lit test) {pool.EditSkips}; {L3Ticks(pool)}");
+          $"uploaded {(pool.UploadBytesTotal - u0) / 1024.0:F0} KB in {pool.UploadCalls - c0} sends (scatter {pool.ScatterSends - ss0}, span {pool.SpanSends - sp0}, " +
+          $"whole {pool.WholeSends - sw0}); edit -> torch: re-flood {pool.EditRefloods}, skipped (lit test) {pool.EditSkips}; {L3Ticks(pool)}");
         yield return Frames(10);
     }
 
@@ -144,7 +151,9 @@ public partial class PlaygroundCapture
                $"escapes {pool.Escapes}; GPU {pool.GpuBytes / 1048576.0:F2} MB allocated; CPU content: union {pool.UnionContentBytes / 1048576.0:F2} + caches " +
                $"{pool.CacheContentBytes / 1048576.0:F2} MB, allocated: union {pool.UnionBytes / 1048576.0:F2} + caches {pool.CacheBytes / 1048576.0:F2}; " +
                $"job scratch peak {pool.ScratchPeakBytes / 1048576.0:F2} MB (now {pool.ScratchBytes / 1048576.0:F2}); uploaded {pool.UploadBytesTotal / 1048576.0:F2} MB; " +
-               $"jobs {pool.MaxJobs}, merge batch {pool.MergeBatch}, snapshot yields {pool.SnapshotYields}, GPU grows {pool.GpuGrows}; {L3Ticks(pool)}";
+               $"jobs {pool.MaxJobs}, merge batch {pool.MergeBatch}, snapshot yields {pool.SnapshotYields}, GPU grows {pool.GpuGrows}; " +
+               $"upload sends scatter {pool.ScatterSends} / span {pool.SpanSends} / whole {pool.WholeSends}, units scattered {pool.ScatterUnits:N0}, " +
+               $"scatter staging peak GPU {pool.StagingPeakBytes / 1048576.0:F2} MB, CPU pack peak {pool.PackPeakBytes / 1048576.0:F2} MB; {L3Ticks(pool)}";
     }
 
     /// The live union vs a fresh from-scratch pool (no GPU), each flood run alone on this thread and timed.

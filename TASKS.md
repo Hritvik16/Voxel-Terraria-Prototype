@@ -2133,3 +2133,15 @@ slice; proposals for new `PERF_BUDGET.json` proxies, gates NOT edited), "Making 
 sun, solid crown cores, foliage early-out, dyn rows, coarser far leaves, density last) and architecture alternatives (no renderer
 replacement; a sun shadow map / foliage light proxy only on named evidence). Chart `Screenshots/241/budget_bars.png` (git-ignored; script
 `Logs/overnight/241/bars.py`). Owner decisions D1-D6 in its sec. 5.
+
+**Task 242 (owner 2026-11-19, answer (a) to 170): torch-flood SCATTER upload.** `TorchFloodPool.UploadScatter` (default; `-tfscatter 0` or
+capture arm `-costarms tfscatter_off` = 170's whole-span path): dirty 8-word units of the tables (new per-unit bitmask; a NEW table is
+marked whole) and data are packed by Burst (`ScanJob`/`PackJob`: n indices, then n x 8 words) into ONE staging send, and
+`TorchFloodProbe.compute` `CSFloodScatter` writes them, all in ONE CommandBuffer per Upload; grown buffers are sent whole. Two rules from
+the first in-player readback (one table word stale after D1, `Logs/costsplit_2026-11-19_153002.txt`): every incremental write to the
+tables/data goes through the dispatch (no span copies mixed in; a span only past `MaxScatterUnits` or with the test-only `AllowSpan`),
+and the staging is a ring of 3 buffers (released at idle, retired buffers freed 3 frames later). Tests: every test pool runs a C# mirror
+twin (`MirrorTwin`, grown arrays 0xDEADBEEF; `VerifyMirror`), `Scatter_TablesFreedAndReused_TwinEqualsCpu` (append / free / reuse
+tables; caught a removed new-table mark). In player (`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1 [-costarms tfscatter_off]"`,
+`Screenshots/242/tfl3_242.txt`): exact + GPU readback + twin probe PASS at every step; per edit upload 163-188 MB -> 2.4-2.7 MB, upload
+phase max 0.61-1.45 -> 0.23-0.32 ms, edit p99 1.01-1.40 ms (OFF 1.23-2.04); staging peak GPU 0.75 MB / CPU pack 0.25 MB while busy, 0 idle.

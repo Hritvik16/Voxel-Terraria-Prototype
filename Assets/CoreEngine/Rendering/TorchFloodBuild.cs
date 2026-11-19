@@ -1068,7 +1068,7 @@ namespace VoxelEngine.Rendering
             public NativeHashMap<int3, int> chunkTable;
             public NativeList<int> chunkUsed, freeTables, free8, free64;
             public NativeList<ulong> dirtyData;      // bit per 8-uint unit of data
-            public NativeList<byte> dirtyTable;     // per table
+            public NativeList<ulong> dirtyTable;    // task 242: bit per 8-uint unit of tables (8 words = 512 units per table)
             public NativeList<int3> chunksAdded, chunksRemoved;
             public NativeArray<int> counts;         // air bricks, mixed bricks, escapes, chunks
 
@@ -1077,6 +1077,13 @@ namespace VoxelEngine.Rendering
                 int u0 = off >> 3, u1 = (off + n - 1) >> 3;
                 if (dirtyData.Length <= (u1 >> 6)) dirtyData.Resize((u1 >> 6) + 1, NativeArrayOptions.ClearMemory);
                 for (int u = u0; u <= u1; u++) dirtyData[u >> 6] |= 1UL << (u & 63);
+            }
+
+            /// Task 242: the table word ti * 4096 + bi changed (its 8-word unit is re-sent by the scatter upload).
+            private void DirtyT(int ti, int bi)
+            {
+                int u = (ti << 9) | (bi >> 3);
+                dirtyTable[u >> 6] |= 1UL << (u & 63);
             }
 
             private int Alloc(int n)
@@ -1118,7 +1125,7 @@ namespace VoxelEngine.Rendering
                         if (old == 0) continue;
                         FreeBrick(old);
                         tables[ti * 4096 + bi] = 0;
-                        dirtyTable[ti] = 1;
+                        DirtyT(ti, bi);
                         if (--chunkUsed[ti] == 0)
                         {
                             chunkTable.Remove(c); freeTables.Add(ti); chunksRemoved.Add(c); counts[3]--;
@@ -1131,9 +1138,12 @@ namespace VoxelEngine.Rendering
                         else
                         {
                             ti = chunkUsed.Length;
-                            chunkUsed.Add(0); dirtyTable.Add(0);
+                            chunkUsed.Add(0);
                             Reserve(ref tables, (ti + 1) * 4096);
                             tables.Resize((ti + 1) * 4096, NativeArrayOptions.ClearMemory);
+                            // task 242: a NEW table is sent whole (its zeros too: the GPU buffer's slack is undefined)
+                            if (dirtyTable.Length < (ti + 1) * 8) dirtyTable.Resize((ti + 1) * 8, NativeArrayOptions.ClearMemory);
+                            for (int q = 0; q < 8; q++) dirtyTable[ti * 8 + q] = ~0UL;
                         }
                         chunkUsed[ti] = 0;
                         chunkTable.Add(c, ti); chunksAdded.Add(c); counts[3]++;
@@ -1177,7 +1187,7 @@ namespace VoxelEngine.Rendering
                         Dirty(off, 64);
                     }
                     uint en = (kind << 30) | (uint)off;
-                    if (en != old) { tables[ti * 4096 + bi] = en; dirtyTable[ti] = 1; }
+                    if (en != old) { tables[ti * 4096 + bi] = en; DirtyT(ti, bi); }
                 }
             }
         }
