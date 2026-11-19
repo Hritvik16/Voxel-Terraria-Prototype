@@ -1,53 +1,64 @@
-# 241-perf-slice-budgets: DONE (plan only) -- `PERF_SLICE_BUDGETS.md`: 3 tiers, per-system ms/MB slices, admission rule, forest levers, architecture alternatives
+STOP_FOR_OWNER -- 242's scatter upload is DONE and committed (ceaf0a5). Upload per edit went from ~180 MB to ~2.5 MB, and the GPU copy is
+exact at every step. The main-thread target is still just missed: edit p99 is 1.01-1.40 ms, target < 1 ms. What is left is merge
+apply (max 0.5-2.4 ms) + snapshots (0.5 ms budget) + flood done, not upload (max 0.23-0.32 ms).
+Question: (a) accept ~1.0-1.4 ms edit p99 (recommended: upload was the named cause, and it is fixed); (b) a follow-up task that slices
+merge apply (e.g. MergeBatch 1,024 -> 512 for edits only, or apply split across frames); (c) something else.
 
-No code, no build, no Unity, no launch, no timing. Owner decisions D1-D6 are in the doc's sec. 5 (not a STOP: nothing is blocked on them).
+# 242-torch-flood-scatter-upload: DONE (upload ~180 MB -> ~2.5 MB per edit, exact); p99 < 1 ms NOT met (1.01-1.40 ms)
 
-## What changed
-- NEW `PERF_SLICE_BUDGETS.md` (repo root). TASKS.md paragraph. Arithmetic scripts `Logs/overnight/241/scale.py` (GPU-class scaling)
-  and `Logs/overnight/241/bars.py` (chart) -- local only, `Logs/overnight/` is git-ignored. Commit: the "241: PERF_SLICE_BUDGETS.md" commit on engine-phase.
-- Not touched: `PERF_BUDGET.json`, gates, product code. Previous HANDOFF (170's STOP_FOR_OWNER scatter-upload question) is still open
-  for the owner; it lives in `tools/overnight/blocked/` / commit 0582866.
-
-## Main findings (every number sourced in the doc; est. = arithmetic, guess = judgement)
-- M1 Air = tier A ("low") at best, and only with 237's low-sun/bounce/dyn-rows package and a 50 ms (20 fps) cap for the dense forest at
-  dawn/dusk. Today it misses tier A at 3 of 4 worst poses (235: forest 16 deg 135.4, jungle 70.0, night 52.7, walk 35.4 ms).
-- Hardware is not the forest fix: 30 fps at forest 16 deg needs ~4.9x the M1 GPU at 432 rows, ~7x at 540; 60 fps at 720 rows ~30x
-  (est., model: CPU floor 7.1 unscaled + GPU/k, pixel share from 219). Ignores bandwidth, Metal vs other APIs, thermals (stated).
-- Tier-A slices = 8.17's adopted shares (sum 33.3). Memory: CPU pool 278.3 MB, GPU bodies 124.2, flood 38.3 (170), shells est. 388,
-  fluid est. 240; process peak 2,512-2,621 MB, headroom 379 -> proposal: ~250 MB reserved for the placement phase.
-- Forest levers F1-F7 with est./guess savings, look cost, memory, risk, amendment, and the one capture each. Recommended order: forest
-  cost-split capture -> F1+F2 (low-sun cap, bounce) -> F3 solid crown cores (content; also frees GPU bodies) -> sun-steps counter + F4
-  foliage early-out -> F5 dyn floor -> F6 (amendment) -> F7 density last. Stack: 50 ms reachable at mid-guesses with 360 rows.
-- Architecture: lighting in foliage at low sun is design-shaped (sun + sky = 80 of 135 ms); "rest" (55 ms forest/jungle, 43 night)
-  never split, so a bug is not ruled out (124: halving sun rays saved 0 ms). Recommendation: no renderer replacement; a sun shadow map
-  (a) or foliage light proxy (c) only on the named evidence; meshing (b) not justified (+200-800 MB guess, attacks only the march).
-
-## Flags for the supervisor / owner
-- **Unexplained:** walk_near noon 60.6 ms (232, TASKS.md) vs 34.1 ms (235) a day later; 235's walk arc heads away from the sun, so it may
-  just be a lighter view. "Walk 35 ms" should not be read as solved.
-- PREAMBLE rule 12 / PERF_BUDGET_GUARD name a P5 `[sun]` rays/steps counter; I found no such counter in code (only `-shelliters`,
-  `-farsteps`). Doc sec. 4 proposes it (capture-only, ~20 lines).
-- The task asked to add the doc to the owner doc tab; PREAMBLE rule 7 forbids claude.ai docs in this session -> supervisor, please copy
-  "For the doc" below.
+## What changed (commit ceaf0a5 on engine-phase)
+- `TorchFloodPool.cs`: `UploadScatter` (default; `-tfscatter 0` / capture `-costarms tfscatter_off` = 170's `UploadWhole`, unchanged bytes).
+  Burst `ScanJob` + `PackJob` pack the dirty 8-word units (n indices, then n x 8 words) into one staging send. A CommandBuffer per Upload
+  does the staging `SetBufferData`, then `CSFloodScatter` per buffer. A buffer that grew is sent whole in the same CommandBuffer.
+  Added `MirrorTwin`/`VerifyMirror` (a C# twin of the GPU buffers for tests) and stats (sends by kind, staging peaks).
+- `TorchFloodBuild.cs` ApplyJob: tables dirty = 1 bit per 8-word unit (was 1 byte per table). A NEW table is marked whole, so its zeros
+  reach the GPU. The old path derives its per-table flags from these bits.
+- `TorchFloodProbe.compute`: kernel `CSFloodScatter` (64 threads; thread t writes word t&7 of unit t>>3).
+- Tests (`TorchFloodL3Tests`): every pool runs the mirror twin, and `Step` / Budgeted / the new test check twin == CPU after every
+  merge's upload. New test `Scatter_TablesFreedAndReused_TwinEqualsCpu(allowSpan)`: tables appended / freed / reused. As a check, I
+  removed the new-table mark and the test FAILED, so it can catch a missed word.
+- Capture `PlaygroundCapture.TorchFloodL3.cs`: the `tfscatter_off` arm, plus sends / staging printed per wait. TASKS.md paragraph.
+- **Run 1 found a GPU ordering bug** (`Logs/costsplit_2026-11-19_153002.txt`). After D1, readback FAIL `tables[250561] 8017EE18 vs 0`
+  (one stale word), while the twin passed. Fix: every incremental write goes through the dispatch (no span copies into the buffer the
+  scatter also writes), and the staging is a ring of 3. After the fix, every step PASSes. I did not isolate which of the two caused it.
+- Why this design is the efficient one (rule 11): it sends only changed units, with 12.5 % index overhead. The pack is Burst on the main
+  thread (~0.25 ms max, inside "upload"). There is one send + 2 dispatches per merge, and nothing per frame when idle. Staging exists
+  only while busy.
 
 ## Evidence
-- Fast suite not needed (no code). Sources read: 235 check.txt + [mem] lines, PLAN_PATH_TO_33MS, PERF_BUDGET_GUARD/.json, PERF_EXACT_CUTS,
-  8.17 sec. 3-4, 8.14 preset table, 219 table.md, 170 HANDOFF, RESEARCH_LAY_OF_THE_LAND. Arms named in captures were grep-checked to exist.
-- Image looked at: `Screenshots/241/budget_bars.png` -- one bar per worst pose with the 33.3 / 50 ms lines; renders correctly, labels clear.
+- `FILTER=TorchFlood`: PASS 31 FAIL 0 SKIP 1, incl. Slow/Nightly `Fuzz_Long` (300 ops x 2 seeds, twin checked) (`Logs/overnight/242_filter3.out`).
+- Fast suite: PASS 1111 FAIL 0 SKIP 25 (`Logs/overnight/242_fast.out`).
+- In-player, same build (`Screenshots/242/tfl3_242.txt`; ON `Logs/costsplit_2026-11-19_153953.txt`, OFF `..._154300.txt`):
+  live == scratch IDENTICAL, GPU readback == CPU, GPU vs twin 0 levels at A, D1, D2, D3a, D3b, in both arms. No frame-time arms.
+
+| per edit D1/D2/D3a/D3b | 170 final | OFF (this build) | ON (scatter) |
+|---|---|---|---|
+| uploaded | 187-214 MB | 159 / 178 / 183 / 184 MB | 2.34 / 2.32 / 2.68 / 2.60 MB |
+| main thread mean ms | -- | 0.77 / 0.85 / 0.79 / 0.71 | 0.52 / 0.48 / 0.59 / 0.54 |
+| main thread p99 ms | 2.6-6.1 | 1.32 / 2.04 / 1.23 / 1.25 | 1.10 / 1.01 / 1.40 / 1.08 |
+| main thread max ms | -- | 1.45 / 2.31 / 2.29 / 1.53 | 1.43 / 1.04 / 2.25 / 3.04 |
+| upload phase sum / max ms | max 3-4.6 | 11.2-17.6 / 0.61-1.45 | 3.7-4.6 / 0.23-0.32 |
+| merge apply max ms | 2.7-5.5 | 0.92-1.73 | 0.52-2.43 |
+Camp fill (A): uploaded 323.6 -> 42.4 MB. Fill p99 4.26 ms, max 10.4 (OFF 3.03 / 8.66; 170 3.6 / 9.8). The fill max comes from the 15
+list growth ticks (max 10.4 ms: whole re-sends + list copies), as in 170.
+- Memory vs 170 final: CPU union 9.30 -> 9.31 MB (table bit mask, ~8 KB), caches 6.60 = 6.60, GPU 9.25 = 9.25 when idle, scratch peak
+  13.1 -> 13.04 MB. New while busy only: scatter staging GPU 0.75 MB peak (3 x 0.25), CPU pack 0.25 MB. Both are released at idle.
+- Rule 12 pass card, `CSFloodScatter`: fixed size (not per pixel). Runs only on an Upload (1 per merge while the pool is busy, 0 when
+  idle). 8 threads per dirty unit (~45-110 k threads per merge); 2 reads + 1 write per thread; no rays, no texture taps. GPU bytes
+  +0.75 MB while busy, 0 idle. 8.17 step S4 (local light, torch flood); a share is not meaningful (a data upload, not a screen pass).
+  Off arm: `-costarms tfscatter_off`. No P3 (the launch prints no frame time at a pose). Not HEAVY.
+- Image looked at: `Screenshots/242/on/tfl3_wall.png` (night camp slope after D1). Torches light the slope, with no black or garbage
+  patches. `off/` has the same stills.
 
 ## Next step
-Owner answers D1-D6. If D4 = yes: queue ONE performance task = 237 sec. 2's forest cost split (+ sun arms, + `-startsun 0 skyfill0`,
-+ one `-trees2 0` FULL launch). It decides F1/F2 and splits the forest "rest".
+Owner answers the question above. Not committed: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*` (build/test side effects).
 
 ## For the doc
-**241 -- performance budgets per machine tier (plan, no timing).** `PERF_SLICE_BUDGETS.md`.
-- The M1 Air can be the **minimum spec ("tier A")**: 30 fps on typical views, dense forest at dawn/dusk allowed 20 fps, memory < 3 GB --
-  only after the cuts in its sec. 5/6. Today: forest dawn 135 ms, jungle 70, night camp 53, walk 35 (task 235).
-- **Better hardware does not fix the forest**: 30 fps there needs ~4.9x the Air's GPU even at today's resolution (est.).
-- Making the forest fit, in order: shorter low-sun shadows + cheaper bounce at low sun (~-30..-60 ms, guess) -> solid crown cores
-  (guess -10..-25) -> foliage shortcut for light rays -> lower resolution in heavy views -> fewer trees LAST. Mid-guess: ~50 ms.
-- Architecture: not proven broken; don't replace the renderer. A cheaper sun-shadow design is the first big change IF the next forest
-  capture shows the sun still > 20 ms after the cheap cuts.
-- Six decisions for you (D1-D6): tier A = Air with a 20 fps forest cap? keep High view range? what to drop first? etc.
-- Image: `Screenshots/241/budget_bars.png` -- one bar per worst pose; look at how far each bar runs past the 33 ms dashed line, and that
-  in the forest bar orange (sun) + blue (sky fill) are 80 of the 135 ms.
+**242 -- torch flood scatter upload.** The light is the same, exactly: GPU == CPU at every step, in-player.
+- Upload per torch edit: ~180 MB -> ~2.5 MB (about 70x less). Camp fill: 324 -> 42 MB.
+- Upload work on the main thread per edit: max 0.6-1.45 -> 0.23-0.32 ms.
+- Worst frames while an edit re-lights (p99): 1.2-2.0 ms (old path, same build) -> 1.0-1.4 ms. The target was < 1 ms: just missed.
+  The rest is merge apply, not upload.
+- Memory: unchanged when idle (CPU 15.9 MB, GPU 9.25 MB). +1 MB only while re-lighting.
+- Image: `Screenshots/242/on/tfl3_wall.png` -- the night camp slope after the wall edit. Look at the slope: it is evenly torch-lit,
+  with no black or garbage patches. That shows the scattered GPU data draws correctly. (Nothing else is visible: the light is byte-identical.)
