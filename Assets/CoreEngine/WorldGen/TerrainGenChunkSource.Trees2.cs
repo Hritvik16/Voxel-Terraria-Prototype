@@ -48,14 +48,33 @@ namespace VoxelEngine.WorldGen
         /// Per species: prototypes built and their mean bricks (tests, reports).
         public static readonly double[] MeanBricks = new double[TerrainGen.Trees2.SP_COUNT];
         public static TerrainGen.Trees2.ProtoBuild[] Built { get; private set; }
+        /// Task 243: the crown-core mode the published library was built with (TerrainSpec.crownCore).
+        public static byte CoreMode { get; private set; }
 
-        public static void Acquire()
+        /// Task 243: `core` = spec.crownCore. One library per process: a request in another mode
+        /// REBUILDS it for every holder (tests and reports switch between Generate calls; a player
+        /// has one mode). Not thread-safe against running chunk jobs.
+        public static void Acquire(byte core = 0)
         {
             lock (_lock)
             {
                 _refs++;
-                if (_refs > 1) return;
-                Build();
+                if (_refs > 1)
+                {
+                    if (core != CoreMode) { Free(); Build(core); }
+                    return;
+                }
+                Build(core);
+            }
+        }
+
+        /// Task 243: rebuild the library in `core` mode for its current holders (no reference taken).
+        public static void SetCoreMode(byte core)
+        {
+            lock (_lock)
+            {
+                if (_refs == 0 || core == CoreMode) return;
+                Free(); Build(core);
             }
         }
 
@@ -68,8 +87,9 @@ namespace VoxelEngine.WorldGen
             }
         }
 
-        private static void Build()
+        private static void Build(byte core)
         {
+            CoreMode = core;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var jobs = new List<int2>();   // (species, variant), the costly giants first (load balance only)
             int[] order = { TerrainGen.TreeGallery.SP_BANYAN, TerrainGen.TreeGallery.SP_REDWOOD, TerrainGen.TreeGallery.SP_OAK,
@@ -85,7 +105,7 @@ namespace VoxelEngine.WorldGen
                 {
                     for (int i = Interlocked.Increment(ref next); i < jobs.Count; i = Interlocked.Increment(ref next))
                     {
-                        try { res[i] = TerrainGen.Trees2.BuildProto(jobs[i].x, jobs[i].y); }
+                        try { res[i] = TerrainGen.Trees2.BuildProto(jobs[i].x, jobs[i].y, core); }
                         catch (Exception e) { res[i] = null; UnityEngine.Debug.LogError($"[Trees2] prototype {jobs[i]} failed: {e.Message}"); }
                     }
                 }) { IsBackground = true, Name = "Trees2 library " + w };
@@ -105,7 +125,7 @@ namespace VoxelEngine.WorldGen
                     if (jobs[i].x != sp) continue;
                     var pb = res[i];
                     if (pb == null || !pb.ok) continue;
-                    keep.Add(pb); sum += pb.bricks; cnt++;
+                    keep.Add(pb); sum += pb.placeBricks; cnt++;   // task 243: placement reads the pre-fill bricks
                 }
                 // jobs hold each species' variants in seed order, so the kept ones stay in that order
                 lib.variants[sp] = cnt;
@@ -140,7 +160,14 @@ namespace VoxelEngine.WorldGen
             Built = keep.ToArray();
 
             var sb = new System.Text.StringBuilder();
-            sb.Append($"{keep.Count} prototypes, {bytes / 1048576.0:F1} MB, built in {BuildMs:F0} ms on {threads} worker threads |");
+            sb.Append($"{keep.Count} prototypes, {bytes / 1048576.0:F1} MB, built in {BuildMs:F0} ms on {threads} worker threads");
+            if (core != 0)
+            {   // task 243: what the crown-core fill added
+                long filled = 0, dropped = 0; int bb = 0, ba = 0;
+                foreach (var pb in keep) { filled += pb.coreStats.filled; dropped += pb.coreStats.dropped; bb += pb.coreStats.bricksBefore; ba += pb.coreStats.bricksAfter; }
+                sb.Append($", crown cores ON (-crowncore {core}): +{filled:N0} leaf voxels, {dropped:N0} unconnected dropped, bricks {bb:N0} -> {ba:N0}");
+            }
+            sb.Append(" |");
             for (int sp = 0; sp < TerrainGen.Trees2.SP_COUNT; sp++)
             {
                 double slow = 0; foreach (var pb in keep) if (pb.species == sp) slow = math.max(slow, pb.ms);
@@ -207,9 +234,9 @@ namespace VoxelEngine.WorldGen
         private void InitTrees2()
         {
             if (Spec.trees2On == 0) return;
-            Trees2Library.Acquire();
+            Trees2Library.Acquire(Spec.crownCore);
             _trees2Owner = true;
-            UnityEngine.Debug.Log($"[Trees2] world trees ON (default; -trees2 0 = today's trees): {Trees2Library.Summary}");
+            UnityEngine.Debug.Log($"[Trees2] world trees ON (default; -trees2 0 = today's trees), crown cores {(Spec.crownCore != 0 ? $"ON (-crowncore {Spec.crownCore})" : "OFF (default)")}: {Trees2Library.Summary}");
         }
 
         private void DisposeTrees2()
@@ -227,8 +254,32 @@ namespace VoxelEngine.WorldGen
         public void SetTrees2Mode(byte mode)
         {
             bool on = mode != 0;
-            if (on && !_trees2Owner) { Trees2Library.Acquire(); _trees2Owner = true; }
+            if (on && !_trees2Owner) { Trees2Library.Acquire(Spec.crownCore); _trees2Owner = true; }
             var t = Spec; t.trees2On = mode; Spec = t;
+            _columnTop.Clear(); _specStamp++;
+        }
+
+        /// Task 243: -crowncore 1 = solid crown cores (TerrainGen.CrownCore: the enclosed interior), 2 = the closed
+        /// crown (gaps narrower than ~2 clumps count as crown); a look change, DEFAULT OFF (0).
+        /// Last match wins. Only with the world trees (map v4).
+        public static byte CrownCoreArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            byte v = 0;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-crowncore" && int.TryParse(a[i + 1], out int p)) v = (byte)math.clamp(p, 0, 2);
+            return v;
+        }
+
+        /// Tests and reports (task 243): crown cores on / off for the chunks generated from now on
+        /// (rebuilds the process's library in that mode). Not thread-safe: call between Generate calls.
+        public void SetCrownCore(bool on) => SetCrownCore(on ? (byte)1 : (byte)0);
+
+        /// Tests and reports (task 243): crown-core mode 0 / 1 / 2 for the chunks generated from now on.
+        public void SetCrownCore(byte mode)
+        {
+            var t = Spec; t.crownCore = mode; Spec = t;
+            if (_trees2Owner) Trees2Library.SetCoreMode(t.crownCore);
             _columnTop.Clear(); _specStamp++;
         }
 

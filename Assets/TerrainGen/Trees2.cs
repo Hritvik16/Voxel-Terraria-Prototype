@@ -186,14 +186,23 @@ namespace TerrainGen
             public int bricks, reach, keep, leafBottom, leafReach, footR, top, wood, leaf;
             public int4[] feet;
             public double ms;
+            /// Task 243: the bricks BEFORE the crown-core fill (= bricks when it is off). The placement
+            /// probabilities read this, so `-crowncore 1` places the same trees as OFF.
+            public int placeBricks;
+            public byte core;                 // 1 = built with CrownCore.Fill (enclosed interior), 2 = the closed crown (closing by the clump radius)
+            public CrownCore.Stats coreStats;
         }
 
-        public static ProtoBuild BuildProto(int species, int variant)
+        /// Task 243: `core` 1 = fill the crown's enclosed interior solid, 2 = the CLOSED crown's interior (CrownCore,
+        /// TerrainSpec.crownCore); 0 = as before, byte for byte.
+        public static ProtoBuild BuildProto(int species, int variant, int core = 0)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var pb = new ProtoBuild { species = species, variant = variant, seed = (uint)(variant + 1) };
             var v = TreeGallery.Build(species, TreeGallery.M_SPACE, pb.seed, null, out var st, out var k, world: true);
             pb.m1 = k.sp.wood; pb.m2 = k.sp.leaf;
+            pb.placeBricks = v.bricks.Count;   // Voxelise compacted: every slot is a non-empty brick
+            if (core != 0) { pb.core = (byte)core; CrownCore.Fill(v, k.sp.leaf, out pb.coreStats, CrownCore.SKIN, core == 2 ? (int)math.round(k.sp.clumpR) : 0, keepBricks: true); }
             pb.lo = v.lo; pb.nb = v.nb;
             pb.index = new int[v.index.Length];
             pb.codes = new byte[128 * v.bricks.Count];

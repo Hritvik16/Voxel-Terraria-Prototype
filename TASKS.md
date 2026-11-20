@@ -2147,3 +2147,23 @@ tables; caught a removed new-table mark). In player (`run-cost-split.sh EXTRA="-
 phase max 0.61-1.45 -> 0.23-0.32 ms, edit p99 1.01-1.40 ms (OFF 1.23-2.04); staging peak GPU 0.75 MB / CPU pack 0.25 MB while busy, 0 idle.
 
 **Task 40 (bug diagnosis, no code change): `ledge_view`'s black crescent is the vertical sky probe's zero ambient, not terrain.** `MODE=poses EXTRA="-poses ledge_view" ./run-tg2world.sh` (skyfill 0, the capture default) reproduces it at noon and golden hour: a pure-black wedge under the top overhang and a large black face under the ledge, both sun-shadowed with rock straight above the face cell (same mechanism as task 136's cliff2 black shape). Same pose with `-skyfill 2` (task 193; play's default since 194a): the faces are dark but drawn, geometry intact, no hole or seam. Band view is flat sky (voxels draw it, far band is not involved). Shots: `Screenshots/40/` (skyfill 0) and `Screenshots/40/skyfill2/`. Rigs/capture still default to skyfill 0 (owner call whether that changes).
+
+**Task 243 (lever F3 of `PERF_SLICE_BUDGETS.md` sec. 6, owner Q-AT D4): solid crown cores, behind `-crowncore 1|2`, DEFAULT OFF (a look change).**
+`TerrainGen/CrownCore.cs` fills a world-tree PROTOTYPE's crown interior with its own leaf ONCE at the library build (worker threads,
+bit-packed scratch; zero cost per chunk / frame / tree), leaving a 2-voxel ragged skin; only AIR becomes LEAF, only inside the leaf box,
+only voxels 6-connected to the grown crown (no floating leaves), and only inside bricks the prototype already has (`keepBricks`: a
+pure-interior brick is never drawn, so it is not stored). Rule, all from the crown's own voxels: hull = voxels enclosed along x, y and z by
+the crown (mode 1) or by its CLOSING with a box of the crown's own clump radius (mode 2, `TreeGallery.Sp.clumpR`: gaps narrower than ~2
+clumps count as crown); core = hull eroded by 2 (the leaf texture's 2-voxel hole cell). Placement is unchanged (`ProtoBuild.placeBricks`
+feeds the probabilities). `TerrainSpec.crownCore` (read by the library build only; map v4 only, so v3 is untouched); `CrownCoreArg()`,
+`SetCrownCore(byte)`, `Trees2Library.Acquire(core)` / `SetCoreMode` / `CoreMode` (one library per process, rebuilt on a mode change).
+FINDING: the approved crowns are small flat clumps with sky between them, nearly all skin -- mode 1 adds 852 voxels to an oak's 12 chunks,
+1 leaf brick of 13,036 in forest_eye's footprint; mode 2 is the one that closes a crown (oak v0 leaf 122,816 -> 359,358). Tests:
+`CrownCoreTests` (TerrainGen: `Adversarial_Shapes` tiny / all-skin slab / open bowl / hollow shell floating vs with a branch / 400 x 80 x
+400 porous lens with exact "why is this air still here" check; `Oracle_BruteForce` exact sets vs a brute-force reading, modes 1 and 2;
+`Closed_Mode_GapsByClumpRadius`; `Prototypes_OffIdentical_OnOnlyAirToLeaf` [Slow]: core 0 byte-identical, bricks unchanged),
+`CrownCoreWorldTests` (CoreEngine: `World_SamePlacement_OnlyAirBecomesLeaf` [Slow]; `Report_LeafBrickFill` REPORTS=1 ->
+`Logs/TerrainGen/trees243/histogram.txt`). Capture: `-wshours H` pins the world survey's sun (it forced noon and ignored `-tod`).
+KNOWN ISSUE: `-crowncore 2` (keepBricks) crashed the player 3 of 3 launches in the Burst `ShellFillJob` (KNOWN_ISSUES.md, task 243 entry); do not use it
+in play until fixed. Shots `Logs/overnight/243_shots.sh` / `_shots2.sh` / `_shots3.sh` / `_shots4.sh`, table `Logs/overnight/243_table.py` -> `Screenshots/243/table243.txt`,
+`python3 -I tools/trees243.py` -> 4x diffs, `sheet243.jpg`, `viewer.html`. Result: HANDOFF 243.

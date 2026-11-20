@@ -271,6 +271,7 @@ namespace VoxelEngine.WorldGen
             spec.treeLeafFill = LeafFillArg();   // task 192
             if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
             if (spec.treesOn != 0) spec.trees2On = Trees2Mode();   // task 210 / 214: ON unless -trees2 0; 213: -trees2dense 0 = 210's placement
+            if (spec.trees2On != 0) spec.crownCore = CrownCoreArg();   // task 243: solid crown cores, OFF unless -crowncore 1
             if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
             if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183 / 201: ON unless -fluidpockets 0

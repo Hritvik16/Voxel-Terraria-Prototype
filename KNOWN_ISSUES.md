@@ -42,6 +42,14 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **PLAYER CRASH (SIGSEGV, null read) IN THE BURST `ShellFillJob` ON A SHELL WORKER WITH `-crowncore 2` (task 243, 2026-11-19; NOT FIXED, opt-in switch only).**
+  3 of 3 launches of the keepBricks `-crowncore 2` builds crashed (2 just after their last shot, 1 between two poses: `oak_under` -> `oak_inside`);
+  0 of 2 launches of the first `-crowncore 2` build (which also filled pure-interior bricks) and 0 of 3 OFF launches did. Same instruction every time
+  (`lib_burst_generated` offset 367396, `KERN_INVALID_ADDRESS at 0x0`, threads ShellGen0/1/2, caller `FillShellChunk` <- `GenerateShellChunk` <-
+  `ShellStreamer.WorkerLoop`; `~/Library/Logs/DiagnosticReports/Voxel Terraria 1 Byte BrickMap-2026-11-19-22{0410,1629,3305}.ips`). NOT reproduced
+  in EditMode with safety checks (450 shell chunks, shells 1-3, round the oak and forest_eye, mode 2: no exception). `ShellFillJob` reads no tree
+  data, so the content only changes what it floods / flattens; suspect a latent shell-fill bug that this content reaches (or a race on the shell
+  workers). Do not use `-crowncore 2` in play until this is found. Default (`-crowncore 0`) is untouched.
 - **NIGHT TORCH SCENE PEAKED AT ~6.0 GB; PLAY'S TORCH FILL AT ~3.4-3.6 GB (found task 230, 2026-11-17; DIAGNOSED + FIXED task 236, `-tfupload 0` = old).**
   Not the flood's CPU memory (union + caches + scratch ~48 MB; Unity's "allocated" flat; an EditMode flood of 3.8 M voxels = +16-29 MB).
   `footprint` samples: the growth was **IOAccelerator (Metal)**. `TorchFloodPool.Upload` issued ONE `GraphicsBuffer.SetData` per dirty data

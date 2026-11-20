@@ -60,7 +60,9 @@ public partial class PlaygroundCapture
         // later shots to the wrong view (205's first launch). The survey places the camera itself: switch it off.
         var flyCam = cam != null ? cam.GetComponent<PlaygroundFlyCamera>() : null;
         if (flyCam != null) flyCam.enabled = false;
-        float noon = SunCycle.NoonHours;
+        // Task 243: -wshours H pins the survey's sun to H hours (e.g. 7.1 = 16 deg morning); default noon, as before.
+        float wsHours = ArgFloat("-wshours", -1f);
+        float noon = wsHours >= 0f ? wsHours : SunCycle.NoonHours;
         SunCycle.SetHours(noon);
         float3 sun = SunCycle.DirectionAt(noon);
         float2 shz = math.normalizesafe(new float2(sun.x, sun.z));

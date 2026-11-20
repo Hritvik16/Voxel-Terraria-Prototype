@@ -148,6 +148,13 @@ namespace TerrainGen
         /// small trees -- birch, spruce, acacia -- on a 6.4 m grid, a bigger forest budget);
         /// 2 = task 210's placement byte for byte (`-trees2dense 0`, the comparison arm).
         public byte trees2On;
+        /// Task 243 (lever F3, PERF_SLICE_BUDGETS.md sec. 6): 1 = SOLID CROWN CORES -- the world-tree
+        /// library fills each prototype crown's interior with its leaf, leaving a 2-voxel ragged skin
+        /// (CrownCore.cs). 0 (the default) = the library as before, byte for byte. Only with trees2On
+        /// (map v4); placement is the same either way. `-crowncore 1`. 2 = the CLOSED crown: gaps between
+        /// leaf masses narrower than ~2 of the crown's clump radii count as interior (`-crowncore 2`).
+        /// Read by the library build only.
+        public byte crownCore;
         /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
         /// = the simple material rules (GroundRules.cs: one palette row per biome
         /// paints skin, soil, subsoil and stone; a short slot list over local
