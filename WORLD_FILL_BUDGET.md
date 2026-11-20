@@ -23,7 +23,8 @@ That gives **three rules** for everything else we add:
    **memory**. Each 0.8 m block of surface takes one 512-byte slot in the GPU pool. The forest already fills that pool to 96.6 %
    (245,704 of 254,400), and the CPU pool sits at its eviction line.
 2. **See-through things are the expensive kind** (leaves, bushes, hedges, grass, fences seen edge-on). Rough rule from the counts:
-   **each 1 % of the screen covered by see-through voxels costs about 1.3-1.8 ms on the M1 (est.)**. The dense forest covers 28 % of
+   **each 1 % of the screen covered by see-through voxels costs about 1.3-1.8 ms on the M1 (est.)** (task 248, measured wood coverage:
+   **1.7-2.3 ms, best fit; use ~2 ms**, sec. 1b.4). The dense forest covers 28 % of
    the screen with leaves, which is where its ~36-49 ms comes from (est.). So see-through voxel content needs a budget in % of screen,
    and big bushes should be solid inside.
 3. **Grass and small ground clutter must NOT be voxels in the world.** Grass in view would cover ~35 % of the screen in a
@@ -82,9 +83,25 @@ them hit leaves. Its p95 primary steps there are 160-175 (off 192-207: grazing g
 forest takes 48 steps at 10-40 m, 81 at 40-82 m and 55 at 82 m+ (off: 72 / 71 / 37). Pixels changed vs off counts trees plus their
 shadows, at a > 24/255 threshold (`coverage_proxy.txt`).
 
-**Missing capture (not added: no engine code in this task):** the primary hit has no material split. `leaf` counts leaf voxels only,
-so trunk (wood) screen coverage is not counted directly. Experiment E1 adds a `mat` split (leaf / wood / ground / other) to RayStats.
-The "pixels changed" column is the substitute.
+**Material split (task 248, E1 done).** `-raystats 1` now splits the PRIMARY hit into leaf / wood / ground / other / no hit (wood =
+task 225's class 1: 147, 204-207, 215, 221; ground = every other generator id that is not leaf; no hit = sky or the far band's
+heightfield). Re-run of the 4 arms at forest_eye 16 deg, same runner and pose (`Screenshots/248/run.sh`; table
+`Screenshots/248/coverage.txt`, reproduced by `python3 -I Screenshots/248/coverage.py`). % of the WHOLE screen; a band's cells sum to
+its share of the screen:
+
+| arm | band | screen | leaf (porous) | wood | ground | no hit | solid on the ground (wood + other) |
+|---|---|---|---|---|---|---|---|
+| off | 0-10 / 10-40 / 40-82 / 82 m+ | 23.5 / 12.9 / 5.5 / 58.1 | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | 23.5 / 12.9 / 5.5 / 10.9 | 47.0 (82 m+) | 0.1 |
+| pre-210 | same | 41.5 / 39.3 / 3.0 / 16.1 | 1.3 / 22.2 / 0.4 / 0.5 | **19.0 / 9.2** / 0.4 / 0.4 | 21.1 / 7.8 / 2.3 / 3.6 | 11.5 | **29.1** |
+| sparse | same | 29.9 / 25.9 / 9.6 / 34.6 | 0 / 9.9 / 3.4 / 2.8 | 9.5 / 4.0 / 1.5 / 1.9 | 20.4 / 12.0 / 4.7 / 14.4 | 15.5 | **16.9** |
+| dense | same | 23.5 / 43.6 / 9.9 / 22.9 | 0 / **22.9** / 3.4 / 1.7 | 0 / 8.1 / 1.9 / 1.1 | 23.5 / 12.5 / 4.6 / 13.4 | 6.7 | **11.2** |
+| **all bands** | off / pre-210 / sparse / dense | | 0 / 24.5 / 16.1 / **28.1** | 0 / 29.1 / 16.9 / **11.2** | 52.8 / 34.8 / 51.5 / 54.0 | 47.0 / 11.5 / 15.5 / 6.7 | |
+
+Leaf coverage repeats 246 (25.0 / 16.0 / 28.0 %). New: **wood**. The pre-210 trees put a trunk right at the camera (19 % of the
+screen inside 10 m), so they cover **29.1 %** with wood, not the ~17 % sec. 1b.3 had guessed by decomposition. The dense forest
+covers 11.2 % with wood, and nothing of it within 10 m at this pose (its 0-10 m band equals off). Tier-0 steps per frame repeat 246 to
+within 1 %: off 16.43 (246: 16.42), pre-210 18.61 (18.79), sparse 20.44 (20.35), dense 23.15 (22.99) M. "Other" (water, placed,
+engine ids) is <= 0.1 % in every arm.
 
 ### 1b. Cost model
 
@@ -94,16 +111,30 @@ The "pixels changed" column is the substitute.
    different step counts (wave divergence, §6.5 8.4 note), which a step count cannot show. The measured ratio of +57 % frame for
    trees (210/213, `PERF_SLICE_BUDGETS.md` sec. 6) on flat total steps says the same.
 2. **Porous content, per 1 % of screen covered (leaves):** **+0.225-0.267 M tier-0 steps/frame** (sparse and dense, both suns,
-   `model.txt`). Light rays add +41-108 k (sun + sky) steps per 1 %. Sky rays are hit hardest (+106-115 % at 28 % coverage): every
+   `model.txt`; one term: every step change put on the leaves). **Task 248, two terms (leaf AND measured wood coverage), 16 deg:
+   +0.305 M per 1 %** (3-arm least-squares fit through off; the well-conditioned pairs give +0.233 (sparse + dense) and +0.314
+   (pre-210 + dense)). It moved UP by ~+20-35 %: the one-term figure hid the wood's negative term inside the leaf rate. Light rays add +41-108 k (sun + sky) steps per 1 %. Sky rays are hit hardest (+106-115 % at 28 % coverage): every
    sky-fill sample has to find a way out of the canopy.
 3. **Solid content, per 1 % of screen:** **about -0.15 to -0.20 M tier-0 steps/frame (est.)**. This is a linear decomposition of the
    pre-210 arm: ~17 % of the screen is a near solid trunk (the 0-10 m band grows 23.5 -> 41.5 %, only 1.2 % of it leaf), plus 25 %
    leaves. Its tier-0 rise (+2.4 / +3.1 M) is 2.5-3.4 M below what 25 % of leaves alone would add. That is one arm, so read it as
    "solid content does not add ray work; it removes the work behind it", not as a precise rate.
+   **Task 248, from direct coverage (replaces the decomposition): -0.152 M tier-0 steps/frame per 1 % of screen covered by solid
+   content on the ground** (3-arm fit, the same fit as point 2; wood + other, 16 deg). That lands inside the -0.15 to -0.20 estimate.
+   It is not firm: the fit's residuals are -0.89 / +1.65 / -0.17 M (pre-210 / sparse / dense), and the two well-conditioned pairs
+   give -0.190 (pre-210 + dense) and **+0.016** (sparse + dense). The pre-210 + sparse pair is ill-conditioned (leaf : wood 0.84 vs
+   0.96, almost the same mix) and is not used (it says +1.44 / -1.15 M). Read it as **"solid content adds no tier-0 ray work: 0 to
+   -0.19 M per 1 %"**. The spread likely comes from WHERE the cover sits: a trunk 0-10 m from the camera (pre-210) hides more grazing
+   ground than wood at 10-82 m (sparse, dense). A per-band rate would need more arms than 4.
 4. **Into ms (est., calibrated, not measured):** trees are est. ~49 ms of forest_eye's 135 ms at 16 deg and ~36 of 99 at noon
    (`PERF_SLICE_BUDGETS.md` sec. 6: 210/213 ratio 1.57). Dividing by the dense arm's +6.57 / +6.31 M tier-0 steps gives
    **~5.7-7.5 ms per extra million tier-0 steps**, so **~1.3-1.8 ms per 1 % of screen covered by porous voxel content** at tier A.
-   Solid voxel content is **~0 ms per % (+- shading; guess)**. Both numbers carry the error of the 49 ms estimate. The next forest timing
+   Solid voxel content is **~0 ms per % (+- shading; guess)**.
+   **Task 248 (direct coverage, 16 deg): porous 1.7-2.3 ms per 1 % (fit +0.305 M x 5.7-7.5); the pairs span 1.3-2.4 ms.** The
+   estimate MOVED: its low end holds only for the sparse + dense pair; the best fit is ~+30 % higher at the midpoint (1.55 -> 2.0 ms).
+   **Budget with ~2 ms per 1 % of see-through screen.** Solid: 0 to -1.4 ms per 1 % (est.); keep budgeting it at **~0 ms** (do not bank
+   a saving the sparse + dense pair does not show). The ms-per-M calibration is unchanged (dense +6.72 M now vs 6.57 in 246:
+   49 / 6.72 = 7.3 ms per M, inside 5.7-7.5). Both numbers carry the error of the 49 ms estimate. The next forest timing
    milestone (238) should check them.
 5. **Memory:** tree content shows up in pool OCCUPANCY, not in process peak. The pools are allocated at fixed caps, so process peak
    moves only by noise: 2,511-2,630 MB across all 8 launches, no order by tree arm.
@@ -201,7 +232,7 @@ Today's 8.17 slices have **no free ms** for clutter: the reserves are reflection
 3. **Report from the launch it already does** (no timing): `-raystats 1` at forest_eye and one pose where the content is dense:
    tier-0 steps vs OFF, leaf % of screen, sky steps. GPU pool peak + refused, CPU pool peak (valve), shell stored counts. Limits:
    tier-0 steps +10 %, sky steps +25 %, refusals not up, process peak +50 MB (rule 11 default).
-4. **Est. ms = 1.5 ms x (porous % of screen added)** at tier A, plus the layer's own measured share for clutter. Over the class budget =
+4. **Est. ms = 1.5 ms x (porous % of screen added)** at tier A (task 248's direct coverage says **2.0 ms**, sec. 1b.4), plus the layer's own measured share for clutter. Over the class budget =
    fix it in the task (solid core, thinner placement, smaller radius) or STOP_FOR_OWNER.
 5. **Worst poses decide** (forest 16 deg, jungle noon, night torches, walk 16 deg).
 
@@ -210,7 +241,7 @@ Today's 8.17 slices have **no free ms** for clutter: the reserves are reflection
 Ground clutter is the riskiest: it covers the most screen and has no slice. E1 and E3 need no approval beyond this plan's capture-only
 scope. E2 adds a pass and so needs the owner's approval in its task file (rule 12). E4 is content behind a flag.
 
-**E1 -- `246a-raystats-material-split` (capture only, ~1 session, no look change).** Add a primary-hit material class to RayStats
+**E1 -- `246a-raystats-material-split` (capture only, ~1 session, no look change). DONE as task 248: sec. 1a's material table, sec. 1b.2-4.** Add a primary-hit material class to RayStats
 (leaf / wood / ground / other; 4 more counters per band, `VE_SHELL_DIAG` only, like 244). It also prints porous vs solid screen
 coverage per band. Re-run 246's 4 arms at forest_eye 16 deg only (4 launches, counts). Done when wood coverage is printed and the
 solid-content rate of sec. 1b.3 is re-derived from direct coverage, not decomposition. Tests: `RayStatsReportTests` twin of the new
@@ -256,6 +287,6 @@ owner approves the amendment draft).
 - Each tree arm is a separate launch, because tree flags are world-gen flags. Streaming and shell fill differ a little per launch.
   walk_open bounds that noise (<= 0.8 %).
 - The "pixels changed" proxy includes tree shadows, so it overstates the trees' own coverage. The leaf column counts leaf hits only
-  (wood is missing, see E1).
+  (wood: task 248 counts it directly, sec. 1a).
 - Files (text, tracked): `Screenshots/246/` holds the costsplit reports, `table_raw.txt`, `model.txt`, `coverage_proxy.txt`, `run.sh`,
   `parse.py`, `model.py`, `sheet.py` and `run_log.txt`. Images (git-ignored): `sheet246.jpg` and `forest_eye_off_vs_dense_16.jpg`.

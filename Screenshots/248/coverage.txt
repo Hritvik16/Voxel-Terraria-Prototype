@@ -1,0 +1,49 @@
+== forest_eye 16 deg: primary hit material, % of the SCREEN per band (leaf = porous; wood + other = solid content on the ground)
+arm     band      screen   leaf   wood  ground  other  no hit  porous  solid solid-nogr
+off     0-10 m     23.5%   0.0%   0.0%   23.5%   0.0%    0.0%    0.0%  23.5%       0.0%
+off     10-40 m    12.9%   0.0%   0.0%   12.9%   0.0%    0.0%    0.0%  12.9%       0.0%
+off     40-82 m     5.5%   0.0%   0.0%    5.5%   0.0%    0.0%    0.0%   5.5%       0.0%
+off     82 m+      58.1%   0.0%   0.0%   10.9%   0.1%   47.0%    0.0%  11.0%       0.1%
+off     all       100.0%   0.0%   0.0%   52.8%   0.1%   47.0%    0.0%  53.0%       0.1%
+today   0-10 m     41.5%   1.3%  19.0%   21.1%   0.0%    0.0%    1.3%  40.2%      19.0%
+today   10-40 m    39.3%  22.2%   9.2%    7.8%   0.0%    0.0%   22.2%  17.1%       9.2%
+today   40-82 m     3.0%   0.4%   0.4%    2.3%   0.0%    0.0%    0.4%   2.6%       0.4%
+today   82 m+      16.1%   0.5%   0.4%    3.6%   0.0%   11.5%    0.5%   4.1%       0.5%
+today   all       100.0%  24.5%  29.1%   34.8%   0.0%   11.5%   24.5%  63.9%      29.1%
+sparse  0-10 m     29.9%   0.0%   9.5%   20.4%   0.0%    0.0%    0.0%  29.9%       9.5%
+sparse  10-40 m    25.9%   9.9%   4.0%   12.0%   0.0%    0.0%    9.9%  16.0%       4.0%
+sparse  40-82 m     9.6%   3.4%   1.5%    4.7%   0.0%    0.0%    3.4%   6.2%       1.5%
+sparse  82 m+      34.6%   2.8%   1.9%   14.4%   0.0%   15.5%    2.8%  16.4%       1.9%
+sparse  all       100.0%  16.1%  16.9%   51.5%   0.0%   15.5%   16.1%  68.4%      17.0%
+dense   0-10 m     23.5%   0.0%   0.0%   23.5%   0.0%    0.0%    0.0%  23.5%       0.0%
+dense   10-40 m    43.6%  22.9%   8.1%   12.5%   0.0%    0.0%   22.9%  20.6%       8.1%
+dense   40-82 m     9.9%   3.4%   1.9%    4.6%   0.0%    0.0%    3.4%   6.5%       1.9%
+dense   82 m+      22.9%   1.7%   1.1%   13.4%   0.0%    6.7%    1.7%  14.5%       1.1%
+dense   all       100.0%  28.1%  11.2%   54.0%   0.0%    6.7%   28.1%  65.2%      11.2%
+
+== tier-0 steps (primary + sun + sky, M/frame) vs coverage; d = change vs the off arm
+off     t0  16.43 M  leaf   0.0%  wood+other   0.1%  ground  52.8%  no hit  47.0%   d: t0 +0.00 M, leaf  +0.0, solid  +0.0
+today   t0  18.61 M  leaf  24.5%  wood+other  29.1%  ground  34.8%  no hit  11.5%   d: t0 +2.18 M, leaf +24.5, solid +29.0
+sparse  t0  20.44 M  leaf  16.1%  wood+other  16.9%  ground  51.5%  no hit  15.5%   d: t0 +4.02 M, leaf +16.1, solid +16.8
+dense   t0  23.15 M  leaf  28.1%  wood+other  11.2%  ground  54.0%  no hit   6.7%   d: t0 +6.72 M, leaf +28.1, solid +11.1
+
+fit (3 tree arms, through off): tier-0 steps per 1 % of screen: porous (leaf) +305 k, solid (wood + other) -152 k
+  today   measured +2.18 M, fit +3.07 M, residual -0.89 M
+  sparse  measured +4.02 M, fit +2.36 M, residual +1.65 M
+  dense   measured +6.72 M, fit +6.89 M, residual -0.17 M
+  today   one-term (all on leaf) +89 k per 1 % leaf
+  sparse  one-term (all on leaf) +249 k per 1 % leaf
+  dense   one-term (all on leaf) +239 k per 1 % leaf
+
+ms (est., 246's calibration 5.7-7.5 ms per M tier-0 steps): porous 1.74-2.29 ms per 1 %, solid -0.86..-1.14 ms per 1 %
+
+== memory (forest_eye): CPU pool peak, GPU pool peak, refused, process peak MB; shells stored/missing
+off     cpu peak   436,947  gpu peak   153,364 refused   0  process peak  2480.7 MB  shells (1497, 6501)
+today   cpu peak   492,897  gpu peak   254,396 refused  27  process peak  2579.4 MB  shells (4008, 3990)
+sparse  cpu peak   492,648  gpu peak   221,323 refused   0  process peak  2521.8 MB  shells (4670, 3328)
+dense   cpu peak   493,793  gpu peak   245,704 refused   0  process peak  2574.2 MB  shells (4898, 3100)
+
+== sensitivity: each pair of tree arms solved exactly (tier-0 steps per 1 % of screen)
+  today+sparse: porous +1444 k, solid -1145 k  ->  porous 8.23-10.83 ms per 1 %, solid -6.52..-8.58 ms per 1 %
+  today+dense: porous +314 k, solid -190 k  ->  porous 1.79-2.36 ms per 1 %, solid -1.08..-1.43 ms per 1 %
+  sparse+dense: porous +233 k, solid +16 k  ->  porous 1.33-1.75 ms per 1 %, solid +0.09..+0.12 ms per 1 %

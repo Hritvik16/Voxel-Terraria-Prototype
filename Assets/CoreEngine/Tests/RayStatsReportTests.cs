@@ -104,6 +104,96 @@ public class RayStatsReportTests
         StringAssert.Contains("no data", RayStatsReport.Format(null, "x"));
     }
 
+    // ---- Task 248 (WORLD_FILL_BUDGET sec. 5 E1): the primary hit's material split, [6] wood / [7] ground ----
+
+    [Test]
+    public void MatClass_TwinsTheShader_WoodIsTask225sClass1()
+    {
+        string src = File.ReadAllText(Shader).Replace("\r\n", "\n");
+        StringAssert.Contains("uint RayStatsMatClass(uint mat)\n{\n" +
+            "    if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1u;\n" +
+            "    if (RayStatsLeaf(mat)) return 0u;\n" +
+            "    return (mat >= 128u && mat <= 223u) ? 2u : 0u;\n}", src);
+        // The wood set is the same as the shade probe's class 1 (task 225), so the two can never drift apart.
+        StringAssert.Contains("uint cls = ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) ? 1u", src);
+        StringAssert.Contains("    if (matCls == 1u) InterlockedAdd(RayStats[b + 6u], 1u);", src);
+        StringAssert.Contains("    else if (matCls == 2u) InterlockedAdd(RayStats[b + 7u], 1u);", src);
+        // Only the PRIMARY call classifies, and only a voxel hit; the sun and sky calls pass 0u (their [6]/[7] stay 0).
+        StringAssert.Contains("(uint)steps, hit, hit && RayStatsLeaf(mat), false, hit ? RayStatsMatClass(mat) : 0u);", src);
+        StringAssert.Contains("RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol, 0u);", src);
+        StringAssert.Contains("fillSample <= 0.0, rsLeaf, rsFol, 0u);", src);
+        Assert.AreEqual(4, Regex.Matches(src, @"RayStatsAdd\(").Count, "the helper + three call sites");
+        // Every id 0..255 lands in exactly one class; counts per class are pinned.
+        int leaf = 0, wood = 0, ground = 0, other = 0;
+        for (uint m = 0; m < 256u; m++)
+        {
+            bool isLeaf = (m >= 183u && m <= 186u) || m == 216u;
+            int c = RayStatsReport.MatClass(m);
+            if (isLeaf) { Assert.AreEqual(0, c, $"leaf {m} is counted in [4], not [6]/[7]"); leaf++; }
+            else if (c == 1) wood++;
+            else if (c == 2) ground++;
+            else other++;
+        }
+        Assert.AreEqual(5, leaf);
+        Assert.AreEqual(7, wood, "147 birch bark, 204-207 woods, 215 bark, 221 cactus");
+        Assert.AreEqual(96 - 5 - 7, ground);
+        Assert.AreEqual(256 - 96, other);
+        Assert.AreEqual(2, RayStatsReport.MatClass(138u), "grass");
+        Assert.AreEqual(0, RayStatsReport.MatClass(1u), "engine id (water etc.) -> other");
+        Assert.AreEqual(0, RayStatsReport.MatClass(224u), "past the generator table -> other");
+    }
+
+    /// A primary ray in (band) that hit (cls: 'l' leaf, 'w' wood, 'g' ground, 'o' other, 'n' no hit), as the shader writes it.
+    static void AddPrimary(uint[] d, int band, char cls, int n)
+    {
+        int o = RayStatsReport.Rec(0, band);
+        for (int k = 0; k < n; k++)
+        {
+            d[o]++; d[o + 1] += 10u; d[o + RayStatsReport.HIST + RayStatsReport.Bin(10u)]++;
+            if (cls == 'n') continue;
+            d[o + 3]++;
+            if (cls == 'l') d[o + RayStatsReport.LEAF]++;
+            if (cls == 'w') d[o + RayStatsReport.WOOD]++;
+            if (cls == 'g') d[o + RayStatsReport.GROUND]++;
+        }
+    }
+
+    [Test]
+    public void MatSplit_SumsToRays_PerBandAndAll_FormatPrintsScreenShares()
+    {
+        Assert.AreEqual(4, RayStatsReport.LEAF);
+        Assert.AreEqual(6, RayStatsReport.WOOD);
+        Assert.AreEqual(7, RayStatsReport.GROUND);
+        var d = new uint[RayStatsReport.LEN];
+        d[0] = 1; d[1] = 1000;
+        AddPrimary(d, 0, 'w', 170); AddPrimary(d, 0, 'g', 60); AddPrimary(d, 0, 'l', 10);              // 24 % of the screen
+        AddPrimary(d, 1, 'l', 230); AddPrimary(d, 1, 'w', 50); AddPrimary(d, 1, 'g', 140); AddPrimary(d, 1, 'o', 16); // 43.6 %
+        AddPrimary(d, 2, 'g', 95);                                                                        // 9.5 %
+        AddPrimary(d, 3, 'n', 200); AddPrimary(d, 3, 'g', 29);                                            // 22.9 %
+        // Sun rays with a leaf block and their own [6]/[7] left 0: they must not leak into the primary split.
+        int s = RayStatsReport.Rec(1, 1); d[s] = 500; d[s + 3] = 400; d[s + 4] = 300;
+        var b1 = RayStatsReport.Mat(d, 1 << 1);
+        Assert.AreEqual(436ul, b1.rays); Assert.AreEqual(230ul, b1.leaf); Assert.AreEqual(50ul, b1.wood);
+        Assert.AreEqual(140ul, b1.ground); Assert.AreEqual(16ul, b1.other); Assert.AreEqual(0ul, b1.none);
+        var all = RayStatsReport.Mat(d, 15);
+        Assert.AreEqual(1000ul, all.rays);
+        Assert.AreEqual(all.rays, all.leaf + all.wood + all.ground + all.other + all.none, "the classes partition the rays");
+        Assert.AreEqual(200ul, all.none); Assert.AreEqual(220ul, all.wood); Assert.AreEqual(240ul, all.leaf);
+        string t = RayStatsReport.Format(d, "pose");
+        var row = Regex.Match(t, @"\n\s+10-40 m\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%");
+        Assert.IsTrue(row.Success, t);
+        string[] want = { "43.6", "23.0", "5.0", "14.0", "1.6", "0.0", "23.0", "20.6", "6.6" };
+        for (int k = 0; k < want.Length; k++) Assert.AreEqual(want[k], row.Groups[k + 1].Value, $"10-40 m column {k}");
+        var a = Regex.Match(t, @"\n\s+all\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%");
+        Assert.IsTrue(a.Success, t);
+        Assert.AreEqual("100.0", a.Groups[1].Value); Assert.AreEqual("24.0", a.Groups[2].Value);
+        Assert.AreEqual("22.0", a.Groups[3].Value); Assert.AreEqual("20.0", a.Groups[6].Value);
+        // Adversarial: a corrupt window with more classified hits than hits clamps 'other' to 0, never wraps.
+        var bad = new uint[RayStatsReport.LEN];
+        int o0 = RayStatsReport.Rec(0, 0); bad[o0] = 5; bad[o0 + 3] = 2; bad[o0 + RayStatsReport.WOOD] = 3;
+        Assert.AreEqual(0ul, RayStatsReport.Mat(bad, 1).other);
+    }
+
     [Test]
     public void DiagTwins_FoldTheCascadeOff_SoTheyFitMetalsBufferTable()
     {

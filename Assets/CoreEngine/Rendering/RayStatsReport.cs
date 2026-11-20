@@ -6,7 +6,8 @@
 // pinned by RayStatsReportTests.
 //   [0] frames, [1] in-bounds primary pixels, [2..7] spare; then 12 records of 200 uints: kind (0 primary, 1 sun, 2 sky)
 //   x 4 + band (0-10 m, 10-40 m, 40-82 m, 82 m+ / no hit): [0] rays, [1] steps, [2] tier-0 steps, [3] blocked, [4] blocked
-//   by a tier-0 leaf voxel, [5] stopped by the foliage early-out (task 245), [8..199] steps-per-ray histogram.
+//   by a tier-0 leaf voxel, [5] stopped by the foliage early-out (task 245), [6] primary hit is wood, [7] primary hit is
+//   ground (task 248, the shader's RayStatsMatClass), [8..199] steps-per-ray histogram.
 
 using System.Text;
 
@@ -15,6 +16,8 @@ namespace VoxelEngine.Rendering
     public static class RayStatsReport
     {
         public const int HDR = 8, REC = 200, HIST = 8, BINS = 192, KINDS = 3, BANDS = 4;
+        /// Record slots of the primary-hit material split (task 248): leaf reuses [4]; other = hit - leaf - wood - ground.
+        public const int LEAF = 4, WOOD = 6, GROUND = 7;
         public const int LEN = HDR + KINDS * BANDS * REC;   // = RaymarchFeature.RAYSTATS_LEN
         public static readonly string[] KindNames = { "primary", "sun", "sky" };
         public static readonly string[] BandNames = { "0-10 m", "10-40 m", "40-82 m", "82 m+" };
@@ -82,6 +85,43 @@ namespace VoxelEngine.Rendering
                       $"{(steps > 0 ? 100.0 * t0 / steps : 0.0),8:F0}%{(rays > 0 ? 100.0 * blk / rays : 0.0),8:F0}%{(rays > 0 ? 100.0 * leaf / rays : 0.0),7:F0}%{(rays > 0 ? 100.0 * fol / rays : 0.0),7:F1}%\n");
         }
 
+        /// Task 248 (WORLD_FILL_BUDGET sec. 5 E1): the PRIMARY rays of a set of bands split by what they hit, in rays (summed
+        /// over the window). other = voxel hits that are neither leaf, wood nor ground (water, fluids, placed, engine ids);
+        /// none = no voxel hit (sky, or the far band's heightfield past the shells). leaf + wood + ground + other + none = rays.
+        public struct MatSplit { public ulong rays, leaf, wood, ground, other, none; }
+
+        /// The shader's RayStatsMatClass: 1 wood, 2 ground, 0 = not counted in [6]/[7] (leaf, or other).
+        public static int MatClass(uint mat)
+        {
+            if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1;
+            if ((mat >= 183u && mat <= 186u) || mat == 216u) return 0;
+            return (mat >= 128u && mat <= 223u) ? 2 : 0;
+        }
+
+        public static MatSplit Mat(uint[] d, int bandMask)
+        {
+            var m = new MatSplit();
+            ulong hit = 0;
+            for (int band = 0; band < BANDS; band++)
+            {
+                if ((bandMask & (1 << band)) == 0) continue;
+                int r = Rec(0, band);
+                m.rays += d[r]; hit += d[r + 3]; m.leaf += d[r + LEAF]; m.wood += d[r + WOOD]; m.ground += d[r + GROUND];
+            }
+            ulong cls = m.leaf + m.wood + m.ground;
+            m.other = hit > cls ? hit - cls : 0;
+            m.none = m.rays > hit ? m.rays - hit : 0;
+            return m;
+        }
+
+        static void MatRow(StringBuilder sb, uint[] d, int bandMask, string bandName, ulong pixels)
+        {
+            MatSplit m = Mat(d, bandMask);
+            double P(ulong v) => pixels > 0 ? 100.0 * v / pixels : 0.0;
+            sb.Append($"    {bandName,-9}{P(m.rays),8:F1}%{P(m.leaf),8:F1}%{P(m.wood),8:F1}%{P(m.ground),8:F1}%{P(m.other),8:F1}%{P(m.none),8:F1}%" +
+                      $"{P(m.leaf),10:F1}%{P(m.wood + m.ground + m.other),9:F1}%{P(m.wood + m.other),12:F1}%\n");
+        }
+
         /// The table for one counter window. d.Length must be LEN; frames = d[0] (the GPU's own count).
         public static string Format(uint[] d, string title)
         {
@@ -97,6 +137,13 @@ namespace VoxelEngine.Rendering
                 for (int band = 0; band < BANDS; band++) Row(sb, d, kind, 1 << band, BandNames[band], frames, pixels);
                 Row(sb, d, kind, (1 << BANDS) - 1, "all", frames, pixels);
             }
+            sb.Append("    primary hit material, % of the SCREEN (task 248; a band's row sums to its share of the screen):\n");
+            sb.Append("    band       screen     leaf     wood   ground    other  no hit    porous     solid  solid-nogr\n");
+            for (int band = 0; band < BANDS; band++) MatRow(sb, d, 1 << band, BandNames[band], pixels);
+            MatRow(sb, d, (1 << BANDS) - 1, "all", pixels);
+            sb.Append("    (wood = 147/204-207/215/221 (task 225 class 1); ground = other generator ids 128-223; other = water / fluids / placed /\n" +
+                      "     engine ids; no hit = sky or the far band's heightfield; porous = leaf; solid = wood + ground + other;\n" +
+                      "     solid-nogr = wood + other, the solid content standing ON the ground)\n");
             sb.Append("    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is\n" +
                       "     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain\n" +
                       "     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage\n" +

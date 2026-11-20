@@ -2232,3 +2232,13 @@ exact contact ray of <= 8 cells + 4 taps with the run rule (inside the first run
 frame (~700 lines per edited brick). Est. memory +13.4 / +27.0 MB minus 8.0 MB sun history at 432 rows. Guess: forest 16 deg sun 54.7 -> 8-16 ms
 and -4..-10 ms off the bounce; walk_near 12.9 -> 6-11; night 0. Prototype outlines 247a (CPU twin + oracle, correctness kill test), 247b
 (`suncontact` timed kill arm), 247c (N maps + F, `-suncache 1`), 247d (shell maps). Result: HANDOFF 247.
+
+**Task 248 (capture only; WORLD_FILL_BUDGET sec. 5 E1): primary-hit material split in `-raystats 1`.** `Raymarch.compute`: `RayStatsMatClass(mat)`
+(1 wood = task 225's class 1: 147, 204-207, 215, 221; 2 ground = every other generator id 128-223 that is not leaf; 0 = leaf / other) and
+`RayStatsAdd(..., matCls)` writes the record's two spare slots [6] wood / [7] ground for the PRIMARY ray of a voxel hit only (sun / sky pass 0u).
+Leaf stays [4]; other (water, fluids, placed, engine ids) = hit - leaf - wood - ground on the CPU; no hit = sky or the far band's heightfield.
+No buffer growth (still 9.6 KB, same bindings, so the *Diag kernels keep their Metal slot count); still only under `VE_SHELL_DIAG`, play kernels
+unchanged. `RayStatsReport` prints a second table, "primary hit material, % of the SCREEN" per band: leaf / wood / ground / other / no hit,
+porous (leaf), solid (wood + ground + other) and solid-nogr (wood + other: content standing on the ground). Tests: `RayStatsReportTests`
+`MatClass_TwinsTheShader_WoodIsTask225sClass1`, `MatSplit_SumsToRays_PerBandAndAll_FormatPrintsScreenShares`. Runner `Screenshots/248/run.sh`
+(246's 4 tree arms at 16 deg), `python3 -I Screenshots/248/coverage.py` -> `coverage.txt`. Result: HANDOFF 248, WORLD_FILL_BUDGET sec. 1b.

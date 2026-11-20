@@ -307,7 +307,9 @@ int _CollectShadowStats;
 // Layout (uints): [0] frames (pass-1 thread 0 of the primary kernel), [1] in-bounds primary pixels, [2..7] spare;
 // then 12 records of RS_REC = kind (0 primary, 1 sun, 2 sky) x 4 + band (camera distance of the ray's pixel / face:
 // 0-10 m, 10-40 m, 40-82 m, 82 m+ or no hit): [0] rays, [1] steps, [2] of them tier-0 steps, [3] blocked (primary: hit),
-// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5] stopped by the foliage early-out (task 245), [6..7] spare, [8..199] histogram of steps per ray (RayStatsBin).
+// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5] stopped by the foliage early-out (task 245),
+// [6] primary only: the hit is WOOD, [7] primary only: the hit is GROUND (task 248, RayStatsMatClass; other = [3] - [4] - [6] - [7]),
+// [8..199] histogram of steps per ray (RayStatsBin).
 // Steps = loop iterations of the marches the ray ran (tier-0 DDA / leaps, shell iterations, far-band steps), counted ONCE
 // per ray (pass 2 of the shell pre-pass re-runs a handed-over group's tier-0 march; that repeat is not counted).
 RWStructuredBuffer<uint> RayStats;
@@ -326,7 +328,16 @@ uint RayStatsBin(uint s) { return s < 64u ? s : (s < 1088u ? 64u + ((s - 64u) >>
 uint RayStatsBand(float tVox) { return tVox < 100.0 ? 0u : (tVox < 400.0 ? 1u : (tVox < 820.0 ? 2u : 3u)); }
 /// The leaf materials (task 225's class 2: 183-186, 216).
 bool RayStatsLeaf(uint mat) { return (mat >= 183u && mat <= 186u) || mat == 216u; }
-void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf, bool fol)
+/// Task 248 (WORLD_FILL_BUDGET sec. 5 E1): the primary hit's material class for the porous / solid coverage split.
+/// 1 wood (task 225's class 1: 147, 204-207, 215, 221), 2 ground (every other generator id 128..223 that is not leaf),
+/// 0 = not counted here (leaf is [4]; other = water / fluids / placed / engine ids < 128 or > 223, derived on the CPU).
+uint RayStatsMatClass(uint mat)
+{
+    if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1u;
+    if (RayStatsLeaf(mat)) return 0u;
+    return (mat >= 128u && mat <= 223u) ? 2u : 0u;
+}
+void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf, bool fol, uint matCls)
 {
     uint b = RS_HDR + (kind * 4u + band) * RS_REC;
     InterlockedAdd(RayStats[b], 1u);
@@ -336,6 +347,8 @@ void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, b
     if (leaf) InterlockedAdd(RayStats[b + 4u], 1u);
     InterlockedAdd(RayStats[b + RS_HIST + RayStatsBin(steps)], 1u);
     if (fol) InterlockedAdd(RayStats[b + 5u], 1u);   // task 245: stopped by the foliage early-out
+    if (matCls == 1u) InterlockedAdd(RayStats[b + 6u], 1u);        // task 248: primary hit is wood
+    else if (matCls == 2u) InterlockedAdd(RayStats[b + 7u], 1u);   // task 248: primary hit is ground
 }
 
 // ---- TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6; owner Q-AT D4): FOLIAGE LIGHT EARLY-OUT ----
@@ -4814,7 +4827,7 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
 #ifdef VE_SHELL_DIAG
     // Task 244: band = the face's camera distance (both callers: the primary kernel's orphans, CSSkyFillTraceDiag's blocks).
     if (RAY_STATS_ON)
-        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf, rsFol);
+        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf, rsFol, 0u);
 #endif
     return fillSample;
 }
@@ -6183,9 +6196,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     {
         InterlockedAdd(RayStats[1], 1u);
         uint rsBand = hit ? RayStatsBand(currentDist) : 3u;
-        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat), false);
+        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat), false, hit ? RayStatsMatClass(mat) : 0u);
         if (farShadowSteps > 0) { rsSun = true; rsSunSteps += (uint)farShadowSteps; if (farSunVis <= 0.0) rsSunBlk = true; }
-        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol);
+        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol, 0u);
     }
 #endif
 
