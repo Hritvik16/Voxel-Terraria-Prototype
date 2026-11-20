@@ -1,0 +1,119 @@
+
+== forest_eye  sun 16  (per frame, 432 render rows, 331,776 primary px)
+arm     band      prim steps   /ray  sun rays  sun steps   /ray  sky steps leaf px%    %px tot steps/px
+off     0-10 m         2.74M   35.0     20.9k      1.17M   55.9      0.14M     0.0%  23.5%         12.2
+off     10-40 m        4.33M  101.1     21.6k      1.55M   71.6      0.16M     0.0%  12.9%         18.2
+off     40-82 m        2.56M  140.4     17.0k      1.21M   71.4      0.16M     0.0%   5.5%         11.8
+off     82 m+         14.75M   76.6    130.9k      4.87M   37.2      0.47M     0.0%  58.1%         60.6
+off     all           24.38M   73.5    190.5k      8.80M   46.2      0.93M     0.0% 100.0%        102.8
+today   0-10 m         3.87M   28.1     36.3k      1.96M   54.0      0.42M     1.2%  41.5%         18.8
+today   10-40 m        7.71M   59.1     45.7k      1.82M   39.8      0.68M    22.4%  39.3%         30.7
+today   40-82 m        1.39M  137.9      8.6k      0.87M  101.0      0.11M     0.4%   3.0%          7.1
+today   82 m+          5.09M   95.1     22.0k      0.83M   37.6      0.15M     0.5%  16.1%         18.3
+today   all           18.05M   54.4    112.6k      5.48M   48.6      1.35M    25.0% 100.0%         75.0
+sparse  0-10 m         3.33M   33.6     26.2k      1.18M   45.1      0.31M     0.0%  29.9%         14.5
+sparse  10-40 m        5.82M   67.8     37.5k      2.23M   59.6      0.54M     9.8%  25.9%         25.9
+sparse  40-82 m        3.46M  108.4     25.4k      2.02M   79.5      0.43M     3.4%   9.6%         17.8
+sparse  82 m+         11.74M  102.2     63.7k      3.65M   57.3      0.35M     2.8%  34.6%         47.4
+sparse  all           24.34M   73.4    152.7k      9.08M   59.5      1.63M    16.0% 100.0%        105.7
+dense   0-10 m         2.73M   35.0     21.1k      1.31M   61.9      0.20M     0.0%  23.5%         12.8
+dense   10-40 m        7.91M   54.7     56.2k      2.72M   48.3      0.94M    23.1%  43.6%         34.8
+dense   40-82 m        3.63M  110.0     24.4k      1.97M   80.8      0.42M     3.4%   9.9%         18.1
+dense   82 m+          7.79M  102.4     52.5k      2.88M   54.8      0.45M     1.8%  22.9%         33.5
+dense   all           22.06M   66.5    154.2k      8.87M   57.5      2.00M    28.0% 100.0%         99.3
+
+== walk_open  sun 16  (per frame, 432 render rows, 331,776 primary px)
+arm     band      prim steps   /ray  sun rays  sun steps   /ray  sky steps leaf px%    %px tot steps/px
+off     0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+off     10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+off     40-82 m        1.89M   39.9     41.6k      1.33M   32.0      0.10M     0.0%  14.3%         10.0
+off     82 m+         16.10M   56.6    111.0k      1.65M   14.8      0.12M     0.0%  85.7%         53.9
+off     all           18.00M   54.2    152.6k      2.97M   19.5      0.22M     0.0% 100.0%         63.9
+today   0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+today   10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+today   40-82 m        1.89M   39.9     41.6k      1.32M   31.9      0.10M     0.0%  14.3%         10.0
+today   82 m+         16.25M   57.1    111.0k      1.64M   14.8      0.12M     0.0%  85.7%         54.3
+today   all           18.14M   54.7    152.6k      2.97M   19.4      0.22M     0.0% 100.0%         64.3
+sparse  0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+sparse  10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+sparse  40-82 m        1.89M   39.9     41.5k      1.33M   32.0      0.10M     0.0%  14.3%         10.0
+sparse  82 m+         16.10M   56.6    111.0k      1.65M   14.8      0.12M     0.0%  85.7%         53.9
+sparse  all           18.00M   54.2    152.6k      2.97M   19.5      0.21M     0.0% 100.0%         63.9
+dense   0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+dense   10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+dense   40-82 m        1.89M   39.9     41.6k      1.33M   31.9      0.10M     0.0%  14.3%         10.0
+dense   82 m+         16.11M   56.6    111.1k      1.65M   14.8      0.12M     0.0%  85.7%         53.9
+dense   all           18.00M   54.3    152.7k      2.98M   19.5      0.22M     0.0% 100.0%         63.9
+
+
+== forest_eye  sun noon  (per frame, 432 render rows, 331,776 primary px)
+arm     band      prim steps   /ray  sun rays  sun steps   /ray  sky steps leaf px%    %px tot steps/px
+off     0-10 m         2.73M   35.0     21.1k      0.49M   23.0      0.14M     0.0%  23.5%         10.1
+off     10-40 m        4.33M  101.1     22.0k      0.52M   23.8      0.15M     0.0%  12.9%         15.1
+off     40-82 m        2.56M  140.4     17.1k      0.38M   22.4      0.14M     0.0%   5.5%          9.3
+off     82 m+         16.51M   85.7    131.0k      2.09M   15.9      0.41M     0.0%  58.1%         57.3
+off     all           26.14M   78.8    191.3k      3.48M   18.2      0.85M     0.0% 100.0%         91.8
+today   0-10 m         3.87M   28.1     36.3k      1.07M   29.6      0.40M     1.2%  41.5%         16.1
+today   10-40 m        7.71M   59.1     45.7k      1.07M   23.3      0.57M    22.4%  39.3%         28.2
+today   40-82 m        1.39M  137.9      8.7k      0.25M   28.7      0.10M     0.4%   3.0%          5.2
+today   82 m+          5.11M   95.5     22.0k      0.45M   20.5      0.13M     0.5%  16.1%         17.1
+today   all           18.07M   54.5    112.6k      2.84M   25.2      1.20M    25.0% 100.0%         66.6
+sparse  0-10 m         3.33M   33.6     26.2k      0.92M   35.0      0.30M     0.0%  29.9%         13.7
+sparse  10-40 m        5.82M   67.8     37.5k      1.03M   27.4      0.47M     9.8%  25.9%         22.1
+sparse  40-82 m        3.46M  108.4     25.4k      0.70M   27.7      0.39M     3.4%   9.6%         13.7
+sparse  82 m+         11.61M  101.1     63.7k      1.94M   30.5      0.30M     2.8%  34.6%         41.8
+sparse  all           24.21M   73.0    152.9k      4.59M   30.0      1.46M    16.0% 100.0%         91.2
+dense   0-10 m         2.74M   35.0     20.9k      0.60M   28.5      0.19M     0.0%  23.5%         10.6
+dense   10-40 m        7.91M   54.7     56.0k      1.46M   26.0      0.79M    23.1%  43.6%         30.6
+dense   40-82 m        3.63M  110.0     24.4k      0.69M   28.3      0.37M     3.4%   9.9%         14.1
+dense   82 m+          8.03M  105.6     52.6k      1.62M   30.8      0.39M     1.8%  22.9%         30.3
+dense   all           22.30M   67.2    153.9k      4.36M   28.3      1.74M    28.0% 100.0%         85.6
+
+== walk_open  sun noon  (per frame, 432 render rows, 331,776 primary px)
+arm     band      prim steps   /ray  sun rays  sun steps   /ray  sky steps leaf px%    %px tot steps/px
+off     0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+off     10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+off     40-82 m        1.89M   39.9     41.6k      1.71M   41.1      0.11M     0.0%  14.3%         11.2
+off     82 m+         16.10M   56.6    111.0k      2.00M   18.0      0.14M     0.0%  85.7%         55.0
+off     all           18.00M   54.2    152.6k      3.71M   24.3      0.25M     0.0% 100.0%         66.2
+today   0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+today   10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+today   40-82 m        1.89M   39.9     41.5k      1.71M   41.1      0.11M     0.0%  14.3%         11.2
+today   82 m+         16.10M   56.6    110.9k      1.99M   17.9      0.13M     0.0%  85.7%         54.9
+today   all           18.00M   54.2    152.4k      3.70M   24.3      0.24M     0.0% 100.0%         66.1
+sparse  0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+sparse  10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+sparse  40-82 m        1.89M   39.9     41.6k      1.71M   41.1      0.11M     0.0%  14.3%         11.2
+sparse  82 m+         16.11M   56.6    111.0k      2.00M   18.0      0.14M     0.0%  85.7%         55.0
+sparse  all           18.00M   54.2    152.6k      3.71M   24.3      0.25M     0.0% 100.0%         66.2
+dense   0-10 m         0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+dense   10-40 m        0.00M    0.0      0.0k      0.00M    0.0      0.00M     0.0%   0.0%          0.0
+dense   40-82 m        1.89M   39.9     41.6k      1.71M   41.1      0.11M     0.0%  14.3%         11.2
+dense   82 m+         16.23M   57.1    111.0k      1.99M   18.0      0.14M     0.0%  85.7%         55.3
+dense   all           18.12M   54.6    152.6k      3.70M   24.3      0.25M     0.0% 100.0%         66.5
+
+== memory (forest_eye line; walk_open line): CPU pool peak, GPU pool peak, refused, process peak MB; shells stored/missing
+off     16    walk_near  cpu peak   176,791  gpu peak    92,643 refused   0 in use    92,643 sealed   12,864  process now  2364.4 peak  2567.8 MB  shells (2168, 5501)
+off     16    forest_eye cpu peak   436,947  gpu peak   153,364 refused   0 in use   153,364 sealed  100,405  process now  2417.5 peak  2567.8 MB  shells (1858, 6140)
+off     16    walk_open  cpu peak   436,947  gpu peak   153,364 refused   0 in use   133,918 sealed   36,551  process now  2434.7 peak  2567.8 MB  shells (2907, 4086)
+today   16    walk_near  cpu peak   165,711  gpu peak    92,643 refused   0 in use    92,643 sealed   12,864  process now  2243.8 peak  2516.8 MB  shells (1618, 6051)
+today   16    forest_eye cpu peak   492,812  gpu peak   254,400 refused  27 in use   254,387 sealed   97,589  process now  2383.9 peak  2516.8 MB  shells (3559, 4439)
+today   16    walk_open  cpu peak   492,812  gpu peak   254,400 refused  27 in use   133,918 sealed   36,551  process now  2374.1 peak  2516.8 MB  shells (2686, 4307)
+sparse  16    walk_near  cpu peak   170,836  gpu peak    92,643 refused   0 in use    92,643 sealed   12,864  process now  2347.1 peak  2577.9 MB  shells (1840, 5829)
+sparse  16    forest_eye cpu peak   491,974  gpu peak   221,323 refused   0 in use   221,323 sealed  100,415  process now  2424.6 peak  2577.9 MB  shells (4398, 3600)
+sparse  16    walk_open  cpu peak   491,974  gpu peak   221,323 refused   0 in use   133,918 sealed   36,551  process now  2452.3 peak  2577.9 MB  shells (3430, 3732)
+dense   16    walk_near  cpu peak   176,791  gpu peak    92,643 refused   0 in use    92,643 sealed   12,864  process now  2310.8 peak  2552.3 MB  shells (2647, 5022)
+dense   16    forest_eye cpu peak   493,686  gpu peak   245,704 refused   0 in use   245,704 sealed  100,415  process now  2416.6 peak  2552.3 MB  shells (3888, 4110)
+dense   16    walk_open  cpu peak   493,686  gpu peak   245,704 refused   0 in use   133,918 sealed   36,551  process now  2432.7 peak  2552.3 MB  shells (3711, 3451)
+off     noon  walk_near  cpu peak   237,347  gpu peak   137,204 refused   0 in use   137,204 sealed   27,043  process now  2280.7 peak  2511.2 MB  shells (2709, 4453)
+off     noon  forest_eye cpu peak   436,947  gpu peak   153,364 refused   0 in use   153,364 sealed  100,405  process now  2397.6 peak  2511.2 MB  shells (2624, 5374)
+off     noon  walk_open  cpu peak   436,947  gpu peak   153,364 refused   0 in use   133,918 sealed   36,551  process now  2419.0 peak  2511.2 MB  shells (3217, 3776)
+today   noon  walk_near  cpu peak   237,347  gpu peak   137,204 refused   0 in use   137,204 sealed   27,043  process now  2430.5 peak  2521.6 MB  shells (2845, 4317)
+today   noon  forest_eye cpu peak   493,423  gpu peak   254,396 refused  26 in use   254,390 sealed   98,328  process now  2394.6 peak  2521.6 MB  shells (3891, 4107)
+today   noon  walk_open  cpu peak   493,423  gpu peak   254,396 refused  26 in use   133,918 sealed   36,551  process now  2405.2 peak  2521.6 MB  shells (3370, 3623)
+sparse  noon  walk_near  cpu peak   237,285  gpu peak   137,204 refused   0 in use   137,204 sealed   27,043  process now  2333.7 peak  2630.3 MB  shells (2761, 4570)
+sparse  noon  forest_eye cpu peak   492,082  gpu peak   221,323 refused   0 in use   221,323 sealed  100,415  process now  2420.5 peak  2630.3 MB  shells (4258, 3740)
+sparse  noon  walk_open  cpu peak   492,082  gpu peak   221,323 refused   0 in use   133,918 sealed   36,551  process now  2422.3 peak  2630.3 MB  shells (3632, 3530)
+dense   noon  walk_near  cpu peak   237,347  gpu peak   137,204 refused   0 in use   137,204 sealed   27,043  process now  2310.5 peak  2532.5 MB  shells (2819, 4512)
+dense   noon  forest_eye cpu peak   493,432  gpu peak   245,704 refused   0 in use   245,704 sealed  100,415  process now  2413.8 peak  2532.5 MB  shells (4825, 3173)
+dense   noon  walk_open  cpu peak   493,432  gpu peak   245,704 refused   0 in use   133,918 sealed   36,551  process now  2413.2 peak  2532.5 MB  shells (3848, 3314)

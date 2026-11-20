@@ -1,0 +1,28 @@
+build start 10:15:42
+build ok
+DONE
+launch off_16 start 10:17:12
+report: Logs/costsplit_2026-11-20_101837.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_101837
+DONE
+launch today_16 start 10:26:23
+report: Logs/costsplit_2026-11-20_102756.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_102756
+DONE
+launch sparse_16 start 10:40:54
+report: Logs/costsplit_2026-11-20_104224.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_104224
+DONE
+launch dense_16 start 10:55:08
+report: Logs/costsplit_2026-11-20_105631.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_105631
+DONE
+launch off_noon start 11:08:26
+report: Logs/costsplit_2026-11-20_110950.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_110950
+DONE
+launch today_noon start 11:17:00
+report: Logs/costsplit_2026-11-20_111825.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_111825
+DONE
+launch sparse_noon start 11:30:14
+report: Logs/costsplit_2026-11-20_113137.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_113137
+DONE
+launch dense_noon start 11:43:30
+report: Logs/costsplit_2026-11-20_114453.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-20_114453
+DONE
+=== ALL DONE 11:56:43

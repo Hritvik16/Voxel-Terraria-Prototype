@@ -1,56 +1,71 @@
-STOP_FOR_OWNER -- Q-245: make the foliage light early-out the default? **Recommendation: NO (keep it OFF; close lever F4).**
-It saves 7-8 % of forest sun + sky ray steps at eps 1/8 (13-18 % at 1/2), but it is wrong a third to a half of the times it fires:
-crowns are clumps with gaps, not a random medium, so the rays it stops would often have reached the sun. Under the oak the dapples
-nearly vanish (lit sun rays 4 % -> 1 % at 16 deg). (a) keep OFF, close F4 (recommended); (b) default ON at eps 1/8 and accept the look;
-(c) other (e.g. a per-brick "gap" statistic instead of fill: new design work).
+# 246-world-fill-cost-plan: DONE -- `WORLD_FILL_BUDGET.md` (plan + capture counts; no engine code, no frame times). Owner questions Q-246a-e (not blocking)
 
-# 245-foliage-light-early-out: DONE behind -foliageout 1 (default OFF); data says it does not pay -> Q-245
+## What changed (commit: see `git log -1`; docs + text logs only)
+- `WORLD_FILL_BUDGET.md` (new, repo root): owner summary, count table + cost model, fill classes with render paths (citing ARCHITECTURE_v8.6
+  §5.4/6.1/6.2/6.3/6.5), shipped-game notes (sourced), per-class tier-A budget, placement admission rule, experiments E1-E4 as
+  queue-ready outlines, questions for the owner.
+- `Screenshots/246/` (text): 8 costsplit reports, `table_raw.txt`, `model.txt`, `coverage_proxy.txt`, `run.sh`, `parse.py`, `model.py`, `sheet.py`, `run_log.txt`.
+- `TASKS.md`: Task 246 paragraph.
+- A previous session of this task (usage-limit restarts) had already started `run.sh` detached; all 8 launches finished at 11:56. I reused them.
 
-## What changed (commit 49c3a32)
-- `Mirror/FoliageDensity.cs` (new): SIDE BUFFER, no brick-layout change. 1 byte per GPU body = leaf voxels (183-186, 216), (n+1)>>1; 8 bytes
-  per shell body (full, or one per compact sub-brick). CPU-written (Burst count of the very words uploaded) in `TerrainClipmap.WriteBrickRunAt`
-  and `ShellStore.Continue`; one `FoliageDens` buffer, dirty 4 KB blocks uploaded once a frame (RaymarchFeature).
-- `Raymarch.compute`: each air cell of a dense brick multiplies a leaf transmittance by (1 - f); below `_FoliageEps` = blocked. In
-  `TraceShadowRay` (sun + sky-fill visibility leg; never the ground-bounce leg) and `ShellMarch` (shadow rays). Far-shading kernels only
-  (`FOLIAGE_ON`, +1 Metal slot: CSMainFarShade 30 of 31). RayStats [5] / table column `folstop`.
-- Cost-split arms `foliage_off`, `foliage_eN`; `-foliageeps`, `-rsnoident 1`. Tests `FoliageDensityTests` (5). TASKS.md paragraph.
-- NOT done: the CPU twins (ShellRayReference / ShadowRayReference) do not model the early-out (it is OFF by default).
-
-## Evidence
-- Whole suite PASS 1207 FAIL 0 SKIP 37 (`Logs/overnight/245/all.out`). Player: every kernel loaded (`[kernels]` no FAILED, both launches).
-- Calibration (CPU, forest_eye's 100 generated chunks, 4 sun heights, floor + surface receivers; `Screenshots/245/calibration245.txt`):
-  rule "largest eps whose stopped rays would have been lit <= 5 %" -> NONE: P(lit | stopped) 27-58 % at every eps 1/2..1/128.
-  Brick-fill threshold (the task's other option): >= 50 % never fires; >= 25 % wrong 6-52 %, saves 1.5-3.5 % of dense-cell steps.
-- GPU counters (counts, not time; budget settings; `Screenshots/245/costsplit_{16,noon}.txt`), per frame, OFF -> eps 1/8 -> eps 1/2:
-  | pose | sun steps | sky steps | sun rays blocked |
-  | forest_eye 16 deg | 9.32 M -> 8.62 M (-7.4 %) -> 8.07 M (-13.4 %) | 2.01 -> 1.86 (-7.5 %) -> 1.66 M (-17.5 %) | 64 -> 67 -> 70 % |
-  | forest_eye noon | 4.40 M -> 4.06 M (-7.7 %) -> 3.73 M (-15.1 %) | 1.77 -> 1.65 -> 1.45 M | 32 -> 34 -> 38 % |
-  | oak_under 16 deg | 2.20 M -> 1.36 M (-38 %) -> 0.66 M (-70 %) | 1.38 -> 1.24 -> 1.10 M | 96 -> 99 -> 100 % |
-  | oak_under noon | 0.72 M -> 0.55 M (-23 %) -> (broken shot) | 1.04 -> 0.93 M | 94 -> 97 % |
-  | walk_near (no trees) | unchanged (+-0.3 %) at both suns | unchanged | unchanged |
-- Pictures (`Screenshots/245/diff245.txt`): forest_eye 16 deg 9.9 % px changed (1/8), 13.5 % (1/2), luma -1.5 / -2.1 %; noon 6.7 / 9.5 %;
-  noise floor = walk_near (nothing fires): 0.5 % (16 deg) / 6 % (noon) px. oak_under luma -2.7 % (16) / -3.5 % (noon).
-  BROKEN: `oak_under_e2_noon.png` and its counter window are a different pose (top-down river view; camera not at the pose) -- not relaunched.
-- Memory (rule 11, ON vs 244's OFF launch at the same poses/settings): +5.58 MB GPU (254,400 B tier 0 + 5,323,776 B shells) + 5.58 MB CPU,
-  only with -foliageout 1; process peak 2,512.7 vs 2,515.0 MB (16 deg; noise); GPU pool peak 245,704 = 245,704 at forest_eye, refused 0;
-  oak_under refused 21 (243 OFF: 20-21); CPU pool peak 494,560 vs 494,389, valve 484,500. Within budget (refusals not up, peak +50 MB).
-  The shell part is 21x the task's +0.25 MB estimate (665,472 shell pool bodies x 8 B).
-- Pass card (P2): no new pass. Changed: the sun / sky rays of CSMainFarShade* (+Diag/Lean/Flood twins), CSSkyFillTrace, CSSunTrace,
-  CSSunDeferLean; render rows (432 here), every frame (sun 1 in 4 temporal); per dense-brick air cell +1 multiply/compare, +1 buffer read
-  per brick change; +5.58 MB GPU; AMENDMENT_8_17 step: sun + sky light. P3: no frame time printed (rule 10). P5: steps DOWN 7-18 % (no flag).
-- Slice (rule 14): trees have no own slice (they take from sun + sky). Default OFF: 0 ms / 0 MB on tier A. ON: est. a few % of the
-  sun + sky share at forest poses (guess; the counted step cut is 7-15 %), +11 MB.
+## Evidence (counts only, rule 10; one dev-kernel build 10:17, 8 launches 10:17-11:56, `Logs/overnight/246/`)
+- Every player log shows the right tree mode and no `[kernels] FAILED`.
+- walk_open's pinned pose has no trees in view (cliff + sea): all arms within 0.8 %. It is the noise control.
+- forest_eye, dense vs off:
+  - total steps/frame 34.11 -> 32.94 M (16 deg, -3 %); 30.46 -> 28.41 M (noon, -7 %)
+  - tier-0 (0.1 m) steps 16.42 -> 22.99 M (+40 %); 13.72 -> 20.03 M (+46 %)
+  - sky steps +115 % / +106 %; sun steps per ray +24 % / +55 %
+  - leaf 28 % of the screen; pixels changed 38.5-39.7 %
+- Rate: +0.225-0.267 M tier-0 steps per 1 % of screen in leaves, i.e. est. 1.3-1.8 ms per % at tier A (calibrated on PERF_SLICE_BUDGETS
+  sec. 6's tree share, not measured). Solid near content: est. -0.15..-0.2 M per % (decomposition of the pre-210 arm).
+- Memory (rule 11 lines; forest_eye):
+  - GPU body pool peak: off 153,364; sparse 221,323; dense 245,704 (96.6 %); pre-210 254,400 (full, refused 26-27)
+  - CPU pool peak: 436,947 -> ~493 k (past the valve 484,500)
+  - process peak 2,511-2,630 MB across arms: noise, no order by arm
+- Looked at `Screenshots/246/sheet246.jpg`. Rows 1-2 (forest_eye 16 deg / noon): off = an open valley with mountains, pre-210 = a huge
+  near trunk + dark firs, sparse = scattered trees, dense = trees over ~40 % of the frame hiding the valley. Row 3 (walk_open) is
+  identical across arms.
+- Not done: no primary-hit material split exists (trunk coverage not counted; E1 adds it). No EditMode run (no code changed).
+- Pass card: no pass added or changed. HEAVY: no. Slice (rule 14): none consumed (plan); the doc proposes the per-class slices.
 
 ## Next
-Owner Q-245. If (a): nothing to do (code stays OFF; could be removed later). Timing tasks 238 / 239 unaffected.
+Owner answers Q-246a-e. If Q-246e = yes: queue E1 (246a RayStats material split) then E3 (246c voxel grass fringe counts). E2 (clutter
+layer) only after Q-246a and an amendment draft. The forest timing milestone (238) should check the 1.3-1.8 ms per % estimate.
 
 ## For the doc
-Task 245 -- foliage light early-out (F4), behind `-foliageout 1`, default OFF. Verdict: does not pay for its look cost.
-- Sun steps per frame, forest_eye 16 deg: 9.32 M -> 8.62 M (eps 1/8, -7 %) / 8.07 M (eps 1/2, -13 %) (`Screenshots/245/costsplit_16.txt`)
-- Sun rays reaching the sun, forest_eye 16 deg: 36 % -> 33 % -> 30 %; under the oak 4 % -> 1 % -> 0 %
-- Calibration: a ray the early-out stops would have reached the sun 27-58 % of the time, at every threshold (`Screenshots/245/calibration245.txt`)
-- Memory: +5.6 MB GPU + 5.6 MB CPU when on; pool peak 245,704 = 245,704, refusals not up; process peak 2,513 vs 2,515 MB
-- `Screenshots/245/sheet245.jpg`: rows walk_near / forest_eye / oak_under at 16 deg then noon; columns OFF | eps 1/8 | 4x diff | eps 1/2 | 4x diff.
-  Look at the forest_eye diff columns: the change sits on sunlit leaf patches inside the crowns and trunks; the even ground grain is temporal noise
-  (walk_near, where nothing fires, shows it too). Last row's eps 1/2 tiles are a broken shot (wrong pose).
-- `Screenshots/245/viewer.html`: full-size flip viewer (Space = cycle arms, S = sun, Z = full size); look at the dapples under the oak (oak_under 16 deg).
+Task 246 -- what filling the world costs (`WORLD_FILL_BUDGET.md`). Summary: trees do not make rays longer overall; they make them creep
+through see-through leaves 0.1 m at a time. Solid things (rocks, logs, buildings) are cheap to draw and cost memory. See-through things
+cost ~1.3-1.8 ms per 1 % of the screen (est.). Grass and small clutter must go on a separate near-camera layer (an amendment), not into
+the voxels (est. +15-60 ms).
+
+| forest_eye (per frame) | off | dense (default) |
+|---|---|---|
+| all ray steps, 16 deg / noon | 34.11 / 30.46 M | 32.94 / 28.41 M (-3 / -7 %) |
+| fine 0.1 m steps | 16.42 / 13.72 M | 22.99 / 20.03 M (+40 / +46 %) |
+| sky-light steps | 0.93 / 0.85 M | 2.00 / 1.74 M (+115 / +106 %) |
+| leaf % of screen | 0 | 28 % |
+| GPU body pool peak (cap 254,400) | 153,364 | 245,704 |
+
+(`Screenshots/246/model.txt`, `costsplit_*.txt`)
+
+| class | render path | est. ms tier A | est. MB | amendment? |
+|---|---|---|---|---|
+| solid props | voxels, sealed interiors | ~0 ray cost (+0.5 shading, guess) | 40 (bodies) | no |
+| porous foliage | voxels; % of screen budget; solid-cored bushes | 1.3-1.8 per 1 % of screen | 0 new | no |
+| ground clutter | separate near-camera cube-mesh layer, no shadows | ~2 (guess, E2) | 10 | **yes** |
+| thin things | voxels, sparse | 0.3 | 5 | no |
+| moving things | entity meshes (spec §5.4/6.2) | 1.5 reserve + 0.3 | 60 | only for real shadows |
+| lights | torch flood | 1.0 night reserve | 0 new | no |
+
+Images:
+- `Screenshots/246/forest_eye_off_vs_dense_16.jpg`: left trees OFF, right dense trees, same pose, 16 deg sun. Look at how the trees hide
+  the far valley: the ray work moves from cheap far terrain into the crowns.
+- `Screenshots/246/sheet246.jpg`: rows forest_eye 16 deg / noon / walk_open 16 deg; columns off / pre-210 / sparse / dense. Row 3 is the
+  control: no trees there, identical in every column.
+
+Questions (recommended answer first):
+- Q-246a: put grass and small clutter on a separate near-camera layer (an amendment)? Yes.
+- Q-246b: make bushes solid inside? Yes.
+- Q-246c: take the clutter layer's ~2 ms from the reflections reserve, or wait for the sun savings (F1/F2)? Wait for F1/F2.
+- Q-246d: creatures with no real shadow at first? Yes.
+- Q-246e: queue E1 then E3 now? Yes.

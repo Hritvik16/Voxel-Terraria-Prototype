@@ -2208,3 +2208,17 @@ FINDING: the calibration on forest_eye's generated chunks finds NO floor where t
 reach the sun 27-58 % of the time: crowns are clumps with gaps, not a random medium); a brick-fill threshold (rule B) is no better (>= 50 %
 never fires). GPU counters (16 deg forest_eye): sun steps 9.32 M -> 8.62 M (eps 1/8) / 8.07 M (1/2) per frame, sun blocked 64 -> 67 / 70 %.
 Runner `Logs/overnight/245/run.sh`, pictures `python3 -I tools/foliage245.py <16 deg stills> <noon stills>` -> `Screenshots/245/`. Result: HANDOFF 245.
+
+**Task 246 (plan + capture counts only, owner 2026-11-20 "is the rest of the stuff we fill the world with only going to cause us more problems?"): `WORLD_FILL_BUDGET.md`.**
+No engine code. 8 cost-split launches (one dev-kernel build; `Screenshots/246/run.sh`): tree arms off (`-trees 0`) / pre-210 (`-trees2 0`) / sparse
+(`-trees2 1 -trees2dense 0`) / dense (default) x 16 deg / noon, `-raystats 1` at `-costfixed forest_eye` + `walk_open` (walk_open's pinned pose has no
+trees in view: a noise control, <= 0.8 %), `-quality high -renderrows 432`, nothing timed. FINDING: the dense forest does NOT add total ray steps (-3 % at
+16 deg, -7 % noon: trees hide the far valley) but moves them into fine 0.1 m tier-0 steps (+40 / +46 %) and doubles sky-fill steps (+115 / +106 %);
+porous content = +0.225-0.267 M tier-0 steps per 1 % of screen in leaves (est. ~1.3-1.8 ms at tier A, calibrated on PERF_SLICE_BUDGETS sec. 6's tree
+share); solid near content removes work (est. -0.15..-0.2 M per %). Memory shows as pool occupancy (dense: GPU bodies 153,364 -> 245,704 of 254,400;
+pre-210 trees full, 26-27 refused; CPU pool past the valve), not process peak (2,511-2,630 MB, noise). Doc: per-class render paths (solid props =
+voxels; porous foliage = voxels with a % of screen budget, solid-cored bushes; ground clutter = a separate near-camera instanced cube-mesh layer, an
+AMENDMENT (8.18 draft) because ARCHITECTURE_v8.6 sec. 6.2 limits meshes to Rigidbody entities; moving things = sec. 5.4/6.2 entities; lights = torch
+flood), shipped-game notes, a tier-A per-class budget, the placement admission rule, experiments E1-E4 (246a-d outlines), owner questions Q-246a-e.
+Parse/model scripts `Screenshots/246/parse.py`, `model.py` (reproduce `model.txt`), sheet `sheet.py` -> `sheet246.jpg`, `forest_eye_off_vs_dense_16.jpg`.
+Missing capture named: no primary-hit material split (wood coverage) -> E1. Result: HANDOFF 246.
