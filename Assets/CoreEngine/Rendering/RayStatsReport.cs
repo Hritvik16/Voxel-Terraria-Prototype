@@ -6,7 +6,7 @@
 // pinned by RayStatsReportTests.
 //   [0] frames, [1] in-bounds primary pixels, [2..7] spare; then 12 records of 200 uints: kind (0 primary, 1 sun, 2 sky)
 //   x 4 + band (0-10 m, 10-40 m, 40-82 m, 82 m+ / no hit): [0] rays, [1] steps, [2] tier-0 steps, [3] blocked, [4] blocked
-//   by a tier-0 leaf voxel, [8..199] steps-per-ray histogram.
+//   by a tier-0 leaf voxel, [5] stopped by the foliage early-out (task 245), [8..199] steps-per-ray histogram.
 
 using System.Text;
 
@@ -68,18 +68,18 @@ namespace VoxelEngine.Rendering
 
         static void Row(StringBuilder sb, uint[] d, int kind, int bandMask, string bandName, double frames, ulong pixels)
         {
-            ulong rays = 0, steps = 0, t0 = 0, blk = 0, leaf = 0;
+            ulong rays = 0, steps = 0, t0 = 0, blk = 0, leaf = 0, fol = 0;
             for (int band = 0; band < BANDS; band++)
             {
                 if ((bandMask & (1 << band)) == 0) continue;
                 int r = Rec(kind, band);
-                rays += d[r]; steps += d[r + 1]; t0 += d[r + 2]; blk += d[r + 3]; leaf += d[r + 4];
+                rays += d[r]; steps += d[r + 1]; t0 += d[r + 2]; blk += d[r + 3]; leaf += d[r + 4]; fol += d[r + 5];
             }
             ulong[] h = Hist(d, kind, bandMask);
             double avg = rays > 0 ? (double)steps / rays : 0.0;
             sb.Append($"    {KindNames[kind],-8}{bandName,-9}{rays / frames,11:N0}{(pixels > 0 ? 100.0 * rays / pixels : 0.0),7:F1}%" +
                       $"{steps / frames,13:N0}{avg,8:F1}{Q(h, 0.5),11}{Q(h, 0.95),11}" +
-                      $"{(steps > 0 ? 100.0 * t0 / steps : 0.0),8:F0}%{(rays > 0 ? 100.0 * blk / rays : 0.0),8:F0}%{(rays > 0 ? 100.0 * leaf / rays : 0.0),7:F0}%\n");
+                      $"{(steps > 0 ? 100.0 * t0 / steps : 0.0),8:F0}%{(rays > 0 ? 100.0 * blk / rays : 0.0),8:F0}%{(rays > 0 ? 100.0 * leaf / rays : 0.0),7:F0}%{(rays > 0 ? 100.0 * fol / rays : 0.0),7:F1}%\n");
         }
 
         /// The table for one counter window. d.Length must be LEN; frames = d[0] (the GPU's own count).
@@ -91,7 +91,7 @@ namespace VoxelEngine.Rendering
             ulong pixels = d[1];
             sb.Append($"  [raystats] {title}: {d[0]} frames (GPU-counted), {pixels / frames:N0} primary px/frame; per frame, " +
                       "band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)\n");
-            sb.Append("    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf\n");
+            sb.Append("    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop\n");
             for (int kind = 0; kind < KINDS; kind++)
             {
                 for (int band = 0; band < BANDS; band++) Row(sb, d, kind, 1 << band, BandNames[band], frames, pixels);
@@ -99,7 +99,8 @@ namespace VoxelEngine.Rendering
             }
             sb.Append("    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is\n" +
                       "     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain\n" +
-                      "     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); p50 / p95 = the histogram bin\n" +
+                      "     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage\n" +
+                      "     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin\n" +
                       "     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)\n");
             return sb.ToString();
         }

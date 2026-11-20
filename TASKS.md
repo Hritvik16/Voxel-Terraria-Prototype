@@ -2189,3 +2189,22 @@ Needs a VE_ALL_KERNELS build (run-cost-split.sh's default). `CSSkyFillTraceDiag`
 owner's approval), so play builds carry it unused. Tests `RayStatsReportTests` (bin / layout twin of the shader, quantiles incl. the open
 bin, the table's arithmetic, every counter site under VE_SHELL_DIAG, switches default OFF); `KernelHealth.RaymarchKernels` +1. Runner
 `Logs/overnight/244/run.sh`. Result: HANDOFF 244.
+
+**Task 245 (lever F4 of `PERF_SLICE_BUDGETS.md` sec. 6, owner Q-AT D4): foliage light early-out, `-foliageout 1`, DEFAULT OFF (a look change).**
+A sun ray (and a sky-fill sample's visibility leg; never the ground-bounce leg, whose hit point is used) carries a leaf TRANSMITTANCE:
+every air cell it steps through inside a dense brick multiplies it by (1 - f), f = that brick's leaf fill; below `_FoliageEps` it counts
+as blocked and stops. In `TraceShadowRay` (tier 0) and `ShellMarch` (shadow rays; ends as a HIT with mat 0). Far-shading kernels only
+(`FOLIAGE_ON`; +1 Metal buffer slot: CSMainFarShade 30 of 31, Diag 29, all kernels verified in the player). Data: `Mirror/FoliageDensity.cs`,
+a SIDE BUFFER (no Appendix A / ShellBrickPack layout change): one byte per GPU body = leaf voxel count (183-186, 216), (n + 1) >> 1, written
+by the CPU (Burst count of the very words being uploaded) in `TerrainClipmap.WriteBrickRunAt` and `ShellStore.Continue` (8 bytes per shell
+body: full, or one per compact sub-brick), one `FoliageDens` buffer (tier 0 then shells at `_FoliageShellBase`), dirty 4 KB blocks uploaded
+once a frame from RaymarchFeature. Cost: 254,400 B tier 0 + 5,323,776 B shells = 5.58 MB GPU + 5.58 MB CPU (only with `-foliageout 1`).
+Switches: `-foliageout 1` (side buffer + shader ON), `RaymarchFeature.FoliageOut`, `-foliageeps x` (default 1/8); cost-split arms
+`foliage_off` (shader off) and `foliage_eN` (eps 1/N), raystats windows for every foliage arm (`-rsnoident 1` skips 244's identity stills);
+RayStats [5] + table column `folstop`. Tests `FoliageDensityTests` (leaf set = GenToEngine's leaves; tier-0 oracle vs brute force with
+adversarial bodies; shell oracle through ShellBrickPack's real staging (full + compact); shader / binding shape; `Report_Calibration`
+REPORTS=1 -> `Logs/TerrainGen/trees245/calibration.txt`). NOT mirrored in the CPU twins (ShellRayReference / ShadowRayReference): OFF only.
+FINDING: the calibration on forest_eye's generated chunks finds NO floor where the early-out is right 19 times in 20 (a stopped ray would still
+reach the sun 27-58 % of the time: crowns are clumps with gaps, not a random medium); a brick-fill threshold (rule B) is no better (>= 50 %
+never fires). GPU counters (16 deg forest_eye): sun steps 9.32 M -> 8.62 M (eps 1/8) / 8.07 M (1/2) per frame, sun blocked 64 -> 67 / 70 %.
+Runner `Logs/overnight/245/run.sh`, pictures `python3 -I tools/foliage245.py <16 deg stills> <noon stills>` -> `Screenshots/245/`. Result: HANDOFF 245.

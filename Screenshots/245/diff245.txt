@@ -1,0 +1,13 @@
+Task 245: foliage_off vs ON (on = eps 1/8, e2 = eps 1/2), per pose and sun; 4x diff images <pose>_diff4<arm>_<sun>.png
+walk_near     16  on: mean |diff|  0.93 / 255, pixels changed (> 8)  0.52 %, mean luma OFF 199.79 ON 199.96 (+0.1 %)
+walk_near     16  e2: mean |diff|  0.86 / 255, pixels changed (> 8)  0.45 %, mean luma OFF 199.79 ON 199.72 (-0.0 %)
+forest_eye    16  on: mean |diff|  3.41 / 255, pixels changed (> 8)  9.91 %, mean luma OFF  85.30 ON  84.05 (-1.5 %)
+forest_eye    16  e2: mean |diff|  4.38 / 255, pixels changed (> 8) 13.54 %, mean luma OFF  85.30 ON  83.47 (-2.1 %)
+oak_under     16  on: mean |diff|  1.12 / 255, pixels changed (> 8)  1.53 %, mean luma OFF  23.52 ON  22.89 (-2.7 %)
+oak_under     16  e2: mean |diff|  1.15 / 255, pixels changed (> 8)  1.54 %, mean luma OFF  23.52 ON  23.21 (-1.3 %)
+walk_near   noon  on: mean |diff|  2.11 / 255, pixels changed (> 8)  5.96 %, mean luma OFF 117.34 ON 117.48 (+0.1 %)
+walk_near   noon  e2: mean |diff|  2.14 / 255, pixels changed (> 8)  6.00 %, mean luma OFF 117.34 ON 117.25 (-0.1 %)
+forest_eye  noon  on: mean |diff|  2.61 / 255, pixels changed (> 8)  6.71 %, mean luma OFF  97.55 ON  96.63 (-0.9 %)
+forest_eye  noon  e2: mean |diff|  3.19 / 255, pixels changed (> 8)  9.46 %, mean luma OFF  97.55 ON  95.97 (-1.6 %)
+oak_under   noon  on: mean |diff|  1.40 / 255, pixels changed (> 8)  2.09 %, mean luma OFF  28.72 ON  27.71 (-3.5 %)
+oak_under   noon  e2: mean |diff| 148.85 / 255, pixels changed (> 8) 97.90 %, mean luma OFF  28.72 ON 177.45 (+517.8 %)

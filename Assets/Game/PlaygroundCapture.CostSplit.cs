@@ -469,6 +469,8 @@ public partial class PlaygroundCapture
         RaymarchFeature.FloodNearOnly = arm != "floodnear_off" && arm != "tf_twin" && _costBaseFloodNear;
         if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
         RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
+        RaymarchFeature.FoliageOut = arm != "foliage_off" && _costBaseFoliage;   // task 245 (needs -foliageout 1 at launch)
+        RaymarchFeature.FoliageEps = arm.StartsWith("foliage_e") && int.TryParse(arm.Substring(9), out int fe) && fe > 0 ? 1f / fe : _costBaseFoliageEps;   // foliage_eN: eps 1/N
         // Task 227: sfres1 = task 193's inline sky fill (one ray per pixel), sfres2 / sfres4 = the low-res trace pass.
         RaymarchFeature.SkyFillRes = arm == "sfres1" ? 1 : arm == "sfres2" ? 2 : arm == "sfres4" ? 4 : _costBaseSkyFillRes;
         // Task 228: coarse far sun shadows. sunfar_off = exact (0); sunfarNN = coarse beyond NN m; else the launch's -sunfar.
@@ -534,6 +536,8 @@ public partial class PlaygroundCapture
     // With -coststillraw also the identity stills (no upscaler, temporal counters frozen): _raw_rsoff / _raw_rsoff2 (OFF,
     // 10 frames apart: the control), _raw_rson (ON), _raw_rsback (OFF again); all four must be byte-identical.
     private static readonly bool CostRayStats = ArgValue("-raystats") == "1";
+    /// Task 245: `-rsnoident 1` skips 244's identity stills (counts only).
+    private static readonly bool CostRayStatsNoIdentity = ArgValue("-rsnoident") == "1";
 
     private IEnumerator CostRayStatsWindow(string pose)
     {
@@ -555,6 +559,8 @@ public partial class PlaygroundCapture
                                    $"buffer {RaymarchFeature.RayStatsBytes} B; readback {(Time.realtimeSinceStartup - t0) * 1000f:F0} ms" +
                                    (floodTwin ? "; WARNING: the flood twin was drawn before the window, the counted frames drew without it" : "") + ")").TrimEnd('\n'));
         if (req.HasValue && (!req.Value.done || req.Value.hasError)) L($"  [raystats] {pose}: readback {(req.Value.done ? "FAILED" : "timed out")}");
+        if (VoxelEngine.Memory.FoliageDensity.Enabled)   // task 245
+            L($"  {VoxelEngine.Memory.FoliageDensity.Report()}; shader early-out {(RaymarchFeature.FoliageOut ? $"ON eps {RaymarchFeature.FoliageEps:0.####}" : "OFF")}");
     }
 
     private IEnumerator CostRayStatsIdentity(string still)
@@ -598,6 +604,7 @@ public partial class PlaygroundCapture
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
     private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
+    private static bool _costBaseFoliage; private static float _costBaseFoliageEps;   // task 245
     private static bool _costBaseFloodNear = true;   // task 229
     private static int _costBaseSkyFillRes = 4;   // task 227
     private static float _costBaseSunFar;         // task 228
@@ -788,6 +795,7 @@ public partial class PlaygroundCapture
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
                                  _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseFloodNear = RaymarchFeature.FloodNearOnly; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes; _costBaseSunFar = RaymarchFeature.SunFarM; _costBaseSunRes = RaymarchFeature.SunRes;   // task 212, 232
+                                 _costBaseFoliage = RaymarchFeature.FoliageOut; _costBaseFoliageEps = RaymarchFeature.FoliageEps;   // task 245
                                  _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
                                  _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
                                  _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom;
@@ -928,13 +936,13 @@ public partial class PlaygroundCapture
                     foreach (var ln in lines) L(ln);
                 }
                 // Task 244: -raystats 1 -- the counters' identity stills (FULL only, see CostRayStatsIdentity).
-                if (CostRayStats && r.arm == "full") yield return CostRayStatsIdentity(still);
+                if (CostRayStats && r.arm == "full" && !CostRayStatsNoIdentity) yield return CostRayStatsIdentity(still);
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);
             }
             yield return CostFarCounters(r.arm);
             // Task 244: -raystats 1 -- the ray-work counters at this pose, FULL's first pass, play's upscaler and rows.
-            if (CostRayStats && r.arm == "full") yield return CostRayStatsWindow(path.name);
+            if (CostRayStats && (r.arm == "full" || r.arm.StartsWith("foliage_"))) yield return CostRayStatsWindow(path.name + (r.arm == "full" ? "" : " [" + r.arm + "]"));   // task 245: + foliage arms
             acd.resetHistory = true;
             yield return Frames(10);
         }

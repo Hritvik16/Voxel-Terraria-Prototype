@@ -73,6 +73,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Unity.Mathematics;
 using UnityEngine;
+using VoxelEngine.Memory;
 using VoxelEngine.WorldGen;
 
 namespace VoxelEngine.Mirror
@@ -187,6 +188,7 @@ namespace VoxelEngine.Mirror
                 dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
             }
             Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN, heightN);
+            FoliageDensity.RegisterShells(brickN);   // task 245 (-foliageout 1 only)
             dirN = 0; pageN = 0; brickN = 0; heightN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {

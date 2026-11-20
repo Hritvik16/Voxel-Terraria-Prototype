@@ -267,6 +267,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         _clipmapLocal = new uint[totalBricks];
         int chunkSlots = windowChunks.x * windowChunks.y * windowChunks.z;
         InitGpuPool(chunkSlots, brickPoolCapacity, gpuBrickCap);
+        FoliageDensity.RegisterTier0(BrickDataBuffer.count / 128);   // task 245 (-foliageout 1 only)
         _slotOwner = new int3[chunkSlots];
         _slotHeld = new bool[chunkSlots];
 
@@ -762,6 +763,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         if (_shadowBodies != null) NativeArray<uint>.Copy(src, srcFirst, _shadowBodies, dstFirst, countUints);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
+        if (FoliageDensity.Enabled) FoliageDensity.WriteTier0(src, srcFirst, dstFirst, countUints);   // task 245: the side buffer, from these words
         if (UploadShadow.Enabled) UploadShadow.Record(BrickDataBuffer, "bodies", src, srcFirst, dstFirst, countUints);
 
         if (UploadRing.On) UploadRing.Shared.Write(BrickDataBuffer, src, srcFirst, dstFirst, countUints);   // task 168e

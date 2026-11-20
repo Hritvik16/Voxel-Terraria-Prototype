@@ -813,6 +813,21 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// CSSkyFillTraceDiag. The buffer (RAYSTATS_LEN x 4 B = 9.6 KB) is allocated the first time this is on; play and the
     /// rigs never turn it on. Read it with RequestRayStats (AsyncGPUReadback: no stall, KNOWN_ISSUES' HUD readback bug).
     public static bool CollectRayStats = false;
+    /// TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6): the FOLIAGE LIGHT EARLY-OUT (Raymarch.compute, header at FoliageDens):
+    /// sun rays and sky-fill visibility legs carry a leaf transmittance through dense bricks and stop as blocked once it is
+    /// below FoliageEps. Needs the side buffer (`-foliageout 1` at launch: VoxelEngine.Memory.FoliageDensity.Enabled); this
+    /// switch is the shader's (capture arm `foliage_off`). DEFAULT OFF (a look change). Far-shading kernels only.
+    public static bool FoliageOut = VoxelEngine.Memory.FoliageDensity.Enabled;
+    /// The transmittance floor (`-foliageeps x`), from FoliageDensityTests.Report_Calibration (Logs/TerrainGen/trees245).
+    public static float FoliageEps = FoliageEpsArg(FOLIAGE_EPS_DEFAULT);
+    public const float FOLIAGE_EPS_DEFAULT = 1f / 8f;   // no floor meets the calibration rule (see the report); 1/8 = its middle row
+    private static float FoliageEpsArg(float def)
+    {
+        var a = System.Environment.GetCommandLineArgs();
+        for (int i = a.Length - 2; i >= 0; i--)
+            if (a[i] == "-foliageeps" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v)) return v;
+        return def;
+    }
     /// Task 244 (capture only): the temporal sun / sky-fill frame counters stop advancing, so a still pose converges to ONE
     /// image (the same rays every frame) and two frames can be compared byte for byte (the -raystats identity stills).
     public static bool DebugFreezeTemporal = false;
@@ -918,6 +933,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer shadowStats;
             public int collectShadowStats;
             public GraphicsBuffer rayStats;   // task 244: RayStatsBuffer, or the 1-element dummy while off
+            public GraphicsBuffer foliage;    // task 245: FoliageDensity.Buffer, or the 1-element dummy while off
+            public int foliageOn, foliageShellBase;
             public int collectRayStats;
             public Vector3Int windowDimsBricks;
             public Vector3Int windowDimsChunks;
@@ -1333,6 +1350,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.collectShadowStats = CollectShadowStats ? 1 : 0;
                 passData.collectRayStats = CollectRayStats && RayStatsBuffer != null ? 1 : 0;   // task 244
                 passData.rayStats = passData.collectRayStats != 0 ? RayStatsBuffer : _farDummy;
+                // Task 245: the foliage side buffer's dirty blocks go up here, once a frame, after this frame's body writes.
+                if (VoxelEngine.Memory.FoliageDensity.Enabled) VoxelEngine.Memory.FoliageDensity.Flush();
+                passData.foliage = VoxelEngine.Memory.FoliageDensity.Buffer ?? _farDummy;
+                passData.foliageOn = FoliageOut && VoxelEngine.Memory.FoliageDensity.Buffer != null ? 1 : 0;
+                passData.foliageShellBase = VoxelEngine.Memory.FoliageDensity.ShellBaseUint;
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
@@ -2058,6 +2080,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellBricks", data.shellBricks);
+                        // Task 245: the foliage early-out (dummy + off unless -foliageout 1). Bound wherever the sun / sky rays run.
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FoliageDens", data.foliage);
+                        cmd.SetComputeIntParam(data.compute, "_FoliageOut", data.foliageOn);
+                        cmd.SetComputeFloatParam(data.compute, "_FoliageEps", FoliageEps);
+                        cmd.SetComputeIntParam(data.compute, "_FoliageShellBase", data.foliageShellBase);
                         if (data.primaryFarShade)   // task 130 (diagnostic): always bound to the far-shading kernel
                         {
                             cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellProbeIO", data.shellProbeIO);
@@ -2147,6 +2174,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPre", data.shellPre);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShadowStats", data.shadowStats ?? _farDummy);
@@ -2166,6 +2194,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPre", data.shellPre);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShadowHistW", data.tsWrite);
@@ -2195,6 +2224,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSky, "HeightMipRO", data.heightMip);
                         if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSky, "DebugOut", data.debugBuffer);
                         cmd.SetComputeBufferParam(data.compute, kSky, "SkyHistW", data.sfWrite);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, kSky, "RayStats", data.rayStats);   // task 244 (read by the Diag twin only)
                         int sfBs = data.sfLow;
                         int bx = (data.dispatchWidth + (1 << sfBs) - 1) >> sfBs, by = (data.dispatchHeight + (1 << sfBs) - 1) >> sfBs;
@@ -2223,6 +2253,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, kSun, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, kSun, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, kSun, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, kSun, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, kSun, "ShadowStats", data.shadowStats ?? _farDummy);
                         cmd.SetComputeBufferParam(data.compute, kSun, "ShadowHistW", data.tsWrite);
@@ -2239,6 +2270,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellProbeIO", data.shellProbeIO);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShadowStats", data.shadowStats ?? _farDummy);

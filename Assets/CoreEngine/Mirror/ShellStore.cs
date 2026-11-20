@@ -215,6 +215,7 @@ namespace VoxelEngine.Mirror
         private int3 _hLo, _hHi, _hCc;
         private int _hHole;
         private NativeArray<uint> _bodyStaging;   // up to 4096 bodies (2 MB), reused
+        private int _jobNFull, _jobNCompact;      // task 245: the staged job's full / compact split (FoliageDensity.WriteShell)
         // Task 188 (ShellBrickPack): the job's dense bricks, full ones first then compact ones;
         // each brick's value pair (NOT_PAIR = a full body); the classify counts.
         private NativeArray<int> _denseIdx;
@@ -589,6 +590,7 @@ namespace VoxelEngine.Mirror
             _maskStaging[0] = (uint)mask; _maskStaging[1] = (uint)(mask >> 32);
             ColumnTops(_pageStaging, _colTopStaging);   // task 116
             StageBodies(sc, nFull, nCompact);
+            _jobNFull = nFull; _jobNCompact = nCompact;   // task 245
             BricksUsed += n; PagesUsed++;
             PeakBricks = math.max(PeakBricks, BricksUsed); PeakPages = math.max(PeakPages, PagesUsed);
             _job = true; _jobCoord = sc.Coord; _jobSlot = slot; _jobPage = page; _jobN = n; _jobDone = 0; _jobPageUp = false;
@@ -611,6 +613,8 @@ namespace VoxelEngine.Mirror
                 end = math.min(end, _jobDone + budget / (BRICK_UINTS * 4));
                 int count = (end - _jobDone) * BRICK_UINTS;
                 Put(BrickBuffer, "shell bricks", _bodyStaging, _jobDone * BRICK_UINTS, (BrickBase + list[_jobDone]) * BRICK_UINTS, count);
+                if (FoliageDensity.Enabled)   // task 245: the side buffer, from these staged words
+                    FoliageDensity.WriteShell(_bodyStaging, _jobDone, BrickBase + list[_jobDone], end - _jobDone, _jobNFull, _jobNCompact);
                 if (ShadowUploads)
                     NativeArray<uint>.Copy(_bodyStaging, _jobDone * BRICK_UINTS, ShadowBricks, list[_jobDone] * BRICK_UINTS, count);
                 budget -= count * 4; BytesUploaded += count * 4;

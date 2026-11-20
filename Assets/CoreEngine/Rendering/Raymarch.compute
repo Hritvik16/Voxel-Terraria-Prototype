@@ -307,7 +307,7 @@ int _CollectShadowStats;
 // Layout (uints): [0] frames (pass-1 thread 0 of the primary kernel), [1] in-bounds primary pixels, [2..7] spare;
 // then 12 records of RS_REC = kind (0 primary, 1 sun, 2 sky) x 4 + band (camera distance of the ray's pixel / face:
 // 0-10 m, 10-40 m, 40-82 m, 82 m+ or no hit): [0] rays, [1] steps, [2] of them tier-0 steps, [3] blocked (primary: hit),
-// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5..7] spare, [8..199] histogram of steps per ray (RayStatsBin).
+// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5] stopped by the foliage early-out (task 245), [6..7] spare, [8..199] histogram of steps per ray (RayStatsBin).
 // Steps = loop iterations of the marches the ray ran (tier-0 DDA / leaps, shell iterations, far-band steps), counted ONCE
 // per ray (pass 2 of the shell pre-pass re-runs a handed-over group's tier-0 march; that repeat is not counted).
 RWStructuredBuffer<uint> RayStats;
@@ -326,7 +326,7 @@ uint RayStatsBin(uint s) { return s < 64u ? s : (s < 1088u ? 64u + ((s - 64u) >>
 uint RayStatsBand(float tVox) { return tVox < 100.0 ? 0u : (tVox < 400.0 ? 1u : (tVox < 820.0 ? 2u : 3u)); }
 /// The leaf materials (task 225's class 2: 183-186, 216).
 bool RayStatsLeaf(uint mat) { return (mat >= 183u && mat <= 186u) || mat == 216u; }
-void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf)
+void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf, bool fol)
 {
     uint b = RS_HDR + (kind * 4u + band) * RS_REC;
     InterlockedAdd(RayStats[b], 1u);
@@ -335,7 +335,30 @@ void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, b
     if (blocked) InterlockedAdd(RayStats[b + 3u], 1u);
     if (leaf) InterlockedAdd(RayStats[b + 4u], 1u);
     InterlockedAdd(RayStats[b + RS_HIST + RayStatsBin(steps)], 1u);
+    if (fol) InterlockedAdd(RayStats[b + 5u], 1u);   // task 245: stopped by the foliage early-out
 }
+
+// ---- TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6; owner Q-AT D4): FOLIAGE LIGHT EARLY-OUT ----
+// A sun ray (and a sky-fill ray's visibility leg) that crosses leaf bricks carries a leaf TRANSMITTANCE: every air cell
+// it steps through inside a dense brick multiplies it by (1 - f), f = that brick's leaf fill (leaf voxels / 512, from the
+// CPU side buffer FoliageDens, FoliageDensity.cs: one byte per body, f = byte / 256). That is the chance a cell of the
+// brick is NOT leaf, so the product is how likely a ray through those cells would have got through. Once it is below
+// _FoliageEps the ray counts as BLOCKED (sunVis 0) and stops marching: the light that still threads the remaining
+// gaps of a crown that deep is dropped. Exact elsewhere: a brick with no leaf gives f = 0 (no change); the first leaf
+// voxel hit still blocks as before. Tier-0 march (TraceShadowRay) and the shell march (ShellMarch, shadow rays; shell
+// bodies carry a byte per compact sub-brick). The ground leg of a ground-bounce sky sample never uses it (its hit point
+// is used). Far-shading kernels only (one Metal buffer slot); RaymarchFeature.FoliageOut (`-foliageout 1`), OFF by default.
+StructuredBuffer<uint> FoliageDens;
+int   _FoliageOut;        // 0 off (the dummy is bound), 1 on
+float _FoliageEps;        // the transmittance floor (FoliageDensity / RaymarchFeature.FoliageEps)
+int   _FoliageShellBase;  // first uint of the shell region
+#ifdef VE_FAR_SHADE
+#define FOLIAGE_ON (_FoliageOut != 0)
+#else
+#define FOLIAGE_ON false
+#endif
+/// Byte i of FoliageDens (tier 0: i = the body index).
+uint FoliageByte(uint i) { return (FoliageDens[i >> 2] >> ((i & 3u) * 8u)) & 0xFFu; }
 
 // ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
 // The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
@@ -2164,6 +2187,7 @@ struct ShadowHit
     float exitT;    // task 133: >= 0 = the ray left the window or the band ceiling unblocked at this t; -1 otherwise
     int3  hitV;     // task 193: the blocking voxel (the cell the ray was in when it stopped; sunVis 0 only)
     float hitT;     // task 193: the ray's t on entering hitV; -1 = not blocked
+    bool  fol;      // task 245: blocked by the foliage early-out (hitV is then the AIR cell it stopped in)
 };
 
 // TASK 133 (owner Q83 (a); RaymarchFeature.NearShadowShells, `-nearshadowshells`): a tier-0 sun ray
@@ -2269,8 +2293,10 @@ int ShadowClipmapFlatIndex(int3 voxel, uint3 windowDimsBricks)
 // continuation after it. Task 168's first walk_open stills: the sun ray WITH the continuation came out
 // 1,648 px brighter on the sea at the window edge (the shell march started from another exitT).
 // coarseY (task 228, SunCoarseY): at voxel.y >= coarseY a dense tier-0 brick counts as solid. SUN_COARSE_NEVER = exact.
+// foliage (task 245): this ray may take the foliage early-out (FOLIAGE_ON too): sun rays and visibility legs, not a
+// leg whose hit point is used.
 ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
-                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof, int coarseY)
+                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof, int coarseY, bool foliage)
 {
     bool roofSkip = _ShadowRoofSkip != 0 && allowRoof;
     ShadowHit r;
@@ -2279,6 +2305,10 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     r.exitT = -1.0;
     r.hitV = int3(0, 0, 0);
     r.hitT = -1.0;
+    r.fol = false;
+    bool folOn = foliage && FOLIAGE_ON;
+    float folT = 1.0, folKeep = 1.0;   // task 245: leaf transmittance; this body's (1 - f)
+    uint folPool = 0xFFFFFFFFu;
 
     // ---- §6.5's ORIGIN RULE. One cell off the hit face, at its centre. ----
     // There is no bias term here and there must never be one: §13's failure
@@ -2461,6 +2491,14 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
                 // deliberately not recorded -- nothing downstream may branch on
                 // WHAT cast a shadow, only that something did.
                 if (mat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
+
+                // TASK 245: the foliage early-out (header at FoliageDens). This air cell of a dense brick.
+                if (folOn)
+                {
+                    if (poolIdx != folPool) { folPool = poolIdx; folKeep = 1.0 - (float)FoliageByte(poolIdx) * (1.0 / 256.0); }
+                    folT *= folKeep;
+                    if (folT < _FoliageEps) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; r.fol = true; return r; }
+                }
 
                 // ---- C.10, tracked on the DENSE path only ----
                 // A BOUNDED, STATED APPROXIMATION, not an oversight. Scanning
@@ -3506,6 +3544,17 @@ uint ShellBrickVoxel(int k, uint h, uint vIdx)
     return (ShellBricks[bb + (h & 0x3FFFFFFFu) * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
 }
 
+/// TASK 245: the leaf-fill byte (FoliageDens's shell region) of shell k's dense brick with handle h: a full body
+/// its byte 0, a compact sub-brick (offset o = body * 128 + sub * 17) byte `sub`; 8 bytes per global shell body.
+uint FoliageShellByte(int k, uint h)
+{
+    uint o = h & 0x3FFFFFFFu;
+    uint body = (uint)_ShellHi[k].w, sub = 0u;
+    if ((h & 0x40000000u) != 0u) { body += o >> 7; sub = (o & 127u) / 17u; }
+    else body += o;
+    return FoliageByte((uint)_FoliageShellBase * 4u + body * 8u + sub);
+}
+
 /// Material at `voxel` in shell k (entry e) and the log2 span of its uniform region.
 uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
 {
@@ -3730,6 +3779,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     int kPrev = 0;
     int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
     int pcK = -1; int3 pcBrick = int3(0, 0, 0); uint pcH = 0u;            // task 93b4: page cache
+    float folT = 1.0, folKeep = 1.0; uint folH = 0u; int folK = -1;        // task 245: leaf transmittance, its brick's (1 - f)
 #ifdef VE_SHELL_LEAN
     int bandKd = -1; float bandLo = 1.0, bandHi = 0.0;                     // task 134: band cache (empty)
 #endif
@@ -3848,6 +3898,18 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
                 return r;
             }
             sh = k;   // a shadow ray's start cell: leave it
+        }
+        // TASK 245: the foliage early-out (header at FoliageDens) -- a shadow ray's air cell of a dense shell brick
+        // (sh == k: the paged path, pcH = its handle). Ends as a HIT with mat 0 (no real hit has mat 0).
+        else if (shadow && FOLIAGE_ON && sh == k)
+        {
+            if (pcH != folH || k != folK) { folH = pcH; folK = k; folKeep = 1.0 - (float)FoliageShellByte(k, pcH) * (1.0 / 256.0); }
+            folT *= folKeep;
+            if (folT < _FoliageEps)
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = 0u; r.inside = false; r.normal = normal;
+                return r;
+            }
         }
 #ifdef VE_SHELL_DIAG
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
@@ -4598,7 +4660,7 @@ float SunTraceFace(int3 v, int3 n, uint shell)
 #else
         bool roof = !cont;
 #endif
-        ShadowHit sh = TraceShadowRay(v, n, _SunDir, _WindowDimsBricksPacked.xyz, soft, false, roof, SUN_COARSE_NEVER);
+        ShadowHit sh = TraceShadowRay(v, n, _SunDir, _WindowDimsBricksPacked.xyz, soft, false, roof, SUN_COARSE_NEVER, true);
         vis = sh.sunVis;
         if (cont && sh.exitT >= 0.0 && sh.sunVis > 0.0)
         {
@@ -4723,18 +4785,20 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
     int legs = (fillHalf != 0u) ? 2 : 1;
     uint3 wdb = _WindowDimsBricksPacked.xyz;
 #ifdef VE_SHELL_DIAG
-    uint rsSteps = 0u; bool rsLeaf = false;   // task 244: one sky ray = this sample, both legs
+    uint rsSteps = 0u; bool rsLeaf = false, rsFol = false;   // task 244: one sky ray = this sample, both legs (245: rsFol)
 #endif
     [loop]
     for (int leg = 0; leg < legs; leg++)
     {
+        // Task 245: the foliage early-out on the visibility leg only (a ground leg's hit point is used below).
         ShadowHit sky = TraceShadowRay(tv, tn, td,
-                                       wdb, false, false, true, SUN_COARSE_NEVER);   // task 168: exitT unused, so the roof skip is exact here
+                                       wdb, false, false, true, SUN_COARSE_NEVER, leg == legs - 1);   // task 168: exitT unused, so the roof skip is exact here
 #ifdef VE_SHELL_DIAG
         if (RAY_STATS_ON)
         {
             rsSteps += (uint)sky.steps;
             if (sky.hitT >= 0.0 && RayStatsLeaf(VoxelMaterialAt(sky.hitV, wdb))) rsLeaf = true;
+            if (sky.fol) rsFol = true;   // task 245
         }
 #endif
         fillSample = sky.sunVis;
@@ -4750,7 +4814,7 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
 #ifdef VE_SHELL_DIAG
     // Task 244: band = the face's camera distance (both callers: the primary kernel's orphans, CSSkyFillTraceDiag's blocks).
     if (RAY_STATS_ON)
-        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf);
+        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf, rsFol);
 #endif
     return fillSample;
 }
@@ -5691,7 +5755,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #ifdef VE_SHELL_DIAG
     // Task 244: this pixel's sun ray this frame (tier-0 TraceShadowRay + task 133's shell continuation, task 80's shell-hit
     // ray, the far band's sun ray): traced at all, its steps, of them tier 0, blocked, blocked by a tier-0 leaf voxel.
-    bool rsSun = false, rsSunBlk = false, rsSunLeaf = false;
+    bool rsSun = false, rsSunBlk = false, rsSunLeaf = false, rsSunFol = false;
     uint rsSunSteps = 0u, rsSunT0 = 0u;
 #endif
     float skyVis = 1.0;
@@ -5901,7 +5965,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #endif
         // Task 228: a far receiver's ray goes coarse above its climb guard (SunCoarseY); near receivers stay exact.
         int sunCoarseY0 = SunCoarseY(currentDist, voxel.y + normal.y, 0);
-        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof, sunCoarseY0);
+        sh.fol = false;
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof, sunCoarseY0, true);
 #ifdef VE_FAR_SHADE
         // TASK 133 (see _NearShadowShells): a tier-0 sun ray that left the window or the band ceiling
         // unblocked goes on through the shells from where it left, as a shell hit's sun ray does
@@ -5918,7 +5983,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                                      SunCoarseY(currentDist, voxel.y + normal.y, 1));   // task 228
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
 #ifdef VE_SHELL_DIAG
-            if (RAY_STATS_ON) { rsSunSteps += (uint)ns.iters; if (ns.end == SHELL_END_HIT) rsSunBlk = true; }   // task 244
+            if (RAY_STATS_ON) { rsSunSteps += (uint)ns.iters; if (ns.end == SHELL_END_HIT) rsSunBlk = true; if (ns.end == SHELL_END_HIT && ns.mat == 0u) rsSunFol = true; }   // task 244 / 245
 #endif
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
             if (SHADOW_STATS_ON)
@@ -5963,6 +6028,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         {
             rsSun = true;
             rsSunSteps += (uint)sh.steps; rsSunT0 += (uint)sh.steps;
+            if (sh.fol) rsSunFol = true;   // task 245
             if (sh.hitT >= 0.0)
             {
                 rsSunBlk = true;
@@ -6004,7 +6070,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (SHADOW_STATS_ON) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
 #endif
 #ifdef VE_SHELL_DIAG
-        if (RAY_STATS_ON) { rsSun = true; rsSunSteps += (uint)ss.iters; if (ss.end == SHELL_END_HIT) rsSunBlk = true; }   // task 244
+        if (RAY_STATS_ON) { rsSun = true; rsSunSteps += (uint)ss.iters; if (ss.end == SHELL_END_HIT) rsSunBlk = true; if (ss.end == SHELL_END_HIT && ss.mat == 0u) rsSunFol = true; }   // task 244 / 245
 #endif
     }
 
@@ -6117,9 +6183,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     {
         InterlockedAdd(RayStats[1], 1u);
         uint rsBand = hit ? RayStatsBand(currentDist) : 3u;
-        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat));
+        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat), false);
         if (farShadowSteps > 0) { rsSun = true; rsSunSteps += (uint)farShadowSteps; if (farSunVis <= 0.0) rsSunBlk = true; }
-        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf);
+        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol);
     }
 #endif
 
