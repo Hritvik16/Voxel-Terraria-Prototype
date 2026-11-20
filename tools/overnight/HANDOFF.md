@@ -1,54 +1,56 @@
-STOP_FOR_OWNER -- Q-244: the counters work and their writes change 0 px, but turning them ON draws with the *Diag kernel, which differs
-from play's diet-2 kernel by 7-12 px (1-2 of 255) at noon (0 px at walk_near 16 deg). The task asked "hash-identical on vs off".
-(a) accept as is (recommended: capture-only, the counted work is the same algorithm, the counts are the deliverable);
-(b) queue a follow-up: a diet-2 counter twin (VE_DIET2 + counters; ~1 h build, +1 kernel) for byte identity; (c) other.
+STOP_FOR_OWNER -- Q-245: make the foliage light early-out the default? **Recommendation: NO (keep it OFF; close lever F4).**
+It saves 7-8 % of forest sun + sky ray steps at eps 1/8 (13-18 % at 1/2), but it is wrong a third to a half of the times it fires:
+crowns are clumps with gaps, not a random medium, so the rays it stops would often have reached the sun. Under the oak the dapples
+nearly vanish (lit sun rays 4 % -> 1 % at 16 deg). (a) keep OFF, close F4 (recommended); (b) default ON at eps 1/8 and accept the look;
+(c) other (e.g. a per-brick "gap" statistic instead of fill: new design work).
 
-# 244-sun-steps-counter: DONE (counts + table), identity: counters exact, the Diag kernel 1-2 LSB off on <= 12 px -> Q-244
+# 245-foliage-light-early-out: DONE behind -foliageout 1 (default OFF); data says it does not pay -> Q-245
 
-## What changed (commit "244:", see `git log -1`)
-- `Raymarch.compute`: RayStats buffer (9,632 B, allocated only when a capture turns it on): primary / sun / sky rays, steps, tier-0 share,
-  blocked, blocked-by-a-tier-0-leaf, steps-per-ray histogram, by camera band 0-10 / 10-40 / 40-82 / 82 m+. Writes ONLY under
-  `#ifdef VE_SHELL_DIAG` (CSMainFarShadeDiag + new CSSkyFillTraceDiag); play kernels fold RAY_STATS_ON to false.
-- BUG FIXED (pre-existing, KNOWN_ISSUES top): `CSMainFarShadeDiag` had 32 Metal buffer slots (cap 31) and never loaded in a player
-  (already in Logs/overnight/219, 221) -> every cost-split counter line ([sun], [nearsh], shell / far) read 0 and far-shading debug views
-  were magenta. The *Diag twins now fold `_UseLODCascade` to 0 like task 206's flood twins (29 slots); drawn only while the cascade is off.
-  The [sun] / [shell] / [nearsh] lines work again (forest 16 deg [sun full] 154,173 rays, 31.9 tier-0 steps/ray = my table's tier-0 part).
-- `RaymarchFeature`: CollectRayStats / ResetRayStats / RequestRayStats (AsyncGPUReadback, no stall) / DebugFreezeTemporal (capture only).
-- `RayStatsReport.cs` (table), cost split `-raystats 1` [`-raystatsframes N` 32, `-rsfreeze N` 300], `tools/rspair244.py`,
-  tests `RayStatsReportTests` (4), `KernelHealth.RaymarchKernels` +CSSkyFillTraceDiag. NOT added to DevKernelStrip (its test needs owner OK).
+## What changed (commit 49c3a32)
+- `Mirror/FoliageDensity.cs` (new): SIDE BUFFER, no brick-layout change. 1 byte per GPU body = leaf voxels (183-186, 216), (n+1)>>1; 8 bytes
+  per shell body (full, or one per compact sub-brick). CPU-written (Burst count of the very words uploaded) in `TerrainClipmap.WriteBrickRunAt`
+  and `ShellStore.Continue`; one `FoliageDens` buffer, dirty 4 KB blocks uploaded once a frame (RaymarchFeature).
+- `Raymarch.compute`: each air cell of a dense brick multiplies a leaf transmittance by (1 - f); below `_FoliageEps` = blocked. In
+  `TraceShadowRay` (sun + sky-fill visibility leg; never the ground-bounce leg) and `ShellMarch` (shadow rays). Far-shading kernels only
+  (`FOLIAGE_ON`, +1 Metal slot: CSMainFarShade 30 of 31). RayStats [5] / table column `folstop`.
+- Cost-split arms `foliage_off`, `foliage_eN`; `-foliageeps`, `-rsnoident 1`. Tests `FoliageDensityTests` (5). TASKS.md paragraph.
+- NOT done: the CPU twins (ShellRayReference / ShadowRayReference) do not model the early-out (it is OFF by default).
 
 ## Evidence
-- Fast suite PASS 1119 FAIL 0 SKIP 25 (`Logs/overnight/244/fast.out`). No frame time quoted (rule 10); launches: FULL still only, untimed.
-- Identity (`python3 -I tools/rspair244.py`, temporal frozen 300 frames, no upscaler): walk_near 16 deg all 4 stills IDENTICAL; noon
-  walk_near / walk_open: control 0 px, ON vs Diag-OFF 0 px (counters exact), play vs Diag 7 / 12 px max 1 / 2. forest_eye: control itself
-  1,185-1,204 px (streaming deficit 542-579: distant band rows 471-583 still loading), ON/OFF the same size in the same rows.
-- Memory (rule 11): GPU body pool peak 245,704 / refused 0 at forest_eye = budget baseline (Logs/budget/2026-11-17_235256) 245,704 / 0;
-  process peak 2,515 MB (16 deg launch) / 2,612 MB (noon) vs baseline 2,534-2,621; CPU pool peak 494,389 (valve 484,500). Added: 9.6 KB.
-- Pass card (P2): capture-only, nothing new in play. Under -raystats: the Diag primary kernel + CSSkyFillTraceDiag at render rows
-  (768x432), every frame for the 32-frame window, ~2-12 atomics/px, no new ray march, +9,632 B. Switch `-raystats 1` (OFF = no pass).
-  Slice (rule 14): none -- 0 ms / 0 MB on tier A (never runs in play).
-
-## The table (per frame, forest_eye 16 deg = `Logs/overnight/244/costsplit_16.txt`; noon = `costsplit_noon.txt`, `costsplit_noon2.txt`)
-| pose | sun rays | steps/ray avg | p95 | sun steps/frame | tier-0 share | stop on leaf | sky steps/ray, p95 |
-| forest_eye 16 | 153,561 | 60.3 | 160-175 | 9.26 M | 53 % | 21 % (10-40 m: 43 %) | 45.5, 128-143 |
-| forest_eye noon | 154,965 | 28.5 | 60 | 4.42 M | 51 % | 23 % | 39.9, 96-111 |
-| walk_near noon | 153,751 | 36.2 | 64-79 | 5.56 M | 71 % | 0 % | 39.3, 96-111 |
-| walk_open noon | 133,365 | 9.7 | 31 | 1.30 M | 46 % | 0 % | 36.2, 80-95 |
-| walk_near 16 | 83,413 | 28.2 | 32 | 2.36 M | 61 % | 0 % | 28.1, 64-79 (pose faces a wall, all rays < 10 m) |
-forest_eye 16 by band (primary steps share / sun steps share): 0-10 m 12 % / 15 %, 10-40 m 35 % / 30 %, 40-82 m 16 % / 22 %, 82 m+ 37 % / 33 %.
-- F4 (foliage early-out): SUPPORTED at low sun -- forest sun rays take 2.1x the steps of forest noon and 1.7x walk_near noon (p95 ~2.5x);
-  21-46 % of them stop on leaves. 47 % of those steps are the shell continuation, so F4 must act in the shell march too. Not at noon.
-- F6 (coarser leaves > 40 m): WEAK -- the 40-82 m band holds 16 % of primary and 22 % of sun steps at forest 16 deg (10-40 m holds more).
-- Finding: budget walk_near_16's FULL still pose (pos[0]) stares at a sandstone wall 1-10 m away (`Screenshots/244/walk_near_16.png`).
+- Whole suite PASS 1207 FAIL 0 SKIP 37 (`Logs/overnight/245/all.out`). Player: every kernel loaded (`[kernels]` no FAILED, both launches).
+- Calibration (CPU, forest_eye's 100 generated chunks, 4 sun heights, floor + surface receivers; `Screenshots/245/calibration245.txt`):
+  rule "largest eps whose stopped rays would have been lit <= 5 %" -> NONE: P(lit | stopped) 27-58 % at every eps 1/2..1/128.
+  Brick-fill threshold (the task's other option): >= 50 % never fires; >= 25 % wrong 6-52 %, saves 1.5-3.5 % of dense-cell steps.
+- GPU counters (counts, not time; budget settings; `Screenshots/245/costsplit_{16,noon}.txt`), per frame, OFF -> eps 1/8 -> eps 1/2:
+  | pose | sun steps | sky steps | sun rays blocked |
+  | forest_eye 16 deg | 9.32 M -> 8.62 M (-7.4 %) -> 8.07 M (-13.4 %) | 2.01 -> 1.86 (-7.5 %) -> 1.66 M (-17.5 %) | 64 -> 67 -> 70 % |
+  | forest_eye noon | 4.40 M -> 4.06 M (-7.7 %) -> 3.73 M (-15.1 %) | 1.77 -> 1.65 -> 1.45 M | 32 -> 34 -> 38 % |
+  | oak_under 16 deg | 2.20 M -> 1.36 M (-38 %) -> 0.66 M (-70 %) | 1.38 -> 1.24 -> 1.10 M | 96 -> 99 -> 100 % |
+  | oak_under noon | 0.72 M -> 0.55 M (-23 %) -> (broken shot) | 1.04 -> 0.93 M | 94 -> 97 % |
+  | walk_near (no trees) | unchanged (+-0.3 %) at both suns | unchanged | unchanged |
+- Pictures (`Screenshots/245/diff245.txt`): forest_eye 16 deg 9.9 % px changed (1/8), 13.5 % (1/2), luma -1.5 / -2.1 %; noon 6.7 / 9.5 %;
+  noise floor = walk_near (nothing fires): 0.5 % (16 deg) / 6 % (noon) px. oak_under luma -2.7 % (16) / -3.5 % (noon).
+  BROKEN: `oak_under_e2_noon.png` and its counter window are a different pose (top-down river view; camera not at the pose) -- not relaunched.
+- Memory (rule 11, ON vs 244's OFF launch at the same poses/settings): +5.58 MB GPU (254,400 B tier 0 + 5,323,776 B shells) + 5.58 MB CPU,
+  only with -foliageout 1; process peak 2,512.7 vs 2,515.0 MB (16 deg; noise); GPU pool peak 245,704 = 245,704 at forest_eye, refused 0;
+  oak_under refused 21 (243 OFF: 20-21); CPU pool peak 494,560 vs 494,389, valve 484,500. Within budget (refusals not up, peak +50 MB).
+  The shell part is 21x the task's +0.25 MB estimate (665,472 shell pool bodies x 8 B).
+- Pass card (P2): no new pass. Changed: the sun / sky rays of CSMainFarShade* (+Diag/Lean/Flood twins), CSSkyFillTrace, CSSunTrace,
+  CSSunDeferLean; render rows (432 here), every frame (sun 1 in 4 temporal); per dense-brick air cell +1 multiply/compare, +1 buffer read
+  per brick change; +5.58 MB GPU; AMENDMENT_8_17 step: sun + sky light. P3: no frame time printed (rule 10). P5: steps DOWN 7-18 % (no flag).
+- Slice (rule 14): trees have no own slice (they take from sun + sky). Default OFF: 0 ms / 0 MB on tier A. ON: est. a few % of the
+  sun + sky share at forest poses (guess; the counted step cut is 7-15 %), +11 MB.
 
 ## Next
-Owner Q-244. Then F4 (task file per PERF_SLICE_BUDGETS sec. 6). Counter launch = `Logs/overnight/244/run.sh` / `run2.sh` (~10 min each).
+Owner Q-245. If (a): nothing to do (code stays OFF; could be removed later). Timing tasks 238 / 239 unaffected.
 
 ## For the doc
-Task 244 -- sun / sky / primary ray-step counters (capture only), and the debug kernel fixed so counters read again.
-- Sun steps per ray, forest_eye: noon 28.5 -> 16 deg 60.3 (p95 60 -> 160-175); walk_near noon 36.2 (`Logs/overnight/244/costsplit_*.txt`)
-- Sun steps per frame, forest_eye: 4.42 M (noon) -> 9.26 M (16 deg); sun rays stopped by leaves at 16 deg: 21 % (43 % at 10-40 m)
-- Steps beyond 40 m at forest 16 deg: primary 16 %, sun 22 % of the 40-82 m band -> F6 weak, F4 supported at low sun
-- Memory: +9.6 KB, only while counting; pool peak 245,704 = baseline, refusals 0 = 0
-- `Screenshots/244/forest_eye_16.png`: the counted forest pose at 16 deg -- trees 5-80 m, the band where 43 % of sun rays stop on leaves.
-- `Screenshots/244/kernel_diff_walk_open.png`: walk_open noon, darkened; the magenta squares mark the ~12 px where the debug kernel differs from play by 1-2 levels (Q-244).
+Task 245 -- foliage light early-out (F4), behind `-foliageout 1`, default OFF. Verdict: does not pay for its look cost.
+- Sun steps per frame, forest_eye 16 deg: 9.32 M -> 8.62 M (eps 1/8, -7 %) / 8.07 M (eps 1/2, -13 %) (`Screenshots/245/costsplit_16.txt`)
+- Sun rays reaching the sun, forest_eye 16 deg: 36 % -> 33 % -> 30 %; under the oak 4 % -> 1 % -> 0 %
+- Calibration: a ray the early-out stops would have reached the sun 27-58 % of the time, at every threshold (`Screenshots/245/calibration245.txt`)
+- Memory: +5.6 MB GPU + 5.6 MB CPU when on; pool peak 245,704 = 245,704, refusals not up; process peak 2,513 vs 2,515 MB
+- `Screenshots/245/sheet245.jpg`: rows walk_near / forest_eye / oak_under at 16 deg then noon; columns OFF | eps 1/8 | 4x diff | eps 1/2 | 4x diff.
+  Look at the forest_eye diff columns: the change sits on sunlit leaf patches inside the crowns and trunks; the even ground grain is temporal noise
+  (walk_near, where nothing fires, shows it too). Last row's eps 1/2 tiles are a broken shot (wrong pose).
+- `Screenshots/245/viewer.html`: full-size flip viewer (Space = cycle arms, S = sun, Z = full size); look at the dapples under the oak (oak_under 16 deg).
