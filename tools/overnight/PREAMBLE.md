@@ -107,3 +107,8 @@ You are running UNATTENDED in a fresh headless session started by
 13. **Budget check counter** (owner Q-AO (b), N = 5, task 230): the supervisor adds 1 to `tools/overnight/BUDGET_COUNT` (line 1)
    for each drawing/content task it marks done, and queues `tools/overnight/run-budget-check.sh` next when it reaches 5, at once
    after a `HEAVY` task, and before any merge to `main`; an accepted check (PASS or `--rebaseline`) sets it to 0, WARN to 2.
+14. **Slice declaration** (owner Q-AT D1-D6, 2026-11-19; `PERF_SLICE_BUDGETS.md`, task 241). The M1 Air 8 GB is tier A (minimum spec):
+   30 fps typical, the dense forest at dawn/dusk may drop to 20 fps (50 ms), memory under 3,000 MB, view range High. A task that adds or
+   changes drawing or content names, in its HANDOFF, the slice it fits (sec. 2 of that doc) with ms and MB for tier A, or what it takes from.
+   Tier A gives up, in order: long low-sun shadows, the bounce sun ray at low sun, render rows 360 then 288 in heavy views, tree density LAST.
+   Tiers B and C are labelled estimates, never promises. Slice numbers are est./guess unless measured; no extra timing launch for this (rule 10).
