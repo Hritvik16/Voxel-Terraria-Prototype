@@ -160,6 +160,8 @@
 // TASK 227: LOW-RES SKY FILL's trace pass (see that block): one sky-fill ray per 2x2 / 4x4 pixel block, after the
 // primary passes. VE_FAR_SHADE so its TraceShadowRay is the play kernels' (task 133's shell-continued distance cap).
 #pragma kernel CSSkyFillTrace VE_FAR_SHADE VE_SKYFILL_TRACE
+// TASK 244 (capture only, -raystats 1): its *Diag twin, with the RayStats sky-ray counters (RaymarchFeature.CollectRayStats).
+#pragma kernel CSSkyFillTraceDiag VE_FAR_SHADE VE_SKYFILL_TRACE VE_SHELL_DIAG
 // TASK 232: LOW-RES SUN's trace pass (see that block): one exact sun ray per 2x2 / 4x4 pixel block, after the primary
 // passes, written into every record of the block that shows the same face.
 #pragma kernel CSSunTrace VE_FAR_SHADE VE_SUN_TRACE
@@ -204,6 +206,14 @@ int _UseLODCascade;
 // time, the kernel never loaded, and play with the flood on (task 175's default) kept a stale image in a
 // player. Without the tier 1-2 march the four tier buffers drop out (29 slots). RaymarchFeature draws a
 // flood twin only while the cascade is off -- always, while the shells draw (play) -- so this is exact.
+#define _UseLODCascade 0
+#endif
+#if defined(VE_SHELL_DIAG) && !defined(VE_TORCH_FLOOD)
+// TASK 244: the same fold in the *Diag twins (CSMainFarShadeDiag, CSShellPrepassDiag, CSShellProbe, CSSkyFillTraceDiag).
+// CSMainFarShadeDiag had 32 Metal buffer slots since task 193's sky-fill history (cap 31): it never loaded in a player
+// ("[kernels] FAILED: Raymarch.CSMainFarShadeDiag did not load", Logs/overnight/219, 221), so every counter window
+// (ShadowStats lines) and the far-shading debug views drew magenta / read 0; task 244's RayStats made it 33. Without the
+// tier 1-2 march: 29. RaymarchFeature draws a *Diag twin only while the cascade is off (always, while the shells draw).
 #define _UseLODCascade 0
 #endif
 
@@ -290,6 +300,42 @@ int _CollectShadowStats;
 #else
 #define SHADOW_STATS_ON (_CollectShadowStats != 0)
 #endif
+
+// TASK 244 (capture only, PERF_SLICE_BUDGETS sec. 4 / P5, levers F4 / F6): RAY-WORK COUNTERS by ray kind and distance band.
+// Compiled into the *Diag kernels only (CSMainFarShadeDiag, CSSkyFillTraceDiag): every play kernel folds RAY_STATS_ON
+// to false and never names RayStats. Written only while _RayStats != 0 (RaymarchFeature.CollectRayStats, -raystats 1).
+// Layout (uints): [0] frames (pass-1 thread 0 of the primary kernel), [1] in-bounds primary pixels, [2..7] spare;
+// then 12 records of RS_REC = kind (0 primary, 1 sun, 2 sky) x 4 + band (camera distance of the ray's pixel / face:
+// 0-10 m, 10-40 m, 40-82 m, 82 m+ or no hit): [0] rays, [1] steps, [2] of them tier-0 steps, [3] blocked (primary: hit),
+// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5..7] spare, [8..199] histogram of steps per ray (RayStatsBin).
+// Steps = loop iterations of the marches the ray ran (tier-0 DDA / leaps, shell iterations, far-band steps), counted ONCE
+// per ray (pass 2 of the shell pre-pass re-runs a handed-over group's tier-0 march; that repeat is not counted).
+RWStructuredBuffer<uint> RayStats;
+int _RayStats;
+#ifdef VE_SHELL_DIAG
+#define RAY_STATS_ON (_RayStats != 0)
+#else
+#define RAY_STATS_ON false
+#endif
+#define RS_HDR  8u
+#define RS_REC  200u
+#define RS_HIST 8u
+/// 0-63 exact, 64-1087 in 16s, 1088-5119 in 64s, 191 = 5120 and over (C# twin RayStatsReport.BinLow).
+uint RayStatsBin(uint s) { return s < 64u ? s : (s < 1088u ? 64u + ((s - 64u) >> 4) : min(128u + ((s - 1088u) >> 6), 191u)); }
+/// Camera distance in VOXELS (0.1 m) -> band 0-3 (10 / 40 / 82 m).
+uint RayStatsBand(float tVox) { return tVox < 100.0 ? 0u : (tVox < 400.0 ? 1u : (tVox < 820.0 ? 2u : 3u)); }
+/// The leaf materials (task 225's class 2: 183-186, 216).
+bool RayStatsLeaf(uint mat) { return (mat >= 183u && mat <= 186u) || mat == 216u; }
+void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf)
+{
+    uint b = RS_HDR + (kind * 4u + band) * RS_REC;
+    InterlockedAdd(RayStats[b], 1u);
+    InterlockedAdd(RayStats[b + 1u], steps);
+    InterlockedAdd(RayStats[b + 2u], stepsT0);
+    if (blocked) InterlockedAdd(RayStats[b + 3u], 1u);
+    if (leaf) InterlockedAdd(RayStats[b + 4u], 1u);
+    InterlockedAdd(RayStats[b + RS_HIST + RayStatsBin(steps)], 1u);
+}
 
 // ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
 // The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
@@ -4676,11 +4722,21 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
     float3 td = probeDir;
     int legs = (fillHalf != 0u) ? 2 : 1;
     uint3 wdb = _WindowDimsBricksPacked.xyz;
+#ifdef VE_SHELL_DIAG
+    uint rsSteps = 0u; bool rsLeaf = false;   // task 244: one sky ray = this sample, both legs
+#endif
     [loop]
     for (int leg = 0; leg < legs; leg++)
     {
         ShadowHit sky = TraceShadowRay(tv, tn, td,
                                        wdb, false, false, true, SUN_COARSE_NEVER);   // task 168: exitT unused, so the roof skip is exact here
+#ifdef VE_SHELL_DIAG
+        if (RAY_STATS_ON)
+        {
+            rsSteps += (uint)sky.steps;
+            if (sky.hitT >= 0.0 && RayStatsLeaf(VoxelMaterialAt(sky.hitV, wdb))) rsLeaf = true;
+        }
+#endif
         fillSample = sky.sunVis;
         if (leg == 0 && legs == 2)
         {
@@ -4691,6 +4747,11 @@ float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf
             tv = sky.hitV; tn = en; td = sdn;               // one bounce: is the ground it landed on in sun?
         }
     }
+#ifdef VE_SHELL_DIAG
+    // Task 244: band = the face's camera distance (both callers: the primary kernel's orphans, CSSkyFillTraceDiag's blocks).
+    if (RAY_STATS_ON)
+        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf);
+#endif
     return fillSample;
 }
 
@@ -4789,6 +4850,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // (0.185%), and at 1920x1080 both dimensions divide by 8 exactly (0.000%).
     bool inBounds = (id.x < width && id.y < height);
     uint lane = gtid.y * 8u + gtid.x;
+#ifdef VE_SHELL_DIAG
+    // Task 244: one frame = one pass-1 (or one-pass) dispatch of this kernel.
+    if (RAY_STATS_ON && tid.x == 0u && tid.y == 0u && _ShellPrepass != 2) InterlockedAdd(RayStats[0], 1u);
+#endif
 #ifdef VE_FAR_SHADE
     // TASK 132 (R1, the shell pre-pass; see ShellPre): pass 2 runs only the groups pass 1 handed
     // over (a group-uniform return: no lane of a returned group reaches a barrier). Out-of-bounds
@@ -5623,6 +5688,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // =======================================================================
 
     float sunVis = 0.0;
+#ifdef VE_SHELL_DIAG
+    // Task 244: this pixel's sun ray this frame (tier-0 TraceShadowRay + task 133's shell continuation, task 80's shell-hit
+    // ray, the far band's sun ray): traced at all, its steps, of them tier 0, blocked, blocked by a tier-0 leaf voxel.
+    bool rsSun = false, rsSunBlk = false, rsSunLeaf = false;
+    uint rsSunSteps = 0u, rsSunT0 = 0u;
+#endif
     float skyVis = 1.0;
     SkyRec skyRec = SkyRecNone();   // task 193: this pixel's sky-fill record (none); task 227: 12 B, carries the face
 #if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
@@ -5846,6 +5917,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),
                                      SunCoarseY(currentDist, voxel.y + normal.y, 1));   // task 228
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
+#ifdef VE_SHELL_DIAG
+            if (RAY_STATS_ON) { rsSunSteps += (uint)ns.iters; if (ns.end == SHELL_END_HIT) rsSunBlk = true; }   // task 244
+#endif
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
             if (SHADOW_STATS_ON)
             {
@@ -5883,6 +5957,19 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // say so. Same instrument-before-guessing that settled rung 1 (§F.1).
             if (traceMine) InterlockedAdd(ShadowStats[4], (uint)sh.steps);
         }
+#ifdef VE_SHELL_DIAG
+        // Task 244: the tier-0 sun ray (its continuation's iterations were added above).
+        if (RAY_STATS_ON && traceMine)
+        {
+            rsSun = true;
+            rsSunSteps += (uint)sh.steps; rsSunT0 += (uint)sh.steps;
+            if (sh.hitT >= 0.0)
+            {
+                rsSunBlk = true;
+                rsSunLeaf = RayStatsLeaf(VoxelMaterialAt(sh.hitV, _WindowDimsBricks));
+            }
+        }
+#endif
     }
 
     // When shadows are OFF (rung 3), §6.5 says "sun becomes a flat N.L term
@@ -5915,6 +6002,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
         // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
         if (SHADOW_STATS_ON) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
+#endif
+#ifdef VE_SHELL_DIAG
+        if (RAY_STATS_ON) { rsSun = true; rsSunSteps += (uint)ss.iters; if (ss.end == SHELL_END_HIT) rsSunBlk = true; }   // task 244
 #endif
     }
 
@@ -6020,6 +6110,18 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // Task 193: every pixel writes its record (none when it has no tier-0 sky fill), so a stale one
     // never outlives a frame.
     if (_SkyFill != 0 && inBounds) SkyHistW[id.y * width + id.x] = skyRec;
+#ifdef VE_SHELL_DIAG
+    // Task 244: this pixel's primary ray (tier-0 march + shell iterations + far-band steps) and its sun ray, once per frame
+    // (a handed-over group reaches here in pass 2 only). Band: the hit's camera distance; no hit / far band = band 3.
+    if (RAY_STATS_ON && inBounds)
+    {
+        InterlockedAdd(RayStats[1], 1u);
+        uint rsBand = hit ? RayStatsBand(currentDist) : 3u;
+        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat));
+        if (farShadowSteps > 0) { rsSun = true; rsSunSteps += (uint)farShadowSteps; if (farSunVis <= 0.0) rsSunBlk = true; }
+        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf);
+    }
+#endif
 
     // §10.4's scalar record for the shadow path, alongside the ring buffer the
     // trace filled. Written unconditionally for the debug pixel so a dump
@@ -6930,8 +7032,8 @@ void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
 // block), traces that face's sample exactly as the inline path would (SkyFillTraceSample, its seed, this frame's
 // half and direction) and folds it into every record of the block that shows the same face plane (SkyShareBad 0).
 // Single writer: each record belongs to one block. Runs after both primary passes, so every record is this frame's.
-[numthreads(8, 8, 1)]
-void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID)
+// Task 244: the body is shared with CSSkyFillTraceDiag (VE_SHELL_DIAG: + the RayStats sky counters, -raystats 1 only).
+void SkyFillTraceBody(uint3 tid)
 {
 #ifdef VE_SKYFILL_TRACE
     uint width = (uint)_SkyLowParams.x, height = (uint)_SkyLowParams.y;
@@ -6985,6 +7087,11 @@ void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID)
     }
 #endif
 }
+
+[numthreads(8, 8, 1)]
+void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID) { SkyFillTraceBody(tid); }
+[numthreads(8, 8, 1)]
+void CSSkyFillTraceDiag(uint3 tid : SV_DispatchThreadID) { SkyFillTraceBody(tid); }
 
 // TASK 232: LOW-RES SUN's trace pass. One thread per B x B block (B = 2 << (_SunLow - 1)). It picks one record of the
 // block: on even frames the first PRIOR one (a value borrowed from neighbours: check it), else / otherwise the first with

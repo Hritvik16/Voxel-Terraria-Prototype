@@ -375,7 +375,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Task 134: does this frame need the far-shading *Diag kernels? A counter window, a debug view, a
     /// _DebugShellSkip arm, the OFF-by-default experiments (-shellmask 1, -shellcolleap 1), or the diet off.
     public static bool ShellDiagKernels(int debugMode) =>
-        !ShellKernelDiet || CollectShadowStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
+        !ShellKernelDiet || CollectShadowStats || CollectRayStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
     /// Task 161 (PERF_EXACT_CUTS B, KERNEL DIET 2): the far-shading pass runs CSMainFarShadeLean / CSShellPrepassLean
     /// (Raymarch.compute VE_DIET2: the settings that are OFF in play folded to constants) whenever KernelDiet2Rule.Settings and the frame allow;
     /// otherwise the lean kernels of task 134 (unchanged) run. Exact by construction (raw stills 0 px, task 161).
@@ -807,6 +807,33 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// rig's frame times measured an empty frame (found 2026-09-25).
     private static GraphicsBuffer _lightDummy;
 
+    /// TASK 244 (capture only, PERF_SLICE_BUDGETS sec. 4 / P5): the ray-work counters (Raymarch.compute RayStats: primary /
+    /// sun / sky rays and their steps by camera-distance band, with a steps-per-ray histogram). While on, the far-shading
+    /// pass draws its *Diag kernels (exact twins of play's, as for CollectShadowStats) and the low-res sky fill draws
+    /// CSSkyFillTraceDiag. The buffer (RAYSTATS_LEN x 4 B = 9.6 KB) is allocated the first time this is on; play and the
+    /// rigs never turn it on. Read it with RequestRayStats (AsyncGPUReadback: no stall, KNOWN_ISSUES' HUD readback bug).
+    public static bool CollectRayStats = false;
+    /// Task 244 (capture only): the temporal sun / sky-fill frame counters stop advancing, so a still pose converges to ONE
+    /// image (the same rays every frame) and two frames can be compared byte for byte (the -raystats identity stills).
+    public static bool DebugFreezeTemporal = false;
+    public const int RAYSTATS_LEN = VoxelEngine.Rendering.RayStatsReport.LEN;   // 8 + 12 x 200
+    public static GraphicsBuffer RayStatsBuffer { get; private set; }
+    private static readonly uint[] _rayStatsZero = new uint[RAYSTATS_LEN];
+    /// Allocates (first call) and zeroes the counters; the next frames accumulate until RequestRayStats.
+    public static void ResetRayStats()
+    {
+        if (RayStatsBuffer == null)
+            RayStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, RAYSTATS_LEN, sizeof(uint));
+        RayStatsBuffer.SetData(_rayStatsZero);
+    }
+    /// Asks for the counters without waiting (poll .done; .hasError on failure). Null while never reset.
+    public static AsyncGPUReadbackRequest? RequestRayStats() =>
+        RayStatsBuffer == null ? (AsyncGPUReadbackRequest?)null : AsyncGPUReadback.Request(RayStatsBuffer);
+    /// Bytes the counters hold now (0 until the first ResetRayStats).
+    public static long RayStatsBytes => RayStatsBuffer == null ? 0L : (long)RAYSTATS_LEN * sizeof(uint);
+    /// The sky-fill trace pass drew CSSkyFillTraceDiag last frame (capture line).
+    public static bool SkyTraceDiagDrawnLastFrame { get; private set; }
+
     /// Zeroes the counters, so a read measures ONE frame rather than an
     /// unbounded accumulation.
     public static void ResetShadowStats()
@@ -890,6 +917,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer debugBuffer;
             public GraphicsBuffer shadowStats;
             public int collectShadowStats;
+            public GraphicsBuffer rayStats;   // task 244: RayStatsBuffer, or the 1-element dummy while off
+            public int collectRayStats;
             public Vector3Int windowDimsBricks;
             public Vector3Int windowDimsChunks;
             public Vector3Int windowOriginBricks;
@@ -1149,7 +1178,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     }
                     passData.tsRead = _tsA; passData.tsWrite = _tsB;
                     passData.tsValid = _tsValid ? 1 : 0;
-                    passData.tsFrame = _tsFrame++;
+                    passData.tsFrame = DebugFreezeTemporal ? _tsFrame : _tsFrame++;   // task 244: capture-only freeze
                     passData.tsReuseMask = ValidReusePeriod(ShadowReusePeriod) - 1;
                     passData.tsPrevVP = _tsPrevVP;
                     var tc = cameraData.camera;
@@ -1189,7 +1218,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     if (_sfMode != sfMode) { _sfValid = false; _sfMode = sfMode; }
                     passData.sfRead = _sfA; passData.sfWrite = _sfB;
                     passData.sfValid = _sfValid ? 1 : 0;
-                    passData.sfFrame = _sfFrame++;
+                    passData.sfFrame = DebugFreezeTemporal ? _sfFrame : _sfFrame++;   // task 244
                     passData.sfPrevVP = _sfPrevVP;
                     var sfCam = cameraData.camera;
                     _sfPrevVP = sfCam.projectionMatrix * sfCam.worldToCameraMatrix;
@@ -1302,6 +1331,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.debugBuffer = DebugBuffer;
                 passData.shadowStats = ShadowStatsBuffer;
                 passData.collectShadowStats = CollectShadowStats ? 1 : 0;
+                passData.collectRayStats = CollectRayStats && RayStatsBuffer != null ? 1 : 0;   // task 244
+                passData.rayStats = passData.collectRayStats != 0 ? RayStatsBuffer : _farDummy;
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
@@ -1437,7 +1468,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // square keep their kernels (no far shading while they hold the frame).
                 // Task 134: the lean play kernel, or its *Diag twin (ShellDiagKernels).
                 // Task 194b: a player build without the *Diag twins (DevKernelStrip) draws with the play kernels.
-                bool shellDiag = ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag")
+                // Task 244: the *Diag twins fold the tier cascade off (Raymarch.compute, as task 206's flood twins: 33 -> 29 Metal
+                // buffer slots, cap 31), so they draw only while it is off -- always while the shells draw (shellsOn below).
+                bool diagCascade = UseLODCascade && LODCascadeManager.Active != null
+                                   && !(DrawShells && ShellStreamer.Active != null && !useStripped && !useMemoryProbe);
+                bool shellDiag = !diagCascade && ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag")
                                  && !KernelStrippedWarn("CSMainFarShadeDiag");
                 string farShadeKernel = shellDiag ? "CSMainFarShadeDiag" : "CSMainFarShade";
                 if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel(farShadeKernel))
@@ -1639,11 +1674,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     }
                 }
                 // Task 227: the low-res sky fill's trace pass, with a far-shading primary kernel (play's, the capture runs').
-                passData.sfLow = 0; passData.kSkyTrace = -1;
+                passData.sfLow = 0; passData.kSkyTrace = -1; SkyTraceDiagDrawnLastFrame = false;
                 if (sfMode != 0 && SkyFillRes > 1 && (passData.primaryFarShade || diet2) && activeCompute.HasKernel("CSSkyFillTrace"))
                 {
                     passData.sfLow = SkyFillRes == 4 ? 2 : 1;
-                    passData.kSkyTrace = activeCompute.FindKernel("CSSkyFillTrace");
+                    // Task 244: the counters' twin while CollectRayStats (the primary kernel is then the *Diag one too).
+                    bool skyDiag = passData.collectRayStats != 0 && shellDiag && activeCompute.HasKernel("CSSkyFillTraceDiag");
+                    passData.kSkyTrace = activeCompute.FindKernel(skyDiag ? "CSSkyFillTraceDiag" : "CSSkyFillTrace");
+                    SkyTraceDiagDrawnLastFrame = skyDiag;
                     passData.sfLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
                 }
                 SkyFillResDrawnLastFrame = passData.sfLow == 0 ? 0 : 1 << passData.sfLow;
@@ -1894,6 +1932,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         if (data.shadowStats != null)
                             cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowStats", data.shadowStats);
                         cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
+                        // Task 244: bound unconditionally too (the dummy while off); written only by the *Diag kernels.
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RayStats", data.rayStats);
+                        cmd.SetComputeIntParam(data.compute, "_RayStats", data.collectRayStats);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowTravelLOD", data.shadowTravelLod);
@@ -2154,6 +2195,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSky, "HeightMipRO", data.heightMip);
                         if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSky, "DebugOut", data.debugBuffer);
                         cmd.SetComputeBufferParam(data.compute, kSky, "SkyHistW", data.sfWrite);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "RayStats", data.rayStats);   // task 244 (read by the Diag twin only)
                         int sfBs = data.sfLow;
                         int bx = (data.dispatchWidth + (1 << sfBs) - 1) >> sfBs, by = (data.dispatchHeight + (1 << sfBs) - 1) >> sfBs;
                         cmd.DispatchCompute(data.compute, kSky, (bx + 7) / 8, (by + 7) / 8, 1);
@@ -2316,6 +2358,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         DebugBuffer = null;
         ShadowStatsBuffer?.Release();
         ShadowStatsBuffer = null;
+        RayStatsBuffer?.Release();
+        RayStatsBuffer = null;
         _farDummy?.Release();
         _shellProbeIO?.Release(); _shellProbeIO = null;
         _shellProbeDummy?.Release(); _shellProbeDummy = null;

@@ -94,6 +94,7 @@ namespace VoxelEngine.Rendering
             "BloomDown", "BloomBlur", "BloomAdd",   // task 226
             "CSSkyFillTrace",                       // task 227
             "CSSunTrace",                           // task 232
+            "CSSkyFillTraceDiag",                   // task 244 (capture only: -raystats 1)
         };
 
         /// The kernel's name (for the log line), or null if it is not one of RaymarchKernels.

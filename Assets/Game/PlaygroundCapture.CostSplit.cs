@@ -525,6 +525,70 @@ public partial class PlaygroundCapture
     /// Task 225: `-shadeprobe 1` adds the SHADE TERMS stills (views 15-18) to every arm's still set.
     private static readonly bool CostShadeProbe = ArgValue("-shadeprobe") == "1";
 
+    // ---- TASK 244 (capture only; PERF_SLICE_BUDGETS sec. 4 / P5, levers F4 / F6): RAY-WORK COUNTERS ----
+    // -raystats 1: at each path's FULL still (pose path.pos[0], the clock paused, fluid suspended), RaymarchFeature.CollectRayStats
+    // for -raystatsframes N frames (default 32: eight turns of the 1-in-4 temporal sun reuse), read back with AsyncGPUReadback
+    // (no stall) and printed as a `[raystats]` table (RayStatsReport). The counters live only in the *Diag kernels, so a
+    // VE_ALL_KERNELS build (run-cost-split.sh's default) is needed; a play build prints zeros and says why. Day poses only:
+    // the *Diag primary kernel has no torch-flood twin (a night pose with the flood twin drawn would change the picture).
+    // With -coststillraw also the identity stills (no upscaler, temporal counters frozen): _raw_rsoff / _raw_rsoff2 (OFF,
+    // 10 frames apart: the control), _raw_rson (ON), _raw_rsback (OFF again); all four must be byte-identical.
+    private static readonly bool CostRayStats = ArgValue("-raystats") == "1";
+
+    private IEnumerator CostRayStatsWindow(string pose)
+    {
+        int n = Mathf.Clamp(ArgInt("-raystatsframes", 32), 1, 1000);
+        bool floodTwin = RaymarchFeature.FloodTwinDrawnLastFrame;
+        RaymarchFeature.CollectRayStats = true;
+        RaymarchFeature.ResetRayStats();
+        yield return Frames(n);
+        var req = RaymarchFeature.RequestRayStats();
+        RaymarchFeature.CollectRayStats = false;
+        string kern = $"primary {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : "PLAY (no counters)")}, sky trace " +
+                      $"{(RaymarchFeature.SkyTraceDiagDrawnLastFrame ? "diag" : RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : "PLAY (no counters)")}";
+        float t0 = Time.realtimeSinceStartup;
+        while (req.HasValue && !req.Value.done && Time.realtimeSinceStartup - t0 < 10f) yield return null;
+        uint[] d = null;
+        if (req.HasValue && req.Value.done && !req.Value.hasError) d = req.Value.GetData<uint>().ToArray();
+        L(RayStatsReport.Format(d, $"{pose} ({n}-frame window; kernels {kern}; skyfill {RaymarchFeature.SkyFill} res {RaymarchFeature.SkyFillResDrawnLastFrame}, " +
+                                   $"sun res {RaymarchFeature.SunRes}, temporal shadows {(RaymarchFeature.TemporalShadows ? $"1 in {RaymarchFeature.ShadowReusePeriod}" : "OFF")}; " +
+                                   $"buffer {RaymarchFeature.RayStatsBytes} B; readback {(Time.realtimeSinceStartup - t0) * 1000f:F0} ms" +
+                                   (floodTwin ? "; WARNING: the flood twin was drawn before the window, the counted frames drew without it" : "") + ")").TrimEnd('\n'));
+        if (req.HasValue && (!req.Value.done || req.Value.hasError)) L($"  [raystats] {pose}: readback {(req.Value.done ? "FAILED" : "timed out")}");
+    }
+
+    private IEnumerator CostRayStatsIdentity(string still)
+    {
+        RaymarchFeature.DebugFreezeTemporal = true;
+        // The frozen frame: the sun records and the sky-fill means settle to one image. A mean moves 1/16 of the way per
+        // frame and stops once a step rounds to nothing (12 bits): ~100 frames from the worst start; 60 left 1-8 levels.
+        int settle = Mathf.Clamp(ArgInt("-rsfreeze", 300), 10, 3000);
+        yield return Frames(settle);
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsoff.png")); yield return Frames(10);
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsoff2.png")); yield return Frames(2);
+        RaymarchFeature.CollectRayStats = true;
+        RaymarchFeature.ResetRayStats();
+        yield return Frames(10);
+        bool diag = RaymarchFeature.ShellDiagDrawnLastFrame, skyDiag = RaymarchFeature.SkyTraceDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rson.png")); yield return Frames(2);
+        RaymarchFeature.CollectRayStats = false;
+        yield return Frames(10);
+        bool backDiag = RaymarchFeature.ShellDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsback.png")); yield return Frames(2);
+        // The *Diag kernel with the counters OFF (-shelldiet 0's kernel): splits "the Diag kernel draws differently" from
+        // "the counters change a pixel" (rsdiag vs rsback = the kernel; rsdiag vs rson = the counters).
+        bool diet = RaymarchFeature.ShellKernelDiet;
+        RaymarchFeature.ShellKernelDiet = false;
+        yield return Frames(10);
+        bool diagOff = RaymarchFeature.ShellDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsdiag.png")); yield return Frames(2);
+        RaymarchFeature.ShellKernelDiet = diet;
+        yield return Frames(4);
+        RaymarchFeature.DebugFreezeTemporal = false;
+        L($"  [rspair] {Path.GetFileName(still)}: temporal frozen {settle} frames; rsoff / rsoff2 (control) / rson (counters ON: primary {(diag ? "diag" : "play")}, " +
+          $"sky trace {(skyDiag ? "diag" : "play/inline")}) / rsback (OFF: primary {(backDiag ? "diag" : "play")}) / rsdiag (OFF, primary {(diagOff ? "diag" : "play")}); compare: python3 -I tools/rspair244.py <stills>");
+    }
+
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static bool _costBaseRing, _costBaseRingSet;   // task 168e
@@ -863,10 +927,14 @@ public partial class PlaygroundCapture
                     L($"  [uploadcheck] {Path.GetFileName(still)}: GPU vs CPU shadow (sequential SetData): {bad} of {words} written words differ  (ring {(VoxelEngine.Memory.UploadRing.Enabled ? "ON" : "OFF")}, recorded {VoxelEngine.Memory.UploadShadow.WordsRecorded})");
                     foreach (var ln in lines) L(ln);
                 }
+                // Task 244: -raystats 1 -- the counters' identity stills (FULL only, see CostRayStatsIdentity).
+                if (CostRayStats && r.arm == "full") yield return CostRayStatsIdentity(still);
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);
             }
             yield return CostFarCounters(r.arm);
+            // Task 244: -raystats 1 -- the ray-work counters at this pose, FULL's first pass, play's upscaler and rows.
+            if (CostRayStats && r.arm == "full") yield return CostRayStatsWindow(path.name);
             acd.resetHistory = true;
             yield return Frames(10);
         }

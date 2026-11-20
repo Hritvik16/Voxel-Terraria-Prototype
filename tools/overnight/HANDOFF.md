@@ -1,41 +1,54 @@
-STOP_FOR_OWNER -- F3 (solid crown cores) does NOT do what the plan expected. Built and tested behind `-crowncore 1|2` (DEFAULT OFF, play unchanged).
-Q-243: (a) drop F3, go on with F4 (recommended: the literal rule does nothing, the variant that works is a big look change and crashed the player);
-(b) keep the closed-crown look (`-crowncore 2`): next task = find the shell-fill crash, then a forest cost split; (c) leave it parked.
+STOP_FOR_OWNER -- Q-244: the counters work and their writes change 0 px, but turning them ON draws with the *Diag kernel, which differs
+from play's diet-2 kernel by 7-12 px (1-2 of 255) at noon (0 px at walk_near 16 deg). The task asked "hash-identical on vs off".
+(a) accept as is (recommended: capture-only, the counted work is the same algorithm, the counts are the deliverable);
+(b) queue a follow-up: a diet-2 counter twin (VE_DIET2 + counters; ~1 h build, +1 kernel) for byte identity; (c) other.
 
-# 243-forest-solid-crown-cores: implemented (switch OFF), FINDING = crowns are nearly all skin; mode 2 changes the look a lot + player crash
+# 244-sun-steps-counter: DONE (counts + table), identity: counters exact, the Diag kernel 1-2 LSB off on <= 12 px -> Q-244
 
-## What changed (commit: see `git log -1`, "243:")
-- `Assets/TerrainGen/CrownCore.cs` (new): the fill, ONCE per library prototype on the library's worker threads (bit planes; no per-chunk/frame cost).
-  Rule from the crown's own voxels: hull = enclosed along x, y, z by the crown (mode 1) or by its closing with a box of the crown's own clump
-  radius (mode 2); core = hull minus a 2-voxel skin; only AIR -> LEAF, only connected to the grown crown, only in bricks the prototype already has.
-- `Trees2.BuildProto(.., core)`, `ProtoBuild.placeBricks` (placement unchanged), `TerrainSpec.crownCore`, `-crowncore` / `SetCrownCore(byte)`,
-  `Trees2Library.Acquire(core)/SetCoreMode/CoreMode`. Map v4 only (v3 has no trees -> untouched). `-wshours H` for the world survey (it forced noon).
-- Tests: `CrownCoreTests` (adversarial shapes incl. tiny / all-skin / bowl / hollow shell / 400x80x400 lens, brute-force oracle, closing gaps,
-  real prototypes OFF byte-identical); `CrownCoreWorldTests` (world: same placement, only air -> leaf; REPORTS=1 histogram). KNOWN_ISSUES + TASKS.md.
+## What changed (commit "244:", see `git log -1`)
+- `Raymarch.compute`: RayStats buffer (9,632 B, allocated only when a capture turns it on): primary / sun / sky rays, steps, tier-0 share,
+  blocked, blocked-by-a-tier-0-leaf, steps-per-ray histogram, by camera band 0-10 / 10-40 / 40-82 / 82 m+. Writes ONLY under
+  `#ifdef VE_SHELL_DIAG` (CSMainFarShadeDiag + new CSSkyFillTraceDiag); play kernels fold RAY_STATS_ON to false.
+- BUG FIXED (pre-existing, KNOWN_ISSUES top): `CSMainFarShadeDiag` had 32 Metal buffer slots (cap 31) and never loaded in a player
+  (already in Logs/overnight/219, 221) -> every cost-split counter line ([sun], [nearsh], shell / far) read 0 and far-shading debug views
+  were magenta. The *Diag twins now fold `_UseLODCascade` to 0 like task 206's flood twins (29 slots); drawn only while the cascade is off.
+  The [sun] / [shell] / [nearsh] lines work again (forest 16 deg [sun full] 154,173 rays, 31.9 tier-0 steps/ray = my table's tier-0 part).
+- `RaymarchFeature`: CollectRayStats / ResetRayStats / RequestRayStats (AsyncGPUReadback, no stall) / DebugFreezeTemporal (capture only).
+- `RayStatsReport.cs` (table), cost split `-raystats 1` [`-raystatsframes N` 32, `-rsfreeze N` 300], `tools/rspair244.py`,
+  tests `RayStatsReportTests` (4), `KernelHealth.RaymarchKernels` +CSSkyFillTraceDiag. NOT added to DevKernelStrip (its test needs owner OK).
 
 ## Evidence
-- Histogram (`Logs/TerrainGen/trees243/histogram.txt`, forest_eye 82 m footprint, dense trees): OFF 13,036 leaf bricks, 0 fully solid, 62 % under
-  10 % filled. Mode 1: 13,037 / 0 solid (the crowns are small flat clumps with sky between: nothing is "inside"). Mode 2: 14,222 / 313 solid (2.2 %).
-- Memory, launches (`Screenshots/243/table243.txt`, noon, OFF -> mode 2): forest_eye tree GPU bodies 93,081 -> 92,291; oak_under refusals 20-21 -> 19;
-  sealed 86,839 -> 87,473; process peak 2,559-2,631 -> 2,566 MB; CPU pool peak ~same; library 10.6 MB both, build ~0.9-1.4 s both. Within budget.
-  A first mode-2 build that also filled pure-interior bricks was OVER budget (prototype bricks +21 %, tree bodies +4.5 %, refusals 21 -> 35) -> fixed.
-- CRASH: 3 of 3 launches of the final mode-2 build died in the Burst `ShellFillJob` (null read, shell worker; KNOWN_ISSUES top entry, .ips paths
-  there). Not reproduced in EditMode (450 shell chunks). OFF launches of the same build: fine (off_noonB, off_16).
-- `SUITE=all ./run-editmode-tests.sh`: PASS 1198 FAIL 0 SKIP 36, wall 45m43s (`Logs/overnight/243_all.out`; the fast set is a subset). No frame-time arms (rule 10). Pass card: no GPU pass added or changed (content only).
-- Slice (rule 14): tier A forest at 16 deg, plan guess -10..-25 ms -- UNMEASURED; memory: 0 MB (within the forest slice; nothing taken).
-- P4: trees / instances identical ON vs OFF (same placement, test-proven); tree bodies -0.8 % at forest_eye.
+- Fast suite PASS 1119 FAIL 0 SKIP 25 (`Logs/overnight/244/fast.out`). No frame time quoted (rule 10); launches: FULL still only, untimed.
+- Identity (`python3 -I tools/rspair244.py`, temporal frozen 300 frames, no upscaler): walk_near 16 deg all 4 stills IDENTICAL; noon
+  walk_near / walk_open: control 0 px, ON vs Diag-OFF 0 px (counters exact), play vs Diag 7 / 12 px max 1 / 2. forest_eye: control itself
+  1,185-1,204 px (streaming deficit 542-579: distant band rows 471-583 still loading), ON/OFF the same size in the same rows.
+- Memory (rule 11): GPU body pool peak 245,704 / refused 0 at forest_eye = budget baseline (Logs/budget/2026-11-17_235256) 245,704 / 0;
+  process peak 2,515 MB (16 deg launch) / 2,612 MB (noon) vs baseline 2,534-2,621; CPU pool peak 494,389 (valve 484,500). Added: 9.6 KB.
+- Pass card (P2): capture-only, nothing new in play. Under -raystats: the Diag primary kernel + CSSkyFillTraceDiag at render rows
+  (768x432), every frame for the 32-frame window, ~2-12 atomics/px, no new ray march, +9,632 B. Switch `-raystats 1` (OFF = no pass).
+  Slice (rule 14): none -- 0 ms / 0 MB on tier A (never runs in play).
 
-## Pictures looked at (full size: `Screenshots/243/viewer.html`; arrows = pose, Space = OFF / ON / 4x diff, S = sun, Z = full size)
-- forest_eye: from outside the crowns become solid blobs (sky gaps through crowns closed, smoother outline); diff is crowns + birch trunks only.
-- oak_under: OFF = canopy with many sky holes; ON = an almost closed black ceiling (mean luma 20.7 -> 8.3 at noon).
-- oak_inside: OFF = loose clumps and limbs; ON = dark leaf walls with some FLAT 0.8 m brick faces (where the fill stops at a brick edge).
+## The table (per frame, forest_eye 16 deg = `Logs/overnight/244/costsplit_16.txt`; noon = `costsplit_noon.txt`, `costsplit_noon2.txt`)
+| pose | sun rays | steps/ray avg | p95 | sun steps/frame | tier-0 share | stop on leaf | sky steps/ray, p95 |
+| forest_eye 16 | 153,561 | 60.3 | 160-175 | 9.26 M | 53 % | 21 % (10-40 m: 43 %) | 45.5, 128-143 |
+| forest_eye noon | 154,965 | 28.5 | 60 | 4.42 M | 51 % | 23 % | 39.9, 96-111 |
+| walk_near noon | 153,751 | 36.2 | 64-79 | 5.56 M | 71 % | 0 % | 39.3, 96-111 |
+| walk_open noon | 133,365 | 9.7 | 31 | 1.30 M | 46 % | 0 % | 36.2, 80-95 |
+| walk_near 16 | 83,413 | 28.2 | 32 | 2.36 M | 61 % | 0 % | 28.1, 64-79 (pose faces a wall, all rays < 10 m) |
+forest_eye 16 by band (primary steps share / sun steps share): 0-10 m 12 % / 15 %, 10-40 m 35 % / 30 %, 40-82 m 16 % / 22 %, 82 m+ 37 % / 33 %.
+- F4 (foliage early-out): SUPPORTED at low sun -- forest sun rays take 2.1x the steps of forest noon and 1.7x walk_near noon (p95 ~2.5x);
+  21-46 % of them stop on leaves. 47 % of those steps are the shell continuation, so F4 must act in the shell march too. Not at noon.
+- F6 (coarser leaves > 40 m): WEAK -- the 40-82 m band holds 16 % of primary and 22 % of sun steps at forest 16 deg (10-40 m holds more).
+- Finding: budget walk_near_16's FULL still pose (pos[0]) stares at a sandstone wall 1-10 m away (`Screenshots/244/walk_near_16.png`).
+
+## Next
+Owner Q-244. Then F4 (task file per PERF_SLICE_BUDGETS sec. 6). Counter launch = `Logs/overnight/244/run.sh` / `run2.sh` (~10 min each).
 
 ## For the doc
-Task 243 -- solid crown cores (F3): built behind a switch, OFF; the plan's premise does not hold.
-- Fully solid leaf bricks at forest_eye: 0 today -> 0 (rule as written) -> 313 of 14,222 (2.2 %, "closed crown"), `Logs/TerrainGen/trees243/histogram.txt`
-- GPU memory, closed crown vs OFF: tree bodies 93,081 -> 92,291; refusals 21 -> 19; peak 2,571 -> 2,566 MB (`Screenshots/243/table243.txt`)
-- Frame time: not measured (rule 10). Player crash with the closed crown: 3 of 3 launches (shell fill), unresolved.
-- `Screenshots/243/sheet243.jpg`: rows = forest_eye / oak_under / oak_inside at noon, then forest_eye / oak_under at 16 deg; columns OFF | ON | 4x
-  difference. Look at the middle column's crowns (solid, no sky through them) and row 2 (the canopy above you turns into a black ceiling).
-- `Screenshots/243/oak_inside_c2_noon.png`: inside an oak with the closed crown -- note the flat square leaf walls (brick edges).
-- Question: approve solid crown cores as default? Recommended NO (Q-243 (a) at the top: drop F3, go to F4).
+Task 244 -- sun / sky / primary ray-step counters (capture only), and the debug kernel fixed so counters read again.
+- Sun steps per ray, forest_eye: noon 28.5 -> 16 deg 60.3 (p95 60 -> 160-175); walk_near noon 36.2 (`Logs/overnight/244/costsplit_*.txt`)
+- Sun steps per frame, forest_eye: 4.42 M (noon) -> 9.26 M (16 deg); sun rays stopped by leaves at 16 deg: 21 % (43 % at 10-40 m)
+- Steps beyond 40 m at forest 16 deg: primary 16 %, sun 22 % of the 40-82 m band -> F6 weak, F4 supported at low sun
+- Memory: +9.6 KB, only while counting; pool peak 245,704 = baseline, refusals 0 = 0
+- `Screenshots/244/forest_eye_16.png`: the counted forest pose at 16 deg -- trees 5-80 m, the band where 43 % of sun rays stop on leaves.
+- `Screenshots/244/kernel_diff_walk_open.png`: walk_open noon, darkened; the magenta squares mark the ~12 px where the debug kernel differs from play by 1-2 levels (Q-244).

@@ -2167,3 +2167,25 @@ FINDING: the approved crowns are small flat clumps with sky between them, nearly
 KNOWN ISSUE: `-crowncore 2` (keepBricks) crashed the player 3 of 3 launches in the Burst `ShellFillJob` (KNOWN_ISSUES.md, task 243 entry); do not use it
 in play until fixed. Shots `Logs/overnight/243_shots.sh` / `_shots2.sh` / `_shots3.sh` / `_shots4.sh`, table `Logs/overnight/243_table.py` -> `Screenshots/243/table243.txt`,
 `python3 -I tools/trees243.py` -> 4x diffs, `sheet243.jpg`, `viewer.html`. Result: HANDOFF 243.
+
+**Task 244 (capture only; PERF_SLICE_BUDGETS sec. 4 / P5, prepares levers F4 and F6): ray-work counters, `-raystats 1` in the cost split.**
+`Raymarch.compute` RayStats (9.6 KB, allocated the first time a capture turns it on): per frame, PRIMARY / SUN / SKY rays and their steps
+(loop iterations: tier-0 DDA / leaps + shell iterations + far-band steps, counted once per ray), the tier-0 share, blocked and blocked-by-a-
+tier-0-LEAF counts, and a steps-per-ray histogram (exact < 64, then 16- / 64-step bins) for p50 / p95, by camera-distance band 0-10 / 10-40 /
+40-82 / 82 m+ (no hit = 82 m+). The writes live ONLY under `#ifdef VE_SHELL_DIAG`: the primary counts in `CSMainFarShadeDiag`, the sky-fill
+rays in the new `CSSkyFillTraceDiag` (same body as play's `CSSkyFillTrace`, `SkyFillTraceBody`); every play kernel folds `RAY_STATS_ON` to
+false. `RaymarchFeature.CollectRayStats` (default OFF) selects those Diag kernels (`ShellDiagKernels`, as `CollectShadowStats` does) and binds
+the buffer (a 1-element dummy otherwise); `ResetRayStats` / `RequestRayStats` (AsyncGPUReadback, no stall); `DebugFreezeTemporal` (capture
+only) stops the temporal sun / sky-fill frame counters so a still pose converges to one image. `RayStatsReport` (CPU) formats the
+`[raystats]` table. Cost split: `-raystats 1` [`-raystatsframes N`, default 32] counts at each path's FULL still (pose pos[0]) and prints
+the table; with `-coststillraw` also `_raw_rsoff / _raw_rsoff2 / _raw_rson / _raw_rsback` (temporal frozen, no upscaler), compare
+`python3 -I tools/rspair244.py <stills>` (all byte-identical = PASS; `-rsfreeze N` frozen frames first, default 300; a fifth still `_raw_rsdiag` = the *Diag kernel with the counters OFF,
+which splits the kernel's own difference from the counters'). Result: the counter writes change 0 px (rson = rsdiag at walk_near / walk_open noon); the *Diag
+kernel itself differs from play's diet-2 kernel by 7-12 px (1-2 of 255; 0 px at walk_near 16 deg). Day poses only: the Diag primary kernel has no torch-flood twin.
+BUG FIXED on the way: `CSMainFarShadeDiag` had 32 Metal buffer slots (cap 31) since task 193 and never loaded in a player (`[kernels] FAILED`, Logs/overnight/219, 221: every
+counter window read 0, far-shading debug views magenta); the *Diag twins now fold `_UseLODCascade` to 0 like task 206's flood twins (29 slots) and
+RaymarchFeature draws them only while the cascade is off (always with shells on).
+Needs a VE_ALL_KERNELS build (run-cost-split.sh's default). `CSSkyFillTraceDiag` is NOT in DevKernelStrip's list (that test needs the
+owner's approval), so play builds carry it unused. Tests `RayStatsReportTests` (bin / layout twin of the shader, quantiles incl. the open
+bin, the table's arithmetic, every counter site under VE_SHELL_DIAG, switches default OFF); `KernelHealth.RaymarchKernels` +1. Runner
+`Logs/overnight/244/run.sh`. Result: HANDOFF 244.
