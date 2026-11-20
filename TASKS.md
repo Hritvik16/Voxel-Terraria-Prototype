@@ -2222,3 +2222,13 @@ AMENDMENT (8.18 draft) because ARCHITECTURE_v8.6 sec. 6.2 limits meshes to Rigid
 flood), shipped-game notes, a tier-A per-class budget, the placement admission rule, experiments E1-E4 (246a-d outlines), owner questions Q-246a-e.
 Parse/model scripts `Screenshots/246/parse.py`, `model.py` (reproduce `model.txt`), sheet `sheet.py` -> `sheet246.jpg`, `forest_eye_off_vs_dense_16.jpg`.
 Missing capture named: no primary-hit material split (wood coverage) -> E1. Result: HANDOFF 246.
+
+**Task 247 (PLAN ONLY, owner 2026-11-20 "change how sunlight is computed, keep the leaves"; PERF_SLICE_BUDGETS sec. 7b (a)): cached sun shadow,
+`AMENDMENT_8_18_CACHED_SUN_SHADOW.md` (DRAFT, NOT ADOPTED).** No code, no launches. Design: sun-space "run maps" -- one line per texel traced from
+the sun side through the tier-0 mirror, storing the first solid run (entry, exit-or-16-texel cap, 2 x 16 bit); lookup = §6.5's origin cell + an
+exact contact ray of <= 8 cells + 4 taps with the run rule (inside the first run = lit, so no bias, no acne, and 228's slope trap is closed for slopes
+> 3.6 deg off grazing). Maps N0-N3 512^2 at 0.05/0.1/0.2/0.4 m (to 102 m), far map F (1.6 m, = task 133's continuation), step 2 shell maps S4-S9
+(= task 80's ray); 3 slots + crossfade as the sun moves (periods 16-64 frames), CPU-marked demand tiles, dirty lines from mirror writes the same
+frame (~700 lines per edited brick). Est. memory +13.4 / +27.0 MB minus 8.0 MB sun history at 432 rows. Guess: forest 16 deg sun 54.7 -> 8-16 ms
+and -4..-10 ms off the bounce; walk_near 12.9 -> 6-11; night 0. Prototype outlines 247a (CPU twin + oracle, correctness kill test), 247b
+(`suncontact` timed kill arm), 247c (N maps + F, `-suncache 1`), 247d (shell maps). Result: HANDOFF 247.
