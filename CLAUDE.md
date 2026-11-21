@@ -46,7 +46,7 @@
 Engine capability + performance (lighting, LOD shells, resolution, streaming, fluids) come
 BEFORE the player and placement.
 
-**engine-phase merged to `main` on 2026-10-22** (task 109, merge `a5f6440`); work since then continues
+**engine-phase merged to `main` on 2026-11-21** (task 252, merge `3a4ca0a`, rollback `412e04e`; first merge task 109); work continues
 on the `engine-phase` branch. **Order (owner, 2026-11-05, replaces 2026-10-22's "performance first"):
 (1) LOOK FANTASTIC -- lighting -> world gen -> visuals polish; (2) PERFORMANCE -- stable 30 fps on that finished
 look + memory under 3 GB; (3) OBJECT PLACEMENT PHASE, opened by a game-design doc written with the owner.**

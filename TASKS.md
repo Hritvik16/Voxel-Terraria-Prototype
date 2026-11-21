@@ -2278,3 +2278,9 @@ near rule (default `NotLit`, shown as "N0+near" in C1-C6); new `C4b_NearZoneDapp
 cost); C4 is now `[Explicit]` report-only (far-zone softening); C8 prints the near rule under moving slots. Reports go to
 `Logs/overnight/251/` (was 249), picture `Screenshots/251/near_dapples_gap1_sun60.png`. Timed test rewritten as
 `tools/overnight/later/252b-suncache-kill-timing.md` (arms `suncontact`, `suncontactnear`; idle gate). Result: HANDOFF 251, amendment sec. 1.3a / 4a.
+
+**Task 252 (merge engine-phase -> main, owner Q-AS (a), 2026-11-21).** Whole suite first (`SUITE=all`): PASS 1224 FAIL 0 SKIP 38, wall 43 min
+(`Logs/overnight/252/suite_all.out`, copy `Logs/overnight/252/TestResults_all.xml`); the river-ford route test PASSES (green since 179, not a known red);
+249's C4 skipped (`[Explicit]`). Merged without checking out `main`: `git commit-tree engine-phase^{tree} -p main -p engine-phase` + `git update-ref`
+(277 commits, merge `3a4ca0a`, `git diff main engine-phase` empty, rollback `412e04e`). Secrets/size check: no .env / credentials / settings.local.json
+in the range, largest blob 413 KB (`Raymarch.compute`). Pushed `main` (412e04e..3a4ca0a) and `engine-phase` (475ac85..eec7e3d) to origin.
