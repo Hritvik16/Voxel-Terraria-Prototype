@@ -1,4 +1,4 @@
-0
+1
 # 2026-11-18 01:32: set to 0 by run-budget-check.sh (rebaseline (owner 2026-11-17, task 235))
 # Line 1 = drawing/content tasks done since the last ACCEPTED budget check (PREAMBLE rule 13; owner Q-AO (b), N = 5).
 # The supervisor adds 1 per drawing/content task it marks done; run-budget-check.sh sets 0 on PASS / --rebaseline, 2 on WARN.
