@@ -652,7 +652,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
             0.184f, 0.498f, 0.722f,   // 136 river lip
-            -1f, -1f, -1f,   // 137
+            0.760f, 0.649f, 0.318f,   // 137 savanna fringe
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
             0.760f, 0.603f, 0.347f,   // 140 sand
@@ -661,7 +661,7 @@ public static class MaterialPalette
             0.760f, 0.628f, 0.242f,   // 143 savanna grass
             0.760f, 0.522f, 0.393f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
-            -1f, -1f, -1f,   // 146
+            0.482f, 0.706f, 0.278f,   // 146 grass fringe
             0.760f, 0.734f, 0.672f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.760f, 0.548f, 0.299f,   // 149 packed sand
@@ -806,7 +806,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
             0.184f, 0.498f, 0.722f,   // 136 river lip
-            -1f, -1f, -1f,   // 137
+            0.863f, 0.737f, 0.361f,   // 137 savanna fringe
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
             0.910f, 0.722f, 0.416f,   // 140 sand
@@ -815,7 +815,7 @@ public static class MaterialPalette
             0.788f, 0.651f, 0.251f,   // 143 savanna grass
             0.788f, 0.541f, 0.408f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
-            -1f, -1f, -1f,   // 146
+            0.482f, 0.706f, 0.278f,   // 146 grass fringe
             0.816f, 0.788f, 0.722f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.788f, 0.569f, 0.310f,   // 149 packed sand

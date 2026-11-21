@@ -280,6 +280,7 @@ namespace VoxelEngine.WorldGen
             if (SitesArg()) spec.sitesOn = 1;   // task 187
             if (!LandSigArg()) spec.landSigOff = 1;   // task 189 / 190b: ON unless -landsig 0
             if (TownsArg()) { spec.townsOn = 1; spec.sitesOn = 1; }   // task 190 (towns need the sites)
+            if (FringeArg()) spec.fringeOn = 1;   // task 250: voxel grass fringe, OFF unless -fringe 1 (LOD-0 chunks only)
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -449,7 +450,7 @@ namespace VoxelEngine.WorldGen
                 mats = new NativeArray<byte>(E * E * E, _alloc, NativeArrayOptions.UninitializedMemory);
                 brickMat = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
                 brickUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
-                voxStats = new NativeArray<int>(4, _alloc);
+                voxStats = new NativeArray<int>(VOXSTATS_LEN, _alloc);   // [0..3] SkipStats, [4..7] task 250 fringe (FS_*)
             }
 
             /// Tests (task 224): makes the voxel-pass scratch and fills all of it with `v`, a worst-case stale state.
@@ -583,6 +584,7 @@ namespace VoxelEngine.WorldGen
                     townPlane = _town,   // task 190 (length 1 while -towns is off)
                 }.Run();
                 AddSkipStats(stats, 0);
+                if (Spec.Fringe) AddFringeStats(stats);   // task 250
 
                 var raw = pool.RawData;
                 for (int by = 0; by < 16; by++)
@@ -768,6 +770,7 @@ namespace VoxelEngine.WorldGen
                 bTop.Dispose(); bMinH.Dispose(); bMaxH.Dispose();
                 OverlayTrees(trees, prims, treeCount, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 180
                 if (spec.Towns) OverlayBuildings(townPlane, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 190 (after the trees)
+                if (spec.Fringe) OverlayFringe(spec.seed, origin, toEngine, mats, brickMat, brickUniform, stats);   // task 250 (last: reads the final ground)
             }
         }
 

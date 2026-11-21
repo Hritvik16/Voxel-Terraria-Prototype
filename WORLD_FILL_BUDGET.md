@@ -33,6 +33,11 @@ That gives **three rules** for everything else we add:
    ~30-40 m, with no shadows of their own. We would draw it after the voxel picture and depth-test it against it. That is a new kind
    of drawing for this engine (an architecture amendment), so it needs your OK. Its budget would be ~2 ms and ~10 MB at tier A
    (guess until experiment E2).
+   **UPDATE (task 250, E3): SHORT grass CAN be voxels.** 1-3 voxel (0.1-0.3 m) stubs written only into the ground's own 0.8 m blocks
+   covered 36-70 % of the screen and REDUCED the fine ray work (-47 to -108 k steps per 1 % of screen, where leaves ADD +305 k). They
+   cost ~0 MB (no new GPU body; 50 bodies fewer, sealed). They behave like solid content, not like leaves: a ray stops at the stub top a
+   few voxels before the ground it would have hit anyway. This holds only for stubs inside the surface block. Tall or see-through grass
+   that rises into the empty block above is still untested, and the layer above stays the plan for anything taller (sec. 1b.6).
 
 Moving things (creatures, NPCs, falling leaves) are already planned as separate meshes in the spec (§5.4, §6.2) with a 1.5 ms reserve.
 Light sources use the torch flood we already have.
@@ -151,6 +156,34 @@ Out-of-view chunks are then evicted first (task 208). The shell pools (s1+) also
 them (`PERF_SLICE_BUDGETS.md` sec. 2b unknown). Confound: shell fill after the 60 s wait differs by arm (forest_eye stored 1,858 off vs
 3,888 dense at 16 deg). That moves the 82 m+ counts, not tier 0.
 
+6. **Voxel grass fringe (task 250, E3 done; `-fringe 1`, DEFAULT OFF).** 1-3 voxel stubs on grass surface voxels (3 columns in 8,
+   1 / 2 / 3 tall = 8 / 6 / 2 in 16; slope rule: no solid around the stub's second voxel), written ONLY into surface bricks that are
+   already dense, with its own material ids (146 grass fringe, 137 savanna fringe) and its own RayStats class (the primary record's
+   spare slot [5]). Runner `Screenshots/250/run.sh`, 8 launches (fringe off / on x 16 deg / noon), table `Screenshots/250/fringe.txt`
+   (`python3 -I Screenshots/250/fringe.py`). Poses: forest_eye (248's), **savanna_eye** (task 210's savanna pose: open golden meadow,
+   the meadow pose) and savanna_close (the same eye looking at the ground ~5 m ahead).
+
+   | pose, sun | fringe % of screen | tier-0 steps/frame off -> on (M) | per 1 % of screen covered | est. ms per 1 % (5.7-7.5 ms per M) |
+   |---|---|---|---|---|
+   | forest_eye 16 deg | 42.9 | 22.87 -> 18.25 | **-108 k** | -0.6 to -0.8 |
+   | forest_eye noon | 42.9 | 19.98 -> 17.28 | -63 k | -0.4 to -0.5 |
+   | savanna_eye 16 deg | 36.0 | 12.89 -> 9.42 | -96 k | -0.6 to -0.7 |
+   | savanna_eye noon | 36.0 | 11.13 -> 8.56 | -71 k | -0.4 to -0.5 |
+   | savanna_close 16 deg | 69.7 | 17.81 -> 12.50 | -76 k | -0.4 to -0.6 |
+   | savanna_close noon | 69.7 | 14.61 -> 11.36 | -47 k | -0.3 to -0.4 |
+   | *leaf, for comparison (1b.2)* | 28.1 (dense forest) | | ***+305 k*** | *~+2* |
+
+   **The fringe is << the leaf rate: it is negative, -0.05 to -0.11 M tier-0 steps per 1 % (about 1/3 to 1/6 of the leaf rate, with the
+   opposite sign).** Primary steps fall -2.3 to -3.2 M (a grazing ray stops at a stub top a few voxels before the ground it hit anyway),
+   sun steps fall -0.2 (noon) to -1.9 M (16 deg), sky steps move -0.15 to +0.15 M. So the fringe acts as SOLID content on the ground (1b.3:
+   0 to -0.19 M per 1 %), not as porous content: it never fills the empty brick above the ground. Budget it at **~0 ms** (do not bank the
+   saving, as for solid). Counts are not time (a step count does not see wave divergence or bytes read), so the next forest timing
+   milestone should check it with one arm. Memory: GPU bodies in use 245,704 -> 245,654 at forest_eye (-50; sealed +50: a stub turns air
+   into a seal-solid id) and 184,562 -> 184,534 at savanna; refused 0 in every launch; process peak 2,498 / 2,523 -> 2,534 / 2,492 MB
+   (16 deg / noon; inside 248's 2,511-2,630 noise). The launch's own guard: `new bricks 0` over 30-32 k chunks (`[fringe]` line).
+   **Its limit, seen in the stills:** the no-new-brick rule refuses a stub whose ground voxel is a brick's TOP layer (1 surface height in
+   8; ~5 % of stub voxels refused), which leaves bare brick-aligned 0.8 m patches. And the shells and the point query do not have it.
+
 ## 2. Classes of world fill and the render path that fits each
 
 What the spec allows (ARCHITECTURE_v8.6):
@@ -171,7 +204,7 @@ drawn after it can depth-test against the voxels.
 | **Solid props** | rocks, boulders, logs, stumps, crates, walls, buildings, bridges | **voxels in the mirror** (§5.4: SetVoxel batches / generator stamps), interiors sealed (201a: sealed bricks take no GPU body) | ~0 ray cost (sec. 1b.3); +0.1-0.5 shading (guess) | **per prop:** surface bricks x 512 B GPU + 512 B CPU. A 2 m boulder ~16 bricks = 8 KB each pool. A 10 x 10 x 8 m house ~800-1,600 bodies = 0.4-0.8 MB each pool. Shells store them again, coarser | none: they are the world | **no** |
 | **Porous large foliage** | tree crowns, bushes, hedges, big ferns | **voxels**, but porosity is budgeted. Bushes and hedges get **solid cores** (task 243's rule: ragged 2-voxel skin over a filled interior). Crowns stay as approved | **1.3-1.8 ms per 1 % of screen** of see-through voxel (est.); the dense forest's 28 % is ~36-49 ms | trees today +45 MB GPU bodies at forest_eye (sec. 1b) | solid-cored bush: no light through it, no see-through gaps | no |
 | **Small ground clutter** | grass tufts, flowers, ferns, pebbles, twigs | **NOT voxels.** A separate **near-camera instanced mesh layer**: a few kinds of small meshes built from 0.1 m cubes (§6.1 look kept), placed on the GPU from the terrain each frame (no stored instances), within ~30-40 m, thinned and faded with distance. Depth-tested against the voxel depth, drawn before FSR 3 with depth + motion. **No cast shadows**; lit by the sun visibility the voxel pass already computed for the ground pixel under them, plus sky fill | **~1-3 ms (guess)** until E2 measures it. As voxels instead: grass over the ~35 % of screen that is ground within 40 m = **est. +15-60 ms** (sec. 1b.2 rate x 0.3-1 for a shallow layer) | 2-10 MB (meshes + one instance buffer, e.g. 100 k x 32 B = 3.2 MB) | clutter casts no shadow, cannot be dug or collided, fades out past ~40 m. Under-canopy darkness comes from the ground under it, so it still reads as shaded | **YES, flag:** §6.2 limits mesh rendering to Rigidbody entities. A static clutter layer, its FSR 3 depth/motion input and its lighting rule need an amendment (8.18 draft) before any code |
-| **Ground clutter, voxel-native variant** | 1-2 voxel grass fringe, pebbles | voxels, but **only inside surface bricks that are already dense**, so no new bricks or bodies | unknown: a 0.1-0.2 m porous skin at grazing angles; E1 counts it | ~0 bodies by construction (CPU: same bricks) | tiny, stubby clutter only; no tall grass | no |
+| **Ground clutter, voxel-native variant** | 1-3 voxel grass fringe, pebbles | voxels, but **only inside surface bricks that are already dense**, so no new bricks or bodies (`-fringe 1`, task 250) | **~0 ms: measured -47 to -108 k tier-0 steps per 1 % of screen (E3, sec. 1b.6), solid-like, not porous** | **~0 MB**: 0 new bodies (-50 at forest_eye: sealing), refused 0 | stubby clutter only (<= 0.3 m, never into the empty brick above); bare 0.8 m patches where the ground is a brick's top layer; no shells / far | no |
 | **Thin things** | fences, rails, ropes, vines, signposts, ladders | **voxels when static and sparse** (fences in towns, vines on a few walls). Each is porous at brick level but covers little screen. **Moving ropes** go with moving things | fences and vines are porous: count them against the same % budget as foliage (~1.5 ms per 1 % est.). A town fence line is << 1 % | small | 0.1 m minimum thickness (a rope is a 0.1 m bar) | no |
 | **Moving things** | creatures, NPCs, the player, falling leaves, birds, dropped items | **meshes / Rigidbodies** (§5.4, §6.2: already the spec's path), composited by depth. Falling leaves and dust as GPU particles | characters: **1.5 ms reserve** (8.17 sec. 3). Particles 0.2-0.5 (guess) | 30-60 (meshes, animation, AI state; guess) | **they cast no voxel shadow** (§6.5 traces voxels only): a blob or contact shadow at most. A real shadow needs an entity term in the sun ray, a separate decision | §6.2 covers entity meshes; **an entity shadow term would need one** |
 | **Light sources** | torches, lanterns, glowing plants, campfires | **emissive voxels + the torch flood** (tasks 175/242; §3.8's point lights stay the fallback). Glowing plants must NOT register as lights (KNOWN_ISSUES: emissive + mobile) | night torches inside the **1.0 ms** reserve; night worst today 52.7 ms (235) | flood 38 MB at today's cap (170 parked trim) | lights count against the flood's capacity; far torches are flood-only | no |
@@ -255,7 +288,9 @@ rule), density fade to 0 at R. Capture-only arm `-costarms clutter_off`. Report 
 walk_near / forest_eye / a meadow pose. Timing waits for the next performance milestone (one arm at R = 20 / 40 m). Done when stills
 show the tufts sitting on the voxel ground with correct occlusion both ways, and the counts are printed.
 
-**E3 -- `246c-voxel-grass-fringe-counts` (content behind a flag, DEFAULT OFF, generator change: SUITE=all).** Generator flag
+**E3 -- `246c-voxel-grass-fringe-counts` (content behind a flag, DEFAULT OFF, generator change: SUITE=all). DONE as task 250: sec. 1b.6.
+Answer: the fringe is << the leaf rate (negative: -47 to -108 k vs +305 k per 1 %), so the voxel-native variant can carry SHORT clutter
+(<= 0.3 m) at ~0 MB and ~0 ms. E2 is still the path for anything taller than the surface brick.** Generator flag
 `-fringe 1`: 1-2 voxel grass stubs on grass-material surface voxels, written ONLY into surface bricks that are already dense (no new
 bricks; an assertion counts zero new bodies). `-raystats 1` at forest_eye + a meadow, 16 deg + noon, fringe off/on. Done when tier-0
 steps per 1 % of screen covered by fringe are printed and compared with the leaf rate (sec. 1b.2). If it is << the leaf rate, the

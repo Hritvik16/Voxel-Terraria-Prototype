@@ -1,0 +1,1 @@
+seed 42, forest_eye + savanna_eye surface chunk and the one above, fringe OFF: 0x019EEF889FB4C206

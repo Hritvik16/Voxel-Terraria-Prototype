@@ -2251,3 +2251,19 @@ boxes. `LINE_OFFSET_VOX` = 1/8 voxel (found here: N2/N3 line centres sat on voxe
 `SunCacheOracleTests` (C1-C9 = the 9 cases, plus `LineAnswer_EqualsExactRayAtTapPoint_Canopy`, run-rule and line pins; C1-C8 Slow; C4 is
 `[Explicit]` because kill rule (4) fires). Report `Logs/overnight/249/oracle.txt` (copy `Screenshots/249/oracle.txt`), picture
 `Screenshots/249/dapples_gap1_sun60.png`. Result: HANDOFF 249 (STOP_FOR_OWNER: 1-voxel dapples in N0 37 % < 75 %).
+
+**Task 250 (WORLD_FILL_BUDGET sec. 5 E3: voxel grass fringe, COUNTS only; `-fringe 1`, DEFAULT OFF).** `TerrainSpec.fringeOn` / `Fringe`
+(map v4), `TerrainGenChunkSource.FringeArg()` / `SetFringe(bool)` / `OverlayFringe(...)` (`WorldGen/TerrainGenChunkSource.Fringe.cs`, Burst,
+called LAST in `VoxelJob` after the tree and building overlays; LOD-0 chunks only: shells, far band and point query do not have it). Rule
+(local only): host = Grass / JungleGrass (-> `GenMat.GrassFringe` 18, engine 146) or SavannaGrass (-> `GenMat.SavannaFringe` 9, engine 137)
+with AIR above; no solid among the 8 horizontal neighbours at host y + 2 (~63 deg); hash(world pos, seed) picks 3 columns in 8, 1 / 2 / 3 tall
+= 8 / 6 / 2 in 16. A stub voxel is written ONLY into an already-dense brick (a uniform brick refuses it: no new brick, no new GPU body; the
+dense-brick count before / after is the guard, `FringeStats[4]` must be 0, else `[fringe] ... NEW dense bricks` LogError). Launch log line
+`[fringe] -fringe 1: N chunks, stubs, voxels, refused, new bricks 0` (chunk 1, then every 256). Palette: `tools/palette_defs.py` 18 `7bb447`,
+9 `dcbc5c` (lit blade tips), `gen-tg2-materials.py --write`. Collision: `VoxelCollision.IsBlocking` returns false for 137 / 146 (one line;
+the ids exist only under `-fringe 1`). RayStats: class 3 = fringe in the PRIMARY record's slot [5] (always 0 there before: a primary ray never
+takes the foliage early-out; `RayStatsReport.FRINGE`, primary folstop no longer reads [5]); the material table gains a `fringe` column. Tests
+`FringeTests` (`Synthetic_NoNewBricks_OnlyAirAboveHosts`; Slow: `World_FringeOff_ByteIdentical` pinned FNV `0x019EEF889FB4C206` from the code
+before 250, `World_FringeOn_OnlyAirBecomesFringe_NoNewBodies`), `RayStatsReportTests` twin updated. Runner `Screenshots/250/run.sh` (forest_eye,
+savanna_eye, savanna_close x 16 deg / noon x fringe off / on), `python3 -I Screenshots/250/fringe.py` -> `Screenshots/250/fringe.txt`.
+Result: HANDOFF 250, WORLD_FILL_BUDGET sec. 1b.6 / 2 / 5.

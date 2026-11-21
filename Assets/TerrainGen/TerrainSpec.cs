@@ -218,6 +218,11 @@ namespace TerrainGen
         /// and the record's cells ignore it (the plane is derived, WorldMap.EnsureTowns).
         /// Read it through Towns, never directly.
         public byte townsOn;
+        /// Task 250 (WORLD_FILL_BUDGET sec. 5 E3; `-fringe 1`, DEFAULT OFF): 1 = VOXEL GRASS FRINGE --
+        /// 1-3 voxel stubs (GenMat.GrassFringe / SavannaFringe) on grass surface voxels, written by the
+        /// engine's LOD-0 chunk pass ONLY into bricks that are already dense (no new bricks, no new GPU
+        /// bodies). The map, the record, the shells and the point query ignore it. 0 = every byte as before.
+        public byte fringeOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -315,6 +320,9 @@ namespace TerrainGen
 
         /// Task 190's towns in force (see townsOn): v4 + the site planner, opt-in.
         public bool Towns => Sites && townsOn != 0;
+
+        /// Task 250's voxel grass fringe in force (see fringeOn): v4 only, opt-in.
+        public bool Fringe => mapVersion >= 4 && fringeOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

@@ -79,6 +79,12 @@ namespace TerrainGen
         public const byte ForestWood = 76, JungleWood = 77, AcaciaWood = 78, PineWood = 79;
         public const byte Cactus = 93;          // the desert's "tree": trunk class, no leaves
         public const byte BirchBark = 19;       // task 210 (-trees2 1): the birch's pale bark, trunk class (a free code after Gravel)
+        // ---- task 250 (-fringe 1, DEFAULT OFF): voxel grass fringe, the two free codes left below 96 ----
+        // 1-3 voxel stubs on a grass surface; never in the map, the shells or the point query (LOD-0 chunks only).
+        public const byte SavannaFringe = 9;    // on SavannaGrass (dry gold)
+        public const byte GrassFringe = 18;     // on Grass and JungleGrass (green)
+        public static bool IsFringe(byte m) => m == GrassFringe || m == SavannaFringe;
+
         public static bool IsTreeTrunk(byte m) => (m >= ForestWood && m <= PineWood) || m == Cactus || m == BirchBark;
         public static bool IsTreeLeaf(byte m) => m >= ForestLeaves && m <= PineNeedles;
 

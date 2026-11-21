@@ -111,6 +111,7 @@ public class RayStatsReportTests
     {
         string src = File.ReadAllText(Shader).Replace("\r\n", "\n");
         StringAssert.Contains("uint RayStatsMatClass(uint mat)\n{\n" +
+            "    if (mat == 137u || mat == 146u) return 3u;\n" +
             "    if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1u;\n" +
             "    if (RayStatsLeaf(mat)) return 0u;\n" +
             "    return (mat >= 128u && mat <= 223u) ? 2u : 0u;\n}", src);
@@ -118,13 +119,14 @@ public class RayStatsReportTests
         StringAssert.Contains("uint cls = ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) ? 1u", src);
         StringAssert.Contains("    if (matCls == 1u) InterlockedAdd(RayStats[b + 6u], 1u);", src);
         StringAssert.Contains("    else if (matCls == 2u) InterlockedAdd(RayStats[b + 7u], 1u);", src);
+        StringAssert.Contains("    else if (matCls == 3u) InterlockedAdd(RayStats[b + 5u], 1u);", src);   // task 250: fringe, primary [5]
         // Only the PRIMARY call classifies, and only a voxel hit; the sun and sky calls pass 0u (their [6]/[7] stay 0).
         StringAssert.Contains("(uint)steps, hit, hit && RayStatsLeaf(mat), false, hit ? RayStatsMatClass(mat) : 0u);", src);
         StringAssert.Contains("RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol, 0u);", src);
         StringAssert.Contains("fillSample <= 0.0, rsLeaf, rsFol, 0u);", src);
         Assert.AreEqual(4, Regex.Matches(src, @"RayStatsAdd\(").Count, "the helper + three call sites");
         // Every id 0..255 lands in exactly one class; counts per class are pinned.
-        int leaf = 0, wood = 0, ground = 0, other = 0;
+        int leaf = 0, wood = 0, ground = 0, other = 0, fringe = 0;
         for (uint m = 0; m < 256u; m++)
         {
             bool isLeaf = (m >= 183u && m <= 186u) || m == 216u;
@@ -132,11 +134,14 @@ public class RayStatsReportTests
             if (isLeaf) { Assert.AreEqual(0, c, $"leaf {m} is counted in [4], not [6]/[7]"); leaf++; }
             else if (c == 1) wood++;
             else if (c == 2) ground++;
+            else if (c == 3) fringe++;
             else other++;
         }
         Assert.AreEqual(5, leaf);
         Assert.AreEqual(7, wood, "147 birch bark, 204-207 woods, 215 bark, 221 cactus");
-        Assert.AreEqual(96 - 5 - 7, ground);
+        Assert.AreEqual(2, fringe, "task 250: 137 savanna fringe, 146 grass fringe");
+        Assert.AreEqual(3, RayStatsReport.MatClass(146u)); Assert.AreEqual(3, RayStatsReport.MatClass(137u));
+        Assert.AreEqual(96 - 5 - 7 - 2, ground);
         Assert.AreEqual(256 - 96, other);
         Assert.AreEqual(2, RayStatsReport.MatClass(138u), "grass");
         Assert.AreEqual(0, RayStatsReport.MatClass(1u), "engine id (water etc.) -> other");
@@ -155,6 +160,7 @@ public class RayStatsReportTests
             if (cls == 'l') d[o + RayStatsReport.LEAF]++;
             if (cls == 'w') d[o + RayStatsReport.WOOD]++;
             if (cls == 'g') d[o + RayStatsReport.GROUND]++;
+            if (cls == 'f') d[o + RayStatsReport.FRINGE]++;
         }
     }
 
@@ -168,7 +174,7 @@ public class RayStatsReportTests
         d[0] = 1; d[1] = 1000;
         AddPrimary(d, 0, 'w', 170); AddPrimary(d, 0, 'g', 60); AddPrimary(d, 0, 'l', 10);              // 24 % of the screen
         AddPrimary(d, 1, 'l', 230); AddPrimary(d, 1, 'w', 50); AddPrimary(d, 1, 'g', 140); AddPrimary(d, 1, 'o', 16); // 43.6 %
-        AddPrimary(d, 2, 'g', 95);                                                                        // 9.5 %
+        AddPrimary(d, 2, 'g', 80); AddPrimary(d, 2, 'f', 15);                                             // 9.5 % (task 250: 1.5 % fringe)
         AddPrimary(d, 3, 'n', 200); AddPrimary(d, 3, 'g', 29);                                            // 22.9 %
         // Sun rays with a leaf block and their own [6]/[7] left 0: they must not leak into the primary split.
         int s = RayStatsReport.Rec(1, 1); d[s] = 500; d[s + 3] = 400; d[s + 4] = 300;
@@ -177,13 +183,19 @@ public class RayStatsReportTests
         Assert.AreEqual(140ul, b1.ground); Assert.AreEqual(16ul, b1.other); Assert.AreEqual(0ul, b1.none);
         var all = RayStatsReport.Mat(d, 15);
         Assert.AreEqual(1000ul, all.rays);
-        Assert.AreEqual(all.rays, all.leaf + all.wood + all.ground + all.other + all.none, "the classes partition the rays");
+        Assert.AreEqual(all.rays, all.leaf + all.wood + all.ground + all.other + all.none + all.fringe, "the classes partition the rays");
+        Assert.AreEqual(15ul, all.fringe); Assert.AreEqual(0ul, RayStatsReport.Mat(d, 1 << 2).other, "fringe is not 'other'");
+        Assert.AreEqual(5, RayStatsReport.FRINGE);
         Assert.AreEqual(200ul, all.none); Assert.AreEqual(220ul, all.wood); Assert.AreEqual(240ul, all.leaf);
         string t = RayStatsReport.Format(d, "pose");
         var row = Regex.Match(t, @"\n\s+10-40 m\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%");
         Assert.IsTrue(row.Success, t);
         string[] want = { "43.6", "23.0", "5.0", "14.0", "1.6", "0.0", "23.0", "20.6", "6.6" };
         for (int k = 0; k < want.Length; k++) Assert.AreEqual(want[k], row.Groups[k + 1].Value, $"10-40 m column {k}");
+        var f2 = Regex.Match(t, @"\n\s+40-82 m\s+(?:[\d.]+%\s+){9}([\d.]+)%");
+        Assert.IsTrue(f2.Success, t); Assert.AreEqual("1.5", f2.Groups[1].Value, "fringe column, 40-82 m");
+        var p2 = Regex.Match(t, @"\n\s+primary\s+40-82 m.*?([\d.]+)%\n");
+        Assert.IsTrue(p2.Success, t); Assert.AreEqual("0.0", p2.Groups[1].Value, "primary folstop must not show the fringe hits in [5]");
         var a = Regex.Match(t, @"\n\s+all\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%\s+([\d.]+)%");
         Assert.IsTrue(a.Success, t);
         Assert.AreEqual("100.0", a.Groups[1].Value); Assert.AreEqual("24.0", a.Groups[2].Value);

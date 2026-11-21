@@ -152,6 +152,11 @@ BIOMES.append(("Trees", [55, 56, 57, 58, 76, 77, 78, 79, 93]))
 PALETTES["D"][2].update(hexes({19: "d0c9b8"}))
 NAMES.update({19: "birch bark"})
 BIOMES[-1][1].append(19)
+# Task 250 (-fringe 1, DEFAULT OFF; WORLD_FILL_BUDGET sec. 5 E3): voxel grass fringe stubs, the last two free
+# codes below 96. A step lighter and warmer than the grass they stand on (lit blade tips), so they read on it:
+# 18 = on forest / jungle grass (grass 5f9e3a -> 7bb447), 9 = on savanna grass (c9a640 -> dcbc5c).
+PALETTES["D"][2].update(hexes({18: "7bb447", 9: "dcbc5c"}))
+NAMES.update({18: "grass fringe", 9: "savanna fringe"})
 
 # Task 181 (latent ores, owner R2 (a)): cobalt and emberstone are generated as a
 # TWIN per host rock (TerrainGen.OreRules.TWINS). A twin wears its HOST's colour

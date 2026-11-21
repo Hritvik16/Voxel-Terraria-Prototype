@@ -308,7 +308,8 @@ int _CollectShadowStats;
 // then 12 records of RS_REC = kind (0 primary, 1 sun, 2 sky) x 4 + band (camera distance of the ray's pixel / face:
 // 0-10 m, 10-40 m, 40-82 m, 82 m+ or no hit): [0] rays, [1] steps, [2] of them tier-0 steps, [3] blocked (primary: hit),
 // [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5] stopped by the foliage early-out (task 245),
-// [6] primary only: the hit is WOOD, [7] primary only: the hit is GROUND (task 248, RayStatsMatClass; other = [3] - [4] - [6] - [7]),
+// [6] primary only: the hit is WOOD, [7] primary only: the hit is GROUND (task 248, RayStatsMatClass; other = [3] - [4] - [5] - [6] - [7]),
+// primary [5] (no foliage early-out on a primary ray): the hit is GRASS FRINGE (task 250, 137 / 146, `-fringe 1`),
 // [8..199] histogram of steps per ray (RayStatsBin).
 // Steps = loop iterations of the marches the ray ran (tier-0 DDA / leaps, shell iterations, far-band steps), counted ONCE
 // per ray (pass 2 of the shell pre-pass re-runs a handed-over group's tier-0 march; that repeat is not counted).
@@ -331,8 +332,10 @@ bool RayStatsLeaf(uint mat) { return (mat >= 183u && mat <= 186u) || mat == 216u
 /// Task 248 (WORLD_FILL_BUDGET sec. 5 E1): the primary hit's material class for the porous / solid coverage split.
 /// 1 wood (task 225's class 1: 147, 204-207, 215, 221), 2 ground (every other generator id 128..223 that is not leaf),
 /// 0 = not counted here (leaf is [4]; other = water / fluids / placed / engine ids < 128 or > 223, derived on the CPU).
+/// Task 250: 3 = grass fringe (137 savanna fringe, 146 grass fringe), counted in the primary record's [5].
 uint RayStatsMatClass(uint mat)
 {
+    if (mat == 137u || mat == 146u) return 3u;
     if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1u;
     if (RayStatsLeaf(mat)) return 0u;
     return (mat >= 128u && mat <= 223u) ? 2u : 0u;
@@ -349,6 +352,7 @@ void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, b
     if (fol) InterlockedAdd(RayStats[b + 5u], 1u);   // task 245: stopped by the foliage early-out
     if (matCls == 1u) InterlockedAdd(RayStats[b + 6u], 1u);        // task 248: primary hit is wood
     else if (matCls == 2u) InterlockedAdd(RayStats[b + 7u], 1u);   // task 248: primary hit is ground
+    else if (matCls == 3u) InterlockedAdd(RayStats[b + 5u], 1u);   // task 250: primary hit is grass fringe (primary fol is always false)
 }
 
 // ---- TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6; owner Q-AT D4): FOLIAGE LIGHT EARLY-OUT ----
@@ -910,7 +914,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
     float3(0.184, 0.498, 0.722),   // 136 river lip
-    float3(0.900, 0.100, 0.800),   // 137 (none)
+    float3(0.760, 0.649, 0.318),   // 137 savanna fringe
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
     float3(0.760, 0.603, 0.347),   // 140 sand
@@ -919,7 +923,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.628, 0.242),   // 143 savanna grass
     float3(0.760, 0.522, 0.393),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
-    float3(0.900, 0.100, 0.800),   // 146 (none)
+    float3(0.482, 0.706, 0.278),   // 146 grass fringe
     float3(0.760, 0.734, 0.672),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.760, 0.548, 0.299),   // 149 packed sand
@@ -1008,7 +1012,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
     float3(0.184, 0.498, 0.722),   // 136 river lip
-    float3(0.900, 0.100, 0.800),   // 137 (none)
+    float3(0.863, 0.737, 0.361),   // 137 savanna fringe
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
     float3(0.910, 0.722, 0.416),   // 140 sand
@@ -1017,7 +1021,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.788, 0.651, 0.251),   // 143 savanna grass
     float3(0.788, 0.541, 0.408),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
-    float3(0.900, 0.100, 0.800),   // 146 (none)
+    float3(0.482, 0.706, 0.278),   // 146 grass fringe
     float3(0.816, 0.788, 0.722),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.788, 0.569, 0.310),   // 149 packed sand
