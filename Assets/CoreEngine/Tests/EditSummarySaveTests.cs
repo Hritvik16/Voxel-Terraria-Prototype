@@ -170,6 +170,7 @@ public class EditSummarySaveTests
     // =====================================================================
 
     [Test, Timeout(900000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void SaveEvictRestart_ShellsRegenerateWithTheSavedSummary_EqualsLive()
     {
         const int BUDGET = 3 * 1024 * 1024;
@@ -292,6 +293,7 @@ public class EditSummarySaveTests
     }
 
     [Test, Timeout(600000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void StaleCorruptTruncatedMissing_Rejected_ShellShowsTheGenerator()
     {
         const int BUDGET = 3 * 1024 * 1024;
@@ -502,6 +504,7 @@ public class EditSummarySaveTests
     }
 
     [Test, Timeout(600000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void FarBand_SavedSummaryFoldsIntoColumnHeightAndMaterial_PatchEqualsFreshBuild()
     {
         string dir = TempDir();
@@ -697,6 +700,7 @@ public class EditSummarySaveTests
     }
 
     [Test, Timeout(900000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void EvictWhilePending_LiveSummaryStandsIn_ReloadSeesLive_LandedSwapsInWithoutRedraw()
     {
         const int BUDGET = 3 * 1024 * 1024;

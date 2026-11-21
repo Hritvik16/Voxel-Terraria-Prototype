@@ -49,6 +49,7 @@ public class VerticalStreamingTests
 
     [Test]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void TallWorld_StreamsABandThatFollowsTheCamera_AndFitsTheMirror()
     {
         var meta = new WorldMetaData { seed = 42, sizeClass = TerrainGenChunkSource.SIZE_CLASS };
@@ -160,6 +161,7 @@ public class VerticalStreamingTests
 
     [Test, Timeout(600000)]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void TerrainAwareBand_ShiftsTowardTheCliff_KeepsTheCameraLoaded_CentresUnderground()
     {
         var meta = new WorldMetaData { seed = 42, sizeClass = TerrainGenChunkSource.SIZE_CLASS };

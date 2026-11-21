@@ -249,6 +249,7 @@ public partial class ShellFillTests
     // ==================================================================
 
     [Test, Category("Slow"), Timeout(1800000)]   // shells 1-2 (task 93b2) pushed it past the default 180 s
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fill_KeepsWhatRaysSee_KeepsMouths_DropsDenseBricks()
     {
         var lines = new List<string>();
@@ -341,6 +342,7 @@ public partial class ShellFillTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void MouthPrefilter_ChangesNothing_AtEntranceAndCliffChunks()
     {
         var chunks = new List<(int, int3)>();
@@ -421,6 +423,7 @@ public partial class ShellFillTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void SeaAndLake_SurfaceFluid_Unchanged()
     {
         var sites = WaterSites();
@@ -570,6 +573,7 @@ public partial class ShellFillTests
     }
 
     [Test, Category("Slow"), Timeout(3600000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void ShellNeed_AtSpawn_Report()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

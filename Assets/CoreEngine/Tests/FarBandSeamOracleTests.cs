@@ -39,6 +39,7 @@ public class FarBandSeamOracleTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void F0_MatchesGeneratedTopVoxel_WhereTheSeamWasPhotographed()
     {
         var meta = AnchorPlanner.Plan(SEED, SIZE_CLASS);

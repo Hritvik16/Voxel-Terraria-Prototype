@@ -245,6 +245,35 @@ namespace VoxelEngine.Rendering
             LightFloodReference.Pack(math.max(0, LightFloodReference.R(seed) - d), math.max(0, LightFloodReference.G(seed) - d),
                                      math.max(0, LightFloodReference.B(seed) - d));
 
+        /// Task 170: the union lists (and the GPU buffers, TorchFloodPool.GrowGpu) grow to need + 1/4, rounded up
+        /// to 64 Ki words, not by doubling: at most ~25 % slack instead of up to 100 %, and about 3x fewer growth
+        /// steps than + 1/8 (each one copies the list once and re-uploads that GPU buffer whole).
+        public const int GROW_GRANULE = 65536;
+        public static int GrowCap(int need)
+        {
+            long c = (long)need + (need >> 2);
+            c = (c + GROW_GRANULE - 1) & ~(long)(GROW_GRANULE - 1);
+            return (int)math.min(c, int.MaxValue - GROW_GRANULE);
+        }
+
+        /// Makes room for `need` elements with GrowCap's exact capacity in ONE reallocation (NativeList's own
+        /// growth rounds to a power of two, and Resize + TrimExcess would copy twice through a transient 2x block).
+        public static void Reserve<T>(ref NativeList<T> l, int need) where T : unmanaged
+        {
+            if (need <= l.Capacity) return;
+            UnsafeList<T>* u = l.GetUnsafeList();
+            int cap = GrowCap(need);
+            int size = UnsafeUtility.SizeOf<T>(), align = UnsafeUtility.AlignOf<T>();
+            T* p = (T*)AllocatorManager.Allocate(u->Allocator, size, align, cap);
+            if (u->Ptr != null)
+            {
+                if (u->m_length > 0) UnsafeUtility.MemCpy(p, u->Ptr, (long)u->m_length * size);
+                AllocatorManager.Free(u->Allocator, u->Ptr, size, align, u->m_capacity);
+            }
+            u->Ptr = p;
+            u->m_capacity = cap;
+        }
+
         public static int ShiftFor(int3 db)
         {
             int m = math.cmax(db), s = 0;
@@ -258,11 +287,29 @@ namespace VoxelEngine.Rendering
 
         public static void Snapshot(ChunkStore store, int3 lo, int3 db, TorchFloodScratch s)
         {
-            int sh = ShiftFor(db);
-            s.Ensure(sh);
+            SnapshotBegin(db, s);
+            SnapshotPlanes(store, lo, db, s, 0, db.z);
+        }
+
+        /// Task 170: the snapshot in slices (TorchFloodPool runs a few brick planes per frame under its budget).
+        /// Begin, then SnapshotPlanes over [0, db.z) in any number of calls, in order.
+        public static void SnapshotBegin(int3 db, TorchFloodScratch s)
+        {
+            s.Ensure(ShiftFor(db));
             s.dense.Clear(); s.masks.Clear();
+        }
+
+        /// Box brick planes [z0, z1): brick kinds, and the occupancy bits of the planes' dense bricks (read
+        /// from the pool in this same call, so a slice is one consistent read of its planes; a change between
+        /// slices is an edit / admit after the read, which re-floods the torch as it does during the job).
+        public static void SnapshotPlanes(ChunkStore store, int3 lo, int3 db, TorchFloodScratch s, int z0, int z1)
+        {
+            int sh = s.shift;
             int3 b0 = lo >> 3, b1 = b0 + db - 1;
-            int3 c0 = b0 >> 4, c1 = b1 >> 4;
+            b1.z = b0.z + z1 - 1;
+            int3 bs = new int3(b0.x, b0.y, b0.z + z0);
+            int3 c0 = bs >> 4, c1 = b1 >> 4;
+            int d0 = s.dense.Length;
             byte* kind = (byte*)s.kind.GetUnsafePtr();
             for (int cz = c0.z; cz <= c1.z; cz++)
             for (int cy = c0.y; cy <= c1.y; cy++)
@@ -270,7 +317,7 @@ namespace VoxelEngine.Rendering
             {
                 var c = new int3(cx, cy, cz);
                 Chunk ch = store.GetChunk(c);
-                int3 q0 = math.max(b0, c << 4), q1 = math.min(b1, (c << 4) + 15);
+                int3 q0 = math.max(bs, c << 4), q1 = math.min(b1, (c << 4) + 15);
                 byte fill = 255;
                 if (ch == null) fill = 0;
                 else if (ch.isUniform) fill = ch.uniformMaterial == 0 ? (byte)1 : (byte)0;
@@ -293,13 +340,15 @@ namespace VoxelEngine.Rendering
                     }
                 }
             }
-            new MaskJob { dense = s.dense, raw = store.BrickPool.RawData, kind = s.kind, maskOff = s.maskOff, masks = s.masks }.Run();
+            if (s.dense.Length > d0)
+                new MaskJob { dense = s.dense, start = d0, raw = store.BrickPool.RawData, kind = s.kind, maskOff = s.maskOff, masks = s.masks }.Run();
         }
 
         [BurstCompile(CompileSynchronously = true, DisableSafetyChecks = true)]
         private struct MaskJob : IJob
         {
             [ReadOnly] public NativeList<int2> dense;
+            public int start;
             [ReadOnly] public NativeArray<byte> raw;
             public NativeArray<byte> kind;
             public NativeArray<int> maskOff;
@@ -309,7 +358,7 @@ namespace VoxelEngine.Rendering
             {
                 byte* r = (byte*)raw.GetUnsafeReadOnlyPtr();
                 ulong* m = stackalloc ulong[8];
-                for (int i = 0; i < dense.Length; i++)
+                for (int i = start; i < dense.Length; i++)
                 {
                     int pb = dense[i].x;
                     byte* src = r + (long)dense[i].y * 512;
@@ -661,6 +710,8 @@ namespace VoxelEngine.Rendering
                 }
                 stats[0] = reached; stats[1] = directLit; stats[2] = stored; stats[3] = escapes; stats[4] = seeds.Length;
                 stats[5] = (int)math.min(pops, int.MaxValue); stats[6] = dist.Length >> 9; stats[7] = anchored;
+                // task 170: the cache is kept per torch; drop the lists' doubling slack (here, on the worker)
+                outDirect.TrimExcess(); outKeys.TrimExcess(); outEntries.TrimExcess(); outData.TrimExcess();
             }
 
             /// Marks a (dense index) brick direct; sets its lit bit when its nearest voxel is inside the reach.
@@ -1017,7 +1068,7 @@ namespace VoxelEngine.Rendering
             public NativeHashMap<int3, int> chunkTable;
             public NativeList<int> chunkUsed, freeTables, free8, free64;
             public NativeList<ulong> dirtyData;      // bit per 8-uint unit of data
-            public NativeList<byte> dirtyTable;     // per table
+            public NativeList<ulong> dirtyTable;    // task 242: bit per 8-uint unit of tables (8 words = 512 units per table)
             public NativeList<int3> chunksAdded, chunksRemoved;
             public NativeArray<int> counts;         // air bricks, mixed bricks, escapes, chunks
 
@@ -1028,11 +1079,19 @@ namespace VoxelEngine.Rendering
                 for (int u = u0; u <= u1; u++) dirtyData[u >> 6] |= 1UL << (u & 63);
             }
 
+            /// Task 242: the table word ti * 4096 + bi changed (its 8-word unit is re-sent by the scatter upload).
+            private void DirtyT(int ti, int bi)
+            {
+                int u = (ti << 9) | (bi >> 3);
+                dirtyTable[u >> 6] |= 1UL << (u & 63);
+            }
+
             private int Alloc(int n)
             {
                 NativeList<int> fl = n == 8 ? free8 : free64;
                 if (fl.Length > 0) { int o = fl[fl.Length - 1]; fl.RemoveAt(fl.Length - 1); return o; }
                 int off = data.Length;
+                Reserve(ref data, off + n);
                 data.Resize(off + n, NativeArrayOptions.ClearMemory);
                 return off;
             }
@@ -1066,7 +1125,7 @@ namespace VoxelEngine.Rendering
                         if (old == 0) continue;
                         FreeBrick(old);
                         tables[ti * 4096 + bi] = 0;
-                        dirtyTable[ti] = 1;
+                        DirtyT(ti, bi);
                         if (--chunkUsed[ti] == 0)
                         {
                             chunkTable.Remove(c); freeTables.Add(ti); chunksRemoved.Add(c); counts[3]--;
@@ -1079,8 +1138,12 @@ namespace VoxelEngine.Rendering
                         else
                         {
                             ti = chunkUsed.Length;
-                            chunkUsed.Add(0); dirtyTable.Add(0);
+                            chunkUsed.Add(0);
+                            Reserve(ref tables, (ti + 1) * 4096);
                             tables.Resize((ti + 1) * 4096, NativeArrayOptions.ClearMemory);
+                            // task 242: a NEW table is sent whole (its zeros too: the GPU buffer's slack is undefined)
+                            if (dirtyTable.Length < (ti + 1) * 8) dirtyTable.Resize((ti + 1) * 8, NativeArrayOptions.ClearMemory);
+                            for (int q = 0; q < 8; q++) dirtyTable[ti * 8 + q] = ~0UL;
                         }
                         chunkUsed[ti] = 0;
                         chunkTable.Add(c, ti); chunksAdded.Add(c); counts[3]++;
@@ -1124,7 +1187,7 @@ namespace VoxelEngine.Rendering
                         Dirty(off, 64);
                     }
                     uint en = (kind << 30) | (uint)off;
-                    if (en != old) { tables[ti * 4096 + bi] = en; dirtyTable[ti] = 1; }
+                    if (en != old) { tables[ti * 4096 + bi] = en; DirtyT(ti, bi); }
                 }
             }
         }

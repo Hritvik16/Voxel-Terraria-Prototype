@@ -1,0 +1,27 @@
+# task 245: foliage early-out calibration (seed 42, map v4, trees2On 1 = 213 dense, cores OFF; forest_eye's 5 x 5 chunk
+#   columns x [33408, 34047] z [49152, 49791], layers 40..43 = y [5120, 5631]). CPU voxel DDA, the shader's rule:
+#   every AIR cell of a DENSE brick multiplies T by (1 - byte / 256), byte = FoliageDensity.Encode(leaf voxels); T < eps = stop (blocked).
+#   Receivers: 'floor' = the air cell over the first non-tree solid from the top (forest floor, under crowns too);
+#   'surface' = the air cell over the first solid from the top (crown tops included). Inner 3 x 3 columns, random x z, a random
+#   azimuth per ray. A ray leaving the box top or sides counts as LIT (side exits overstate the early-out's error: conservative).
+#   cut = rays the early-out stops; wrong = cut rays that reach the sun exactly; P(lit|cut) = wrong / cut; lost = wrong / exactly lit;
+#   dense-cell steps saved = cells in dense bricks the stopped rays no longer march / all dense-brick cells (the GPU's air leaps are not cut).
+
+## receivers: floor
+elev   rays  lit % leafblk % side % dense/ray | rule A (transmittance), per eps: P(lit|cut) %  lost %  dense-cell steps saved %  || rule B (brick fill >= X blocks on entry): the same three
+  16   2996   40.0      14.8   40.0      28.5 |  1/2: 33.0 13.86 10.3  1/4: 35.3 9.02 6.3  1/8: 35.8 6.01 3.8  1/16: 39.2 4.09 2.2  1/32: 36.8 2.34 1.3  1/64: 36.5 1.59 0.7  1/128: 34.5 0.83 0.3  || B fill>=:  12%: 28.3 8.68 7.7  25%: 19.0 1.67 1.8  37%: 11.1 0.08 0.1  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  30   2997   57.9      18.0   56.3      25.3 |  1/2: 27.8 10.37 16.3  1/4: 28.6 6.91 9.9  1/8: 33.7 5.07 5.8  1/16: 33.8 3.00 3.4  1/32: 38.0 2.02 2.0  1/64: 43.3 1.50 1.2  1/128: 40.0 0.81 0.7  || B fill>=:  12%: 23.0 6.11 11.0  25%: 18.3 1.32 2.3  37%: 12.5 0.06 0.2  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  50   2998   79.5      15.2   27.8      19.0 |  1/2: 30.8 7.01 17.9  1/4: 31.7 4.53 10.5  1/8: 33.8 2.90 6.6  1/16: 31.0 1.68 4.0  1/32: 30.4 1.01 2.4  1/64: 30.2 0.67 1.4  1/128: 31.3 0.42 0.7  || B fill>=:  12%: 23.9 3.65 11.4  25%: 10.7 0.38 2.0  37%: 0.0 0.00 0.2  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  78   2998   85.2      11.5    0.0      11.6 |  1/2: 30.8 4.23 14.9  1/4: 27.1 2.04 7.8  1/8: 29.2 1.21 4.3  1/16: 31.7 0.78 2.6  1/32: 26.3 0.39 1.6  1/64: 29.6 0.31 1.2  1/128: 37.5 0.23 0.7  || B fill>=:  12%: 19.0 1.68 9.4  25%: 5.9 0.12 1.5  37%: 0.0 0.00 0.1  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+
+## receivers: surface
+elev   rays  lit % leafblk % side % dense/ray | rule A (transmittance), per eps: P(lit|cut) %  lost %  dense-cell steps saved %  || rule B (brick fill >= X blocks on entry): the same three
+  16   3000   41.9      20.1   41.9      26.8 |  1/2: 37.8 21.14 16.1  1/4: 38.0 13.67 9.6  1/8: 42.8 9.86 5.7  1/16: 47.0 6.92 3.6  1/32: 51.3 4.85 2.3  1/64: 58.1 3.42 1.4  1/128: 52.3 1.83 0.8  || B fill>=:  12%: 31.0 14.39 12.2  25%: 26.0 3.74 3.3  37%: 27.3 0.24 0.2  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  30   3000   56.3      21.5   52.1      23.6 |  1/2: 36.5 16.69 20.0  1/4: 39.6 11.60 11.5  1/8: 41.2 7.10 6.4  1/16: 38.6 4.32 3.8  1/32: 40.9 2.66 2.2  1/64: 41.2 1.66 1.2  1/128: 38.5 0.89 0.6  || B fill>=:  12%: 30.8 11.01 15.2  25%: 24.8 1.89 2.1  37%: 0.0 0.00 0.1  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  50   3000   77.8      16.8   25.5      18.4 |  1/2: 42.5 12.85 21.0  1/4: 41.7 7.41 11.6  1/8: 43.5 4.58 6.6  1/16: 45.6 2.91 3.6  1/32: 42.2 1.63 1.8  1/64: 40.9 0.77 0.9  1/128: 50.0 0.64 0.5  || B fill>=:  12%: 36.0 8.23 14.9  25%: 36.8 2.14 3.5  37%: 22.2 0.09 0.3  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+  78   3000   89.4       8.5    0.0      10.7 |  1/2: 56.2 8.99 18.8  1/4: 53.1 4.77 9.7  1/8: 50.8 2.50 5.1  1/16: 48.6 1.27 2.5  1/32: 42.1 0.60 1.4  1/64: 33.3 0.22 0.9  1/128: 33.3 0.15 0.6  || B fill>=:  12%: 50.3 6.15 15.6  25%: 52.4 1.60 3.4  37%: 25.0 0.04 0.2  50%: 0.0 0.00 0.0  75%: 0.0 0.00 0.0
+
+# worst P(lit|cut) % per eps: 1/2: 56.2  1/4: 53.1  1/8: 50.8  1/16: 48.6  1/32: 51.3  1/64: 58.1  1/128: 52.3
+# rule B worst P(lit|cut) % per fill threshold: 12%: 50.3  25%: 52.4  37%: 27.3  50%: 0.0  75%: 0.0
+# PICK none: no eps meets the rule
+# 13 s (generation 13 s)

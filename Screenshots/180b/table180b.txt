@@ -1,0 +1,58 @@
+Task 180b -- what the material rules produced, 4 seeds (42 7 2026 31337), land columns on a 24 m grid, by skin biome.
+Slots: share of the biome's columns. Materials: share of columns whose voxel at that depth under the GENERATED top is that material
+(Air / water = a cave or pocket at that depth). Rules: GroundRules.cs header; palette rows: GroundRules.PALETTE.
+
+forest (25780 columns)  slots: flat 51.6% steep 13.8% hollow 6.1% high 1.6% shore 4.1% scree 1.4% dip 5.9% bare 15.5%
+    top 0-0.3 m  Grass 58% Granite 26% Mud 6% BeachSand 5% Gravel 3% SilverSchist 1%
+    0.5 m        Loam 61% Granite 26% BeachSand 5% OchreClay 5% Gravel 1% SilverSchist 1%
+    2 m          OchreClay 64% Granite 33% SilverSchist 1% RedBand 1% KarstLimestone 1% KopjeGranite 0%
+    6 m          Granite 93% SilverSchist 3% KarstLimestone 2% RedBand 1% KopjeGranite 1% OrangeSandstone 0%
+    15 m         Granite 93% SilverSchist 3% KarstLimestone 2% RedBand 1% KopjeGranite 1% OrangeSandstone 0%
+    22 m         Granite 92% SilverSchist 3% KarstLimestone 2% RedBand 1% Air 1% KopjeGranite 1%
+
+desert (16534 columns)  slots: flat 47.3% steep 16.7% hollow 6.9% high 0.8% shore 4.6% scree 2.4% dip 4.9% bare 16.4%
+    top 0-0.3 m  Sand 52% OrangeSandstone 32% Grass 6% BeachSand 5% Gravel 2% KopjeGranite 1%
+    0.5 m        PackedSand 56% OrangeSandstone 32% BeachSand 5% PinkSiltstone 4% Gravel 2% KopjeGranite 1%
+    2 m          PinkSiltstone 59% OrangeSandstone 39% KopjeGranite 1% RedBand 0% Granite 0% PackedSand 0%
+    6 m          OrangeSandstone 95% KopjeGranite 3% RedBand 1% Granite 0% Air 0%
+    15 m         OrangeSandstone 95% KopjeGranite 3% RedBand 1% Granite 0% Air 0%
+    22 m         OrangeSandstone 94% KopjeGranite 3% RedBand 1% Air 1% Granite 0%
+
+snow (28692 columns)  slots: flat 50.0% steep 15.5% hollow 5.9% high 0.9% shore 5.7% scree 1.4% dip 6.2% bare 14.3%
+    top 0-0.3 m  Snow 62% PackedIce 21% SilverSchist 15% Gravel 1% RedBand 0% Granite 0%
+    0.5 m        PackedIce 58% Gravel 20% SilverSchist 15% Snow 6% RedBand 0% Granite 0%
+    2 m          Gravel 62% SilverSchist 37% Granite 0% RedBand 0% KarstLimestone 0% PackedIce 0%
+    6 m          SilverSchist 97% Granite 2% RedBand 1% Air 0% KarstLimestone 0%
+    15 m         SilverSchist 97% Granite 2% RedBand 1% Air 0% KarstLimestone 0% Gravel 0%
+    22 m         SilverSchist 96% Granite 2% Air 1% RedBand 1% KarstLimestone 0%
+
+jungle (16661 columns)  slots: flat 54.5% steep 13.2% hollow 6.1% high 0.4% shore 6.7% scree 1.1% dip 5.1% bare 12.9%
+    top 0-0.3 m  JungleGrass 59% KarstLimestone 25% BeachSand 7% Mud 6% MossRock 2% Granite 1%
+    0.5 m        Mud 62% KarstLimestone 26% BeachSand 7% Laterite 3% MossRock 1% Granite 1%
+    2 m          Laterite 66% KarstLimestone 33% Granite 1% KopjeGranite 0% SilverSchist 0% Mud 0%
+    6 m          KarstLimestone 96% Granite 2% KopjeGranite 1% SilverSchist 0% Air 0%
+    15 m         KarstLimestone 96% Granite 2% KopjeGranite 1% SilverSchist 0% Air 0%
+    22 m         KarstLimestone 95% Granite 2% KopjeGranite 1% Air 1% SilverSchist 0%
+
+savanna (14677 columns)  slots: flat 51.4% steep 14.2% hollow 3.7% high 1.9% shore 7.4% scree 2.0% dip 5.2% bare 14.2%
+    top 0-0.3 m  SavannaGrass 58% KopjeGranite 26% BeachSand 8% Grass 4% Gravel 2% Granite 1%
+    0.5 m        RedEarth 59% KopjeGranite 26% BeachSand 8% PinkSiltstone 3% Gravel 2% Granite 1%
+    2 m          PinkSiltstone 65% KopjeGranite 33% Granite 1% OrangeSandstone 1% KarstLimestone 1% RedEarth 0%
+    6 m          KopjeGranite 93% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 0%
+    15 m         KopjeGranite 93% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 0%
+    22 m         KopjeGranite 92% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 1%
+
+badlands (18387 columns)  slots: flat 56.0% steep 10.8% hollow 4.8% high 0.3% shore 7.8% scree 1.7% dip 5.9% bare 12.8%
+    top 0-0.3 m  BadlandsClay 61% RedBand 23% BeachSand 8% Mud 5% Hardpan 2% OrangeSandstone 0%
+    0.5 m        Hardpan 65% RedBand 23% BeachSand 8% OchreBand 3% OrangeSandstone 0% Granite 0%
+    2 m          OchreBand 69% RedBand 29% Granite 1% OrangeSandstone 1% SilverSchist 0% Hardpan 0%
+    6 m          RedBand 95% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 0%
+    15 m         RedBand 94% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 0%
+    22 m         RedBand 93% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 1%
+
+seed 42: 30404 land columns on a 24 m grid, 40 lake outlets
+seed 7: 29803 land columns on a 24 m grid, 40 lake outlets
+seed 2026: 30800 land columns on a 24 m grid, 40 lake outlets
+seed 31337: 29724 land columns on a 24 m grid, 37 lake outlets
+adversarial: banks in a biome border zone 779 (skin = side A 406, side B 373); desert oasis banks 267; > 60 deg cliffs 4352; canyon floors 475; lake-outlet bank columns 4370 (3388 wet, rest steep)
+oasis top materials (GenMat:count): 10:267

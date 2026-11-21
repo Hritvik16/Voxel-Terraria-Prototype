@@ -1,0 +1,33 @@
+BUDGET CHECK (task 230; PERF_BUDGET_GUARD.md sec. 3) -- 2026-11-17 22:11
+budget file PERF_BUDGET.json (status: PROVISIONAL -- numbers below are copied from tasks 212 and 2; baseline 2026-11-15/16)
+day log Logs/budget/2026-11-17_192530/costsplit_day_rerun.txt
+night log Logs/budget/2026-11-17_192530/costsplit_night_rerun.txt
+settings: day: [play flags] -quality high -renderrows 432 -shellwait 60 -startsun 0 -costfixed forest_eye -costarms skyfill0,sun_off,flood_off,shells_off,ceiling; night: [play flags] ... -costpaths torch -costarms tf_on,tl_none
+walk_near FULL runs range 5.5 ms; FULL flood state ['skip'] (day: expect skip)
+
+number                                       now  baseline    delta     tol  status  share / target / note
+walk_near FULL p50 ms                       67.4     107.0    -39.6     5.4  PASS    target 33.3 (+34.1); better than baseline (a perf task may rebaseline)
+walk_near FULL p95 ms                      117.1     204.0    -86.9    16.3  PASS    target 33.3 (+83.8); better than baseline (a perf task may rebaseline)
+walk_near frames > 33 ms %                  88.8        80        -       -  info    target 5.0; target distance only
+walk_near step sky_fill ms                  11.5      40.4    -28.9     6.1  PASS    share 2.5 OVER SHARE; better than baseline (a perf task may rebaseline)
+walk_near step sun_shadow ms                20.9      28.1     -7.2     4.2  PASS    share 5.0 OVER SHARE; better than baseline (a perf task may rebaseline)
+walk_near step torch_flood ms               -0.2      27.8    -28.0     4.2  PASS    day share 0 (night row below); better than baseline (a perf task may rebaseline)
+walk_near step shells ms                     6.0       8.4     -2.4     3.0  PASS    share 4.0 OVER SHARE
+walk_near ceiling p50 ms                    22.9      24.6     -1.7     5.0  PASS    (sky probe + sun + shells off)
+torch night play p50 ms (tf_on)             61.5         -        -       -  NEW     target 33.3 (+28.2); no baseline yet
+torch night step torch_flood ms             -4.6         -        -       -  NEW     share 1.0 (tf_on - tl_none); no baseline yet
+forest_eye FULL p50 ms (secondary)         103.7     148.4    -44.7     7.4  info    deficit 592; would be ok
+forest_eye step shells ms (secondary)       14.2         -        -       -  NEW     share 4.0; no baseline yet
+forest_eye step sky_fill ms (secondary)      12.9         -        -       -  NEW     share 2.5; no baseline yet
+forest_eye step sun_shadow ms (secondary)      23.8         -        -       -  NEW     share 5.0; no baseline yet
+forest_eye step torch_flood ms (secondary)      15.4         -        -       -  NEW     share 1.0; no baseline yet
+memory process peak MB                    6055.1     2,607  +3448.1    50.0  FAIL    day 2567.9 / night 6055.1
+memory process peak MB (hard)             6055.1     3,000  +3055.1     0.0  FAIL    hard limit 3000
+GPU body refusals at walk_near (hard)          0         0     +0.0     0.0  PASS    hard limit 0
+GPU body refusals after day paths              0         -        -       -  NEW     no baseline yet
+GPU body pool peak                       245,704   254,400        -       -  info    cap 254,400
+CPU brick pool peak                      494,879   493,665        -       -  info    valve 484500
+
+not clean: day_rerun: input at 275 moment(s) during the launch; night_rerun: input at 65 moment(s) during the launch; night_rerun: owner paused
+BUDGET NOT CLEAN
+REBASELINE REFUSED: not clean

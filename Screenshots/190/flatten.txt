@@ -1,0 +1,3 @@
+Task 190 flatten: OFF pins, ON outside identical, disc at the pad, ring between
+seed 42: pin 0x6f6c8910; 111727 outside columns FNV 0x8be087db == OFF; 17056 disc columns at the pad; 15055 ring columns (12459 moved), all between pad and natural
+seed 7: pin 0xeaaad676; 105380 outside columns FNV 0x7a5c7271 == OFF; 15851 disc columns at the pad; 17519 ring columns (14247 moved), all between pad and natural

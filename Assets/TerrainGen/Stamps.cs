@@ -32,6 +32,32 @@
 //
 // Heights: MAP functions work in voxels relative to sea level (the map's
 // convention); S/D functions in absolute voxel Y.
+//
+// TASK 185 (WORLD_GEN_LOOK_PLAN C7, finding 7; TerrainSpec.StampFit, THE
+// DEFAULT since task 187a; `-stampfit 0` = every byte as before). Stamps that
+// sit in the land, each an exact rule on the stamp's own footprint:
+//   cave mouth  placed only where its tube is UNDER COVER past a short mouth
+//               (FitCave): at stations along the tube, the lowest the column
+//               top can be (map - DETAIL_AMP_SUM * rough, minus the face
+//               relief's bound on a face) stands CAVE_ROOF over the tube's
+//               top, from at most CAVE_MOUTH_MAX out to the tube's end. The
+//               hashed axis first, then its three quarter turns; none fits ->
+//               no cave. A steep slope gets a cave into the hill, not a trench.
+//   ledges      ShapeField.Ledge: the shelf top is a rock-layer boundary (flat
+//               but for the layers' slow wave) and the shelf LEDGE_FIT_THICK
+//               thick: a flat ceiling and lip, no egg shapes or contour rings.
+//   geyser      the basin is sinter TERRACES on the ground (GeyserTerrace): a
+//               column's terrace is the map ground rounded UP to a
+//               GEYSER_STEP below the vents' level; the outline follows the
+//               ground (no higher than GEYSER_RISE over the vents, no lower
+//               than GEYSER_FALL under them, reach longer downhill and wobbling).
+//               A pool keeps only columns whose 8 neighbours (and the 8 at
+//               GEYSER_RIM) sit on the same terrace, so every pool is contained.
+//   hoops       only on a rise (HOOP_RISE over the +-120 m ring mean) or in
+//               rugged rock (map roughness >= HOOP_ROCK_ROUGH), never on a plain.
+//   sea         no opening (cave mouth, fissure, skull cave, arch, hoop, rib)
+//               within SEA_KEEP_OUT map cells of a sea cell (KNOWN_ISSUES
+//               "seed 2026 fossil stamp beside the sea"), as NearLake for lakes.
 using Unity.Mathematics;
 
 namespace TerrainGen
@@ -262,7 +288,8 @@ namespace TerrainGen
             // ---- geyser basin (singleton): a flat sinter terrace with pools ----
             float2 gq = p - GeyserSite(in spec, in o);
             float gd = math.sqrt(gq.x * gq.x + gq.y * gq.y);
-            if (gd < 1200f)
+            if (spec.StampFit) { if (gd < GEYSER_REACH_MAX) GeyserTerrace(in spec, in map, in o, p, gd, ref c, riverHoldY); }
+            else if (gd < 1200f)
             {
                 SampleSiteHeight(in spec, in map, GeyserSite(in spec, in o), out int h0);
                 float w = math.saturate((1200f - gd) / 300f);
@@ -324,6 +351,20 @@ namespace TerrainGen
             if (s.kind == CaveMouth || s.kind == Fissure)
             {
                 if (dist > 1100f || NearLake(in spec, in map, p)) return;
+                if (spec.StampFit)
+                {
+                    if (s.kind == CaveMouth)
+                    {
+                        // Only columns the tube can reach under ANY quarter turn pay for the fit.
+                        float rr = CaveRadius(in s) + 2f, reach = CaveReach(in s) + rr;
+                        if (!((math.abs(side) <= rr && math.abs(along) <= reach) || (math.abs(along) <= rr && math.abs(side) <= reach))) return;
+                        if (NearSea(in spec, in map, p) || !FitCave(in spec, in map, ref s, siteGround, out byte rot)) return;
+                        float al = math.dot(q, s.dir), sd = math.dot(q, Perp(s.dir));
+                        if (math.abs(sd) > rr || al < -rr || al > reach) return;   // outside the fitted tube
+                        c.stampRot = rot;
+                    }
+                    else if (NearSea(in spec, in map, p)) return;
+                }
                 c.stamp3D = true;
                 c.stampGround = siteGround;
                 c.carvesTop = SurfaceCarve(in s, siteGround, (int)math.floor(p.x), c.height, (int)math.floor(p.y), c.height);
@@ -362,6 +403,7 @@ namespace TerrainGen
             {
                 float L = 300f + 200f * s.a, Hh = 150f + 150f * s.b, T = 45f, W = 90f, leg = 60f;
                 if (math.abs(side) >= W * 0.5f || math.abs(along) >= L * 0.5f) return;
+                if (spec.StampFit && NearSea(in spec, in map, p)) return;   // task 185: no opening by the sea
                 int top = ground + (int)Hh;
                 float half = L * 0.5f - leg;
                 if (math.abs(along) < half)
@@ -378,6 +420,7 @@ namespace TerrainGen
             {
                 float Ro = 120f + 80f * s.a, th = 30f, W = 40f, cy = Ro - 20f;
                 if (math.abs(side) >= W * 0.5f || math.abs(along) >= Ro) return;
+                if (spec.StampFit && (!HoopContext(in spec, in map, s.pos) || NearSea(in spec, in map, p))) return;   // task 185
                 float outer = math.sqrt(Ro * Ro - along * along);
                 c.height = ground + (int)math.floor(cy + outer);
                 int lower = ground + (int)math.floor(cy - outer);
@@ -427,6 +470,7 @@ namespace TerrainGen
                     c.height = ground + (int)math.floor(180f * math.sqrt(1f - x * x));
                     c.stampMat = GenMat.Bone; c.stampBodyLo = ground + 1;
                     if (NearLake(in spec, in map, p)) return;   // the dome stays, no cave
+                    if (spec.StampFit && NearSea(in spec, in map, p)) return;   // task 185: nor by the sea
                     c.stamp3D = true;                    // the skull cave
                     c.stampGround = siteGround;
                     c.carvesTop = SurfaceCarve(in s, siteGround, (int)math.floor(p.x), c.height, (int)math.floor(p.y), c.height);
@@ -438,6 +482,7 @@ namespace TerrainGen
                 float Rr = 230f - 18f * k;
                 if (k >= 0 && k < 7 && math.abs(along - ribT) < 16f && math.abs(side) < Rr)
                 {
+                    if (spec.StampFit && NearSea(in spec, in map, p)) return;   // task 185: no rib arch by the sea
                     float outer = math.sqrt(Rr * Rr - side * side);
                     c.height = ground + (int)math.floor(outer);
                     float Ri = Rr - 32f;
@@ -469,6 +514,158 @@ namespace TerrainGen
         }
         private static unsafe int SiteGround(in TerrainSpec spec, in MapView map, float2 site)
         { SampleSiteHeight(in spec, in map, site, out int y); return y; }
+
+        // ================================================================
+        // TASK 185: stamps that sit in the land (header; TerrainSpec.StampFit)
+        // ================================================================
+        public const float CAVE_STATION = 50f;      // voxels between cover stations along the tube
+        public const float CAVE_ROOF = 20f;         // voxels of ground always over the tube past its mouth
+        public const float CAVE_MOUTH_MAX = 400f;   // voxels: the tube is under cover within 40 m of the site
+        public const float SEA_KEEP_OUT = LAKE_KEEP_OUT;   // map cells
+        public const float HOOP_RISE = 50f;         // voxels over the +-120 m ring mean = on a rise
+        public const float HOOP_ROCK_ROUGH = 0.8f;  // map roughness = rugged rock
+        public const int GEYSER_STEP = 15;          // voxels: one sinter terrace (1.5 m)
+        public const float GEYSER_RIM = 6f;         // voxels of terrace kept between a pool and a terrace edge
+        public const float GEYSER_RISE = 20f;       // sinter tops ground at most 2 m over the vents' level
+        public const float GEYSER_FALL = 400f;      // the terraces run at most 40 m below the vents
+        public const float GEYSER_REACH = 900f, GEYSER_REACH_DOWN = 300f, GEYSER_WOBBLE = 0.12f;
+        public const float GEYSER_REACH_MAX = (GEYSER_REACH + GEYSER_REACH_DOWN) * (1f + GEYSER_WOBBLE);   // < 1400, the singleton's keep-out
+
+        /// The cave mouth's tube radius, its slope (vertical per horizontal) and
+        /// its horizontal reach: SurfaceCarve's capsule clamps t at 1000 along d.
+        public static float CaveRadius(in Stamp s) => 45f + 25f * s.a;
+        public static float CaveSlope(in Stamp s) => 0.6f + 0.25f * s.b;
+        public static float CaveReach(in Stamp s) => 1000f / math.sqrt(1f + CaveSlope(in s) * CaveSlope(in s));
+
+        /// d turned by q quarter turns (q = 0 keeps it).
+        public static float2 Turn(float2 d, int q) => (q & 3) == 0 ? d : (q & 3) == 1 ? Perp(d) : (q & 3) == 2 ? -d : -Perp(d);
+
+        /// The lowest S can put the column top at q (absolute Y) is >= need:
+        /// the map minus every detail octave at full amplitude, minus the face
+        /// relief's bound where the map is a face (ShapeField.FaceRelief).
+        private static unsafe bool Covered(in TerrainSpec spec, in MapView map, float2 q, float need)
+        {
+            ShapeField.SampleMap(in map, q.x, q.y, out float h, out float rough);
+            float lb = spec.seaLevelY + h - ShapeField.DETAIL_AMP_SUM * rough - 1f;
+            if (lb < need) return false;
+            if (!spec.Cliffs || lb - ShapeField.RELIEF_BAND_BOUND >= need) return true;
+            return ShapeField.FaceWeight(math.length(ShapeField.MapGradient(in map, q.x, q.y))) <= 0f;
+        }
+
+        /// Task 185: the cave mouth's axis whose tube is covered from at most
+        /// CAVE_MOUTH_MAX out to its end (header). s.dir becomes that axis and
+        /// rot its quarter turns; false = no axis fits, no cave. Map only, so
+        /// every column of the stamp gets the same answer.
+        public static bool FitCave(in TerrainSpec spec, in MapView map, ref Stamp s, int siteGround, out byte rot)
+        {
+            rot = 0;
+            float r = CaveRadius(in s), k = CaveSlope(in s), reach = CaveReach(in s);
+            float top0 = siteGround + 0.35f * r + r * math.sqrt(1f + k * k) + CAVE_ROOF;   // tube top + roof at the site
+            int n = (int)math.ceil(reach / CAVE_STATION);
+            for (int q = 0; q < 4; q++)
+            {
+                float2 dir = Turn(s.dir, q), sd = Perp(dir) * r;
+                bool open = true, ok = true;
+                for (int i = 0; i <= n && ok; i++)
+                {
+                    float st = math.min(i * CAVE_STATION, reach);
+                    float2 c = s.pos + dir * st;
+                    float need = top0 - k * st;
+                    bool cov = Covered(in spec, in map, c, need) && Covered(in spec, in map, c + sd, need) && Covered(in spec, in map, c - sd, need);
+                    if (open) { if (cov) open = false; else if (st >= CAVE_MOUTH_MAX) ok = false; }
+                    else if (!cov) ok = false;
+                }
+                if (ok && !open) { s.dir = dir; rot = (byte)q; return true; }
+            }
+            return false;
+        }
+
+        /// Task 185: a sea cell (map height <= 0, FluidAtRestTests' sea) within
+        /// SEA_KEEP_OUT cells of p's cell centre distance.
+        public static unsafe bool NearSea(in TerrainSpec spec, in MapView map, float2 p)
+        {
+            int n = map.cells, R = (int)math.ceil(SEA_KEEP_OUT) + 1;
+            float gx = p.x / map.cellVoxels, gz = p.y / map.cellVoxels;
+            int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
+            for (int dz = -R; dz <= R; dz++)
+            for (int dx = -R; dx <= R; dx++)
+            {
+                int cx = ix + dx, cz = iz + dz;
+                float ex = cx + 0.5f - gx, ez = cz + 0.5f - gz;
+                if (ex * ex + ez * ez >= SEA_KEEP_OUT * SEA_KEEP_OUT) continue;
+                if (cx < 0 || cz < 0 || cx >= n || cz >= n) return true;   // off the map is sea
+                if (map.height[cz * n + cx] <= 0f) return true;
+            }
+            return false;
+        }
+
+        /// Task 185: a hoop stands on a rise or in rugged rock, never on a plain.
+        public static bool HoopContext(in TerrainSpec spec, in MapView map, float2 site)
+        {
+            ShapeField.SampleMap(in map, site.x, site.y, out float h, out float rough);
+            if (rough >= HOOP_ROCK_ROUGH) return true;
+            float ring = 0f;
+            for (int k = 0; k < 4; k++)
+            {
+                float2 d = k == 0 ? new float2(1200f, 0f) : k == 1 ? new float2(-1200f, 0f) : k == 2 ? new float2(0f, 1200f) : new float2(0f, -1200f);
+                ShapeField.SampleMap(in map, site.x + d.x, site.y + d.y, out float hk, out _);
+                ring += hk;
+            }
+            return h - (h + ring) * 0.2f >= HOOP_RISE;
+        }
+
+        /// Task 185: the geyser basin's terrace at p (absolute Y), or int.MinValue
+        /// outside the basin. h0 = the vents' level (the site's map ground).
+        public static int GeyserTerraceY(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, int h0)
+        {
+            float2 gq = p - GeyserSite(in spec, in o);
+            float gd = math.sqrt(gq.x * gq.x + gq.y * gq.y);
+            if (gd >= GEYSER_REACH_MAX) return int.MinValue;
+            ShapeField.SampleMap(in map, p.x, p.y, out float hm, out _);
+            float drop = h0 - (spec.seaLevelY + hm);
+            if (drop < -GEYSER_RISE || drop > GEYSER_FALL) return int.MinValue;
+            float reach = (GEYSER_REACH + GEYSER_REACH_DOWN * math.saturate(drop / GEYSER_FALL))
+                        * (1f + GEYSER_WOBBLE * noise.snoise(p / 400f + o.detail + new float2(-17.3f, 61.9f)));
+            if (gd >= reach) return int.MinValue;
+            return h0 - (drop > 0f ? (int)math.floor(drop / GEYSER_STEP) * GEYSER_STEP : 0);   // >= the map ground
+        }
+
+        /// Task 185's geyser basin column (header): terraces on the ground, pools
+        /// only where all 8 neighbours sit on the same terrace.
+        private static unsafe void GeyserTerrace(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, float gd, ref ColumnSample c, int riverHoldY)
+        {
+            SampleSiteHeight(in spec, in map, GeyserSite(in spec, in o), out int h0);
+            if (h0 <= spec.seaLevelY + 20) return;
+            int t = GeyserTerraceY(in spec, in map, in o, p, h0);
+            if (t == int.MinValue) return;
+            // A nearby lake's rim and a river's hold only raise the column (as before).
+            int top = math.max(t, math.max(ShapeField.LakeRimY(in spec, in map, p.x, p.y, out _), riverHoldY));
+            c.height = top;
+            c.water = ColumnSample.NO_WATER_Y;   // the basin owns its water
+            c.stampMat = GenMat.Sinter; c.stampBodyLo = top - 12;
+            if (top != t) return;
+            for (int j = 0; j < 9; j++)
+            {
+                float2 pc = PoolCentre(in spec, in o, j);
+                float pr = 50f + 60f * H(j, 92, 1, o.seed + 222u);
+                float2 dq = p - pc;
+                if (dq.x * dq.x + dq.y * dq.y >= pr * pr) continue;
+                // The 8 neighbours (containment: exact) and the 8 at GEYSER_RIM (a solid rim, so the
+                // wall left where a terrace edge crosses a pool is not a row of 1-column posts).
+                for (int k = 0; k < 16; k++)
+                {
+                    int kk = k & 7; float rd = k < 8 ? 1f : GEYSER_RIM;
+                    float2 nb = p + rd * new float2(kk == 0 || kk == 1 || kk == 7 ? 1f : kk == 3 || kk == 4 || kk == 5 ? -1f : 0f,
+                                                    kk == 1 || kk == 2 || kk == 3 ? 1f : kk == 5 || kk == 6 || kk == 7 ? -1f : 0f);
+                    if (GeyserTerraceY(in spec, in map, in o, nb, h0) != t) return;   // a terrace edge: the pool stops short of it
+                }
+                c.height = t - 25;
+                c.water = t - 5;              // below the terrace: contained, at rest
+                c.waterKind = 0;
+                c.stamp3D = true;             // vents at pool centres
+                return;
+            }
+        }
 
         // ================================================================
         // D LEVEL: 3D
@@ -568,6 +765,7 @@ namespace TerrainGen
                 }
                 if (StampAt(in o, p, out Stamp s))
                 {
+                    if (s.kind == CaveMouth && spec.StampFit) s.dir = Turn(s.dir, c.stampRot);   // task 185: FitCave's axis
                     if (s.kind == CaveMouth || s.kind == Fissure || s.kind == Fossil)
                         if (SurfaceCarve(in s, c.stampGround, x, y, z, c.height)) return GenMat.Air;
                     if (s.kind == MeteorCrater)

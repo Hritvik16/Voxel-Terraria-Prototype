@@ -1,0 +1,9 @@
+Task 214: per pose, default (dense world trees) vs today (-trees2 0); seed 42, noon, one build, lookwait 30 s.
+GPU body pool cap 254,400. 'tree' / 'terrain' = mapped bodies by source; 'ref now' = refused chunks at the shot; 'ref total' = launch total so far; peaks are launch peaks so far.
+pose            arm    in use     tree  terrain   dupes ref now ref total gpu peak  mem peak CPU peak sh miss sh ms
+forest_eye      def  245,704   93,081  151,905  68,110       0         0  245,704    2610.7  494,587   3,054   114
+forest_eye      t0   254,394  112,782  141,354  21,705      40        40  254,394    2538.7  492,595   3,447   131
+forest_100m     def  249,819  103,392  145,941  77,614       0         0  253,867    2610.7  494,587     932   156
+forest_100m     t0   254,383  126,316  127,625  20,200      31       308  254,400    2538.7  492,741   2,096   185
+savanna_100m    def  133,125   18,163  113,174  24,357       0         0  253,867    2610.7  494,587   3,807   127
+savanna_100m    t0   129,984   15,171  113,025  16,714       0       322  254,400    2538.7  492,741   5,566   170

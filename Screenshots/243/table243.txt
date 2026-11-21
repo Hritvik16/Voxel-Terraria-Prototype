@@ -1,0 +1,15 @@
+Task 243: per pose, OFF noon vs -crowncore 2 noon vs OFF 16 deg vs off_noonB; seed 42, one build, lookwait 30 s, arms run A B B A.
+GPU body pool cap 254,400. 'tree' / 'terrain' = mapped bodies by source; 'ref now' = refused chunks at the shot; 'ref total' = launch total so far; peaks are launch peaks so far.
+pose            arm         in use     tree  terrain   dupes ref now ref total gpu peak  mem peak CPU peak sh miss sh ms
+forest_eye      off_noon   245,704   93,081  151,905  68,110       0         0  245,704    2570.9  495,905   3,582   126
+forest_eye      c2_noon    244,914   92,291  151,905  67,272       0         0  244,914    2565.8  491,024   4,506   184
+forest_eye      off_16     245,704   93,081  151,905  68,110       0         0  245,704    2630.6  492,437   2,879    86
+forest_eye      off_noonB  245,704   93,081  151,905  68,110       0         0  245,704    2558.7  494,523   2,511    83
+oak_under       off_noon   254,395  105,259  143,603  67,244      21        21  254,395    2570.9  495,905   1,425   166
+oak_under       c2_noon    254,390  104,713  144,144  66,509      19        19  254,390    2565.8  491,222   2,606   220
+oak_under       off_16     254,396  105,208  143,655  67,122      20        20  254,396    2630.6  493,899   1,129   141
+oak_under       off_noonB  254,396  105,208  143,655  67,122      20        20  254,396    2558.7  494,523     785   135
+oak_inside      off_noon   254,395  105,259  143,603  67,244      21        21  254,395    2570.9  495,905       0   212
+oak_inside      c2_noon    254,390  104,713  144,144  66,509      19        19  254,390    2565.8  492,904   1,081   268
+oak_inside      off_16     254,396  105,208  143,655  67,122      20        20  254,396    2630.6  493,899       0   171
+oak_inside      off_noonB  254,396  105,208  143,655  67,122      20        20  254,396    2558.7  494,577       0   153

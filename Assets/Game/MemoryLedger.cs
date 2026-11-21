@@ -170,7 +170,7 @@ public static class MemoryLedger
         string gpu = clip == null ? "GPU bodies (no clipmap)"
             : clip.GpuPoolEnabled
                 ? $"GPU body pool cap {clip.GpuPoolCapacity:N0} peak {clip.GpuPoolPeakUsed:N0} refused {clip.GpuPoolRefusedTotal:N0} " +
-                  $"({MB((long)clip.GpuPoolCapacity * 512)} MB)"
+                  $"({MB((long)clip.GpuPoolCapacity * 512)} MB), in use {clip.GpuPoolInUse:N0}, sealed {clip.SealedBricksNow:N0}"   // task 201a
                 : "GPU bodies = the CPU pool (old layout)";
         string box = clip == null ? "-" : $"{clip.WindowDimsChunks.x}x{clip.WindowDimsChunks.y}x{clip.WindowDimsChunks.z}";
         bool tiers = casc != null && casc.TierPool(1) != null;

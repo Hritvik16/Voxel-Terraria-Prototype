@@ -17,13 +17,21 @@ APP="Builds/Playground.app"
 DATA="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap"
 mkdir -p Logs
 source tools/unity-lock.sh
+# Task 194b: this rig reads the shadow/shell counters, debug views or the shell probe, which only the dev kernels
+# have; player builds leave those out unless VE_ALL_KERNELS=1 (Assets/Editor/DevKernelStrip.cs).
+# Task 230: DEV_KERNELS=0 builds PLAY's player instead (dev *Diag kernels stripped; the counter lines then read 0), as
+# tasks 232/233 did by hand; BUILD_ARGS is passed to the build (e.g. "-job-worker-count 1" when memory is short).
+if [ "${DEV_KERNELS:-1}" = "1" ]; then export VE_ALL_KERNELS=1; else unset VE_ALL_KERNELS; fi
+# ... and CSMainFarShadeDiag alone took 1245 s when all 26 kernels compiled at once (task 194b), past the 30-min
+# timeout once in task 194: give these all-kernel builds 60 min unless the caller set more.
+if [ "${UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES:-0}" -lt 60 ]; then export UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES=60; fi
 unity_lock_acquire
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/costsplit_scene.log
   unity_hold_wait
-  "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
+  "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" ${BUILD_ARGS:-} \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/costsplit_build.log
   if grep -q "Shader error\|error CS" Logs/costsplit_build.log Logs/costsplit_scene.log; then
     echo "BUILD ERROR:"; grep -hE "Shader error|error CS" Logs/costsplit_build.log Logs/costsplit_scene.log | sort -u | head; exit 1

@@ -652,7 +652,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
             0.184f, 0.498f, 0.722f,   // 136 river lip
-            -1f, -1f, -1f,   // 137
+            0.760f, 0.649f, 0.318f,   // 137 savanna fringe
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
             0.760f, 0.603f, 0.347f,   // 140 sand
@@ -661,18 +661,18 @@ public static class MaterialPalette
             0.760f, 0.628f, 0.242f,   // 143 savanna grass
             0.760f, 0.522f, 0.393f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
-            -1f, -1f, -1f,   // 146
-            -1f, -1f, -1f,   // 147
+            0.482f, 0.706f, 0.278f,   // 146 grass fringe
+            0.760f, 0.734f, 0.672f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.760f, 0.548f, 0.299f,   // 149 packed sand
             0.521f, 0.681f, 0.760f,   // 150 packed ice
             0.353f, 0.227f, 0.141f,   // 151 mud
             0.643f, 0.325f, 0.180f,   // 152 red earth
             0.627f, 0.392f, 0.290f,   // 153 hardpan
-            -1f, -1f, -1f,   // 154
-            -1f, -1f, -1f,   // 155
-            -1f, -1f, -1f,   // 156
-            -1f, -1f, -1f,   // 157
+            0.231f, 0.204f, 0.251f,   // 154 latent cobalt ore in shale
+            0.431f, 0.165f, 0.149f,   // 155 latent cobalt ore in maroon mudstone
+            0.173f, 0.192f, 0.251f,   // 156 latent cobalt ore in basalt
+            0.149f, 0.188f, 0.165f,   // 157 latent cobalt ore in black basalt
             0.760f, 0.707f, 0.574f,   // 158 limestone
             0.290f, 0.353f, 0.431f,   // 159 slate
             0.760f, 0.526f, 0.163f,   // 160 ochre clay
@@ -681,8 +681,8 @@ public static class MaterialPalette
             0.760f, 0.642f, 0.548f,   // 163 kopje granite
             0.431f, 0.204f, 0.141f,   // 164 ironstone
             0.478f, 0.439f, 0.416f,   // 165 gneiss
-            -1f, -1f, -1f,   // 166
-            -1f, -1f, -1f,   // 167
+            0.478f, 0.439f, 0.416f,   // 166 latent cobalt ore in gneiss
+            0.361f, 0.212f, 0.267f,   // 167 latent cobalt ore in plum shale
             0.760f, 0.687f, 0.532f,   // 168 cream sandstone
             0.722f, 0.271f, 0.165f,   // 169 red sandstone
             0.760f, 0.418f, 0.181f,   // 170 orange sandstone
@@ -698,11 +698,11 @@ public static class MaterialPalette
             0.173f, 0.192f, 0.251f,   // 180 basalt
             0.247f, 0.620f, 0.604f,   // 181 teal quartzite
             0.659f, 0.690f, 0.741f,   // 182 silver schist
-            -1f, -1f, -1f,   // 183
-            -1f, -1f, -1f,   // 184
-            -1f, -1f, -1f,   // 185
-            -1f, -1f, -1f,   // 186
-            -1f, -1f, -1f,   // 187
+            0.278f, 0.463f, 0.169f,   // 183 forest leaves
+            0.173f, 0.478f, 0.204f,   // 184 jungle leaves
+            0.435f, 0.475f, 0.180f,   // 185 savanna leaves
+            0.184f, 0.353f, 0.235f,   // 186 pine needles
+            0.478f, 0.165f, 0.078f,   // 187 latent emberstone in magma crust
             0.760f, 0.756f, 0.608f,   // 188 karst limestone
             0.149f, 0.188f, 0.165f,   // 189 black basalt
             0.753f, 0.314f, 0.173f,   // 190 laterite
@@ -719,10 +719,10 @@ public static class MaterialPalette
             0.102f, 0.078f, 0.141f,   // 201 obsidian
             0.478f, 0.165f, 0.078f,   // 202 magma crust
             0.133f, 0.133f, 0.133f,   // 203 bedrock
-            -1f, -1f, -1f,   // 204
-            -1f, -1f, -1f,   // 205
-            -1f, -1f, -1f,   // 206
-            -1f, -1f, -1f,   // 207
+            0.420f, 0.290f, 0.188f,   // 204 forest wood
+            0.353f, 0.227f, 0.165f,   // 205 jungle wood
+            0.478f, 0.400f, 0.337f,   // 206 acacia wood
+            0.369f, 0.227f, 0.149f,   // 207 pine wood
             0.760f, 0.722f, 0.623f,   // 208 sinter
             0.235f, 0.525f, 0.760f,   // 209 crystal blue
             0.760f, 0.531f, 0.173f,   // 210 crystal amber
@@ -736,16 +736,16 @@ public static class MaterialPalette
             0.760f, 0.251f, 0.478f,   // 218 mushroom cap
             0.227f, 0.188f, 0.188f,   // 219 volcanic rock
             0.604f, 0.584f, 0.549f,   // 220 standing stone
-            -1f, -1f, -1f,   // 221
-            -1f, -1f, -1f,   // 222
-            -1f, -1f, -1f,   // 223
+            0.310f, 0.541f, 0.235f,   // 221 cactus
+            0.490f, 0.463f, 0.439f,   // 222 latent emberstone in ash
+            0.102f, 0.078f, 0.141f,   // 223 latent emberstone in obsidian
         };
         for (int i = 0; i < tg2.Length / 3; i++)
             if (tg2[i * 3] >= 0f) _table[Materials.TG2_BASE + i] = new Rgb(tg2[i * 3], tg2[i * 3 + 1], tg2[i * 3 + 2]);
         // <<< TG2 PALETTE
     }
 
-    public static Rgb Of(byte material) => _table[material];
+    public static Rgb Of(byte material) => _table[LatentOres.Resolve(material)];   // task 181: latent twins
 
     // ---------------------------------------------------------------------
     // THE LOOK-1 PALETTE (LightingConfig.look = 1, the Brickmap look).
@@ -806,7 +806,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
             0.184f, 0.498f, 0.722f,   // 136 river lip
-            -1f, -1f, -1f,   // 137
+            0.863f, 0.737f, 0.361f,   // 137 savanna fringe
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
             0.910f, 0.722f, 0.416f,   // 140 sand
@@ -815,18 +815,18 @@ public static class MaterialPalette
             0.788f, 0.651f, 0.251f,   // 143 savanna grass
             0.788f, 0.541f, 0.408f,   // 144 badlands clay
             0.557f, 0.529f, 0.486f,   // 145 gravel
-            -1f, -1f, -1f,   // 146
-            -1f, -1f, -1f,   // 147
+            0.482f, 0.706f, 0.278f,   // 146 grass fringe
+            0.816f, 0.788f, 0.722f,   // 147 birch bark
             0.478f, 0.290f, 0.165f,   // 148 loam
             0.788f, 0.569f, 0.310f,   // 149 packed sand
             0.624f, 0.816f, 0.910f,   // 150 packed ice
             0.353f, 0.227f, 0.141f,   // 151 mud
             0.643f, 0.325f, 0.180f,   // 152 red earth
             0.627f, 0.392f, 0.290f,   // 153 hardpan
-            -1f, -1f, -1f,   // 154
-            -1f, -1f, -1f,   // 155
-            -1f, -1f, -1f,   // 156
-            -1f, -1f, -1f,   // 157
+            0.231f, 0.204f, 0.251f,   // 154 latent cobalt ore in shale
+            0.431f, 0.165f, 0.149f,   // 155 latent cobalt ore in maroon mudstone
+            0.173f, 0.192f, 0.251f,   // 156 latent cobalt ore in basalt
+            0.149f, 0.188f, 0.165f,   // 157 latent cobalt ore in black basalt
             0.847f, 0.788f, 0.639f,   // 158 limestone
             0.290f, 0.353f, 0.431f,   // 159 slate
             0.788f, 0.545f, 0.169f,   // 160 ochre clay
@@ -835,8 +835,8 @@ public static class MaterialPalette
             0.761f, 0.643f, 0.549f,   // 163 kopje granite
             0.431f, 0.204f, 0.141f,   // 164 ironstone
             0.478f, 0.439f, 0.416f,   // 165 gneiss
-            -1f, -1f, -1f,   // 166
-            -1f, -1f, -1f,   // 167
+            0.478f, 0.439f, 0.416f,   // 166 latent cobalt ore in gneiss
+            0.361f, 0.212f, 0.267f,   // 167 latent cobalt ore in plum shale
             0.941f, 0.851f, 0.659f,   // 168 cream sandstone
             0.722f, 0.271f, 0.165f,   // 169 red sandstone
             0.871f, 0.478f, 0.208f,   // 170 orange sandstone
@@ -852,11 +852,11 @@ public static class MaterialPalette
             0.173f, 0.192f, 0.251f,   // 180 basalt
             0.247f, 0.620f, 0.604f,   // 181 teal quartzite
             0.659f, 0.690f, 0.741f,   // 182 silver schist
-            -1f, -1f, -1f,   // 183
-            -1f, -1f, -1f,   // 184
-            -1f, -1f, -1f,   // 185
-            -1f, -1f, -1f,   // 186
-            -1f, -1f, -1f,   // 187
+            0.278f, 0.463f, 0.169f,   // 183 forest leaves
+            0.173f, 0.478f, 0.204f,   // 184 jungle leaves
+            0.435f, 0.475f, 0.180f,   // 185 savanna leaves
+            0.184f, 0.353f, 0.235f,   // 186 pine needles
+            0.478f, 0.165f, 0.078f,   // 187 latent emberstone in magma crust
             0.784f, 0.780f, 0.627f,   // 188 karst limestone
             0.149f, 0.188f, 0.165f,   // 189 black basalt
             0.753f, 0.314f, 0.173f,   // 190 laterite
@@ -873,10 +873,10 @@ public static class MaterialPalette
             0.102f, 0.078f, 0.141f,   // 201 obsidian
             0.478f, 0.165f, 0.078f,   // 202 magma crust
             0.133f, 0.133f, 0.133f,   // 203 bedrock
-            -1f, -1f, -1f,   // 204
-            -1f, -1f, -1f,   // 205
-            -1f, -1f, -1f,   // 206
-            -1f, -1f, -1f,   // 207
+            0.420f, 0.290f, 0.188f,   // 204 forest wood
+            0.353f, 0.227f, 0.165f,   // 205 jungle wood
+            0.478f, 0.400f, 0.337f,   // 206 acacia wood
+            0.369f, 0.227f, 0.149f,   // 207 pine wood
             0.937f, 0.890f, 0.769f,   // 208 sinter
             0.294f, 0.656f, 0.950f,   // 209 crystal blue
             0.950f, 0.663f, 0.216f,   // 210 crystal amber
@@ -890,9 +890,9 @@ public static class MaterialPalette
             0.761f, 0.251f, 0.478f,   // 218 mushroom cap
             0.227f, 0.188f, 0.188f,   // 219 volcanic rock
             0.604f, 0.584f, 0.549f,   // 220 standing stone
-            -1f, -1f, -1f,   // 221
-            -1f, -1f, -1f,   // 222
-            -1f, -1f, -1f,   // 223
+            0.310f, 0.541f, 0.235f,   // 221 cactus
+            0.490f, 0.463f, 0.439f,   // 222 latent emberstone in ash
+            0.102f, 0.078f, 0.141f,   // 223 latent emberstone in obsidian
         };
         for (int i = 0; i < tg2Look.Length / 3; i++)
             if (tg2Look[i * 3] >= 0f) t[Materials.TG2_BASE + i] = new Rgb(tg2Look[i * 3], tg2Look[i * 3 + 1], tg2Look[i * 3 + 2]);
@@ -900,7 +900,7 @@ public static class MaterialPalette
         return t;
     }
 
-    public static Rgb OfLook(byte material) => _lookTable[material];
+    public static Rgb OfLook(byte material) => _lookTable[LatentOres.Resolve(material)];   // task 181: latent twins
 
     /// True for materials the shader should treat as self-lit -- they skip the
     /// ambient-occlusion and hemisphere darkening so they stay hot.

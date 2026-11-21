@@ -165,8 +165,11 @@ namespace TerrainGen
 
         /// The ore at voxel (x, y, z) of host layer `layer`, or 0 for none.
         public static byte At(in TerrainSpec spec, int oreMul, byte biome, int layer, int x, int y, int z)
+            => AtChance(in spec, CellChance(layer, biome, oreMul), layer, x, y, z);
+
+        /// At with the cell chance given (task 181's OreRules computes its own).
+        public static byte AtChance(in TerrainSpec spec, int chance, int layer, int x, int y, int z)
         {
-            int chance = CellChance(layer, biome, oreMul);
             if (chance <= 0) return 0;
             uint h = Hash(spec.seed, x >> CELL_SHIFT, y >> CELL_SHIFT, z >> CELL_SHIFT);
             if ((int)(h & 0xFFFFu) >= chance) return 0;

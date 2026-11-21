@@ -10,7 +10,8 @@
    adopted 2026-10-11) → 8.15 (simulation reach: NEAR 128 m on every machine,
    only the DRAWN side shrinks; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted 2026-10-15) →
    8.16 (fluid gravity fall: free fall ungated by viscosity, same for every fluid;
-   `AMENDMENT_8_16_FLUID_FALL.md`, DESIGN CHANGE owner-approved 2026-10-15).
+   `AMENDMENT_8_16_FLUID_FALL.md`, DESIGN CHANGE owner-approved 2026-10-15)
+   -> 8.17 (render steps and frame budget; AMENDMENT_8_17_RENDER_STEPS.md, adopted 2026-11-14).
    **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
    are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
    cited by the completion docs, but the documents themselves are absent and
@@ -117,6 +118,12 @@ rebuild, the 2026-10-01 owner review and owner intent, the Phase 4 note): `PROJE
   screenshots; no stream/rig/frame-time arms. Performance is checked at milestones.
   Before any measurement, write what each possible result would make us do; if every
   outcome leads to the same action, skip the measurement and do the action.
+- **Efficient by construction** (owner, 2026-11-14: "We cant keep leaving everything up to the
+  performance stage"). Every task builds the most memory- and performance-efficient design up
+  front, reports its memory cost (peak, GPU body pool peak + refusals, CPU pool + valve) against
+  its switch OFF from the launches it already does, and stays within its budget (default:
+  refusals not up, peak +50 MB) or fixes it / stops for the owner. Not frame timing: the rule
+  above still holds. Detail: `tools/overnight/PREAMBLE.md` rule 11.
 - **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
   a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
   4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,
@@ -214,6 +221,7 @@ Play starts with FSR 3 dynamic (task 52, owner Q38 (a): 1080p from 540-720 rows)
 `EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"` or `-renderpreset quality`
 override it. Rigs and capture modes are unchanged (no upscaler unless they pass the flags).
 Torches in play use the torch flood (task 175: dir 2, I 1.6 k 0.35; `-torchflood 0` / F6 "Point lights" = the old torches).
+Play starts with sky fill mode 2 (task 194a; task 193's shade light: sky + ground bounce; `-skyfill 0|1` / F6 "Shade light").
 F6 in play opens the settings menu (task 58): saved to `PlaySettings.json` beside
 `PlayerConfig.json`, flags override it per field for one run; rigs/capture runs (and `-fluidprobe`) never read it.
 Per-task feature notes (tasks 64-105+: survival, movement, rivers, see-through liquids, shells, far edits/ops,
@@ -311,6 +319,9 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
+- GPU body pool full at every pose since 195a (201a; FIXED: sealed bricks take no body, `-gpuseal 0` = old; start-up load still refuses ~132).
+- CPU valve evicted in-view chunks (197; FIXED 208: out of view + far first, `-valveview 0` = old; GPU pool now stays full, refusals up).
+- jungle_high footprint 9-10 GB (216; FIXED 218: point-query tree gather piled Allocator.Temp up in one parallel job). 216's GPU view eviction ON since 218b (small cut: refusals 81 -> 70).
 - GPU fluid CA read terrain from the tier-0 mirror box (93e; FIXED, Q55 (b): fluid terrain directory; 93f maps its bodies).
 - Shells cost +10-15 ms steady, shell 3 unfilled while walking (93b; NOT FIXED; cut by 99/132/134; shells ON in play, 93c).
 - Owner pause (`tools/heavy.sh`) DRAINS, it does not freeze (14/14b): rerun an arm that prints "owner paused".

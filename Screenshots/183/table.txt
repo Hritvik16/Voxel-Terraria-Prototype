@@ -1,0 +1,202 @@
+Task 183 -- fluid pockets, four seeds: plane determinism, keep-outs, sealed shape, counts (ON = -fluidpockets 1)
+seed 42: map 1.7 s, plane 350 ms: 135 surface sites of 25600 cells (1308 matched a rule; rejected: cells 1075, samples 10, flat / sea 88)
+  135 sites; rim columns checked 29,776 (berm raised 147, max 1 voxels), footprint columns 21,369; violations 0
+  surface sites, fluid x biome:
+    acid      savanna            1
+    acid      snow              15
+    honey     jungle            10
+    lava      badlands           1
+    lava      forest             4
+    lava      jungle             1
+    lava      snow              34
+    oil       badlands          15
+    quicksand desert            28
+    sludge    jungle             1
+    water     forest             6
+    water     savanna           10
+    water     snow               9
+  surface sites, fluid x landform:
+    acid      volcanic          16
+    honey     highlands          1
+    honey     plains             9
+    lava      volcanic          40
+    oil       highlands          5
+    oil       plains             4
+    oil       plateau            6
+    quicksand breaks             1
+    quicksand canyonlands       13
+    quicksand highlands          1
+    quicksand plains             6
+    quicksand plateau            4
+    quicksand wetland            3
+    sludge    dunes              1
+    water     dunes              1
+    water     highlands          4
+    water     plains             8
+    water     wetland           12
+  deep pockets (sealed, >= 100 m below sea), fluid x layer: ON / OFF
+    acid      cavern               12697 /  9856
+    acid      cavern (deep half)       0 /  7587
+    honey     stone / deep stone     614 /   526
+    lava      cavern                 691 /  6473
+    lava      cavern (deep half)   24972 /  4915
+    lava      stone / deep stone     207 /     0
+    oil       stone / deep stone    2423 /  1728
+    quicksand stone / deep stone       0 /   355
+    sludge    cavern                7832 /  9830
+    sludge    cavern (deep half)       0 /  7585
+    water     cavern               11416 /  6477
+    water     cavern (deep half)       0 /  4885
+    water     stone / deep stone    5873 /  6508
+seed 7: map 1.7 s, plane 380 ms: 215 surface sites of 25600 cells (1297 matched a rule; rejected: cells 994, samples 22, flat / sea 66)
+  215 sites; rim columns checked 44,976 (berm raised 156, max 3 voxels), footprint columns 30,409; violations 0
+  surface sites, fluid x biome:
+    acid      badlands           1
+    acid      desert             2
+    acid      forest             1
+    acid      savanna            1
+    honey     jungle            25
+    lava      badlands           2
+    lava      desert             2
+    lava      forest             2
+    lava      savanna            4
+    oil       badlands          67
+    quicksand desert            53
+    sludge    jungle            11
+    water     forest            16
+    water     savanna            2
+    water     snow              26
+  surface sites, fluid x landform:
+    acid      volcanic           5
+    honey     dunes             15
+    honey     highlands          2
+    honey     plains             8
+    lava      volcanic          10
+    oil       canyonlands       27
+    oil       dunes             24
+    oil       highlands          9
+    oil       plains             2
+    oil       wetland            5
+    quicksand dunes              2
+    quicksand plains            19
+    quicksand wetland           32
+    sludge    dunes              4
+    sludge    highlands          1
+    sludge    plains             6
+    water     canyonlands        1
+    water     dunes              1
+    water     highlands         11
+    water     plains             4
+    water     wetland           27
+  deep pockets (sealed, >= 100 m below sea), fluid x layer: ON / OFF
+    acid      cavern               17165 /  9956
+    acid      cavern (deep half)       0 /  7520
+    honey     stone / deep stone     398 /   325
+    lava      cavern                 544 /  6610
+    lava      cavern (deep half)   24909 /  5044
+    lava      stone / deep stone     168 /     0
+    oil       stone / deep stone    3260 /  2087
+    quicksand stone / deep stone       0 /   517
+    sludge    cavern                6263 /  9825
+    sludge    cavern (deep half)       0 /  7353
+    water     cavern                9004 /  6585
+    water     cavern (deep half)       0 /  4992
+    water     stone / deep stone    5145 /  6042
+seed 2026: map 1.6 s, plane 333 ms: 144 surface sites of 25600 cells (1302 matched a rule; rejected: cells 1091, samples 17, flat / sea 50)
+  144 sites; rim columns checked 30,364 (berm raised 68, max 1 voxels), footprint columns 20,428; violations 0
+  surface sites, fluid x biome:
+    acid      desert             1
+    honey     jungle            14
+    lava      badlands           2
+    lava      desert            14
+    lava      forest             1
+    oil       badlands          60
+    quicksand desert            36
+    sludge    jungle             4
+    water     forest             7
+    water     savanna            5
+  surface sites, fluid x landform:
+    acid      volcanic           1
+    honey     alpine             3
+    honey     dunes              3
+    honey     highlands          3
+    honey     plains             5
+    lava      volcanic          17
+    oil       alpine            12
+    oil       dunes             13
+    oil       highlands          3
+    oil       plains            25
+    oil       wetland            7
+    quicksand alpine             1
+    quicksand dunes              2
+    quicksand highlands         29
+    quicksand plains             3
+    quicksand wetland            1
+    sludge    alpine             1
+    sludge    dunes              1
+    sludge    highlands          2
+    water     dunes              1
+    water     highlands          7
+    water     plains             2
+    water     wetland            2
+  deep pockets (sealed, >= 100 m below sea), fluid x layer: ON / OFF
+    acid      cavern                6027 /  9969
+    acid      cavern (deep half)       0 /  7244
+    honey     stone / deep stone     409 /   391
+    lava      cavern                 701 /  6475
+    lava      cavern (deep half)   24578 /  4935
+    lava      stone / deep stone     206 /     0
+    oil       stone / deep stone    1260 /  1339
+    quicksand stone / deep stone       0 /   109
+    sludge    cavern                5089 /  9791
+    sludge    cavern (deep half)       0 /  7540
+    water     cavern               20963 /  6545
+    water     cavern (deep half)       0 /  4859
+    water     stone / deep stone    7166 /  7202
+seed 31337: map 1.6 s, plane 365 ms: 180 surface sites of 25600 cells (1351 matched a rule; rejected: cells 1087, samples 13, flat / sea 71)
+  180 sites; rim columns checked 34,392 (berm raised 122, max 2 voxels), footprint columns 21,176; violations 0
+  surface sites, fluid x biome:
+    acid      badlands           2
+    acid      snow               3
+    honey     jungle            44
+    lava      badlands           9
+    lava      snow               5
+    oil       badlands          94
+    quicksand desert             2
+    sludge    jungle            15
+    water     forest             3
+    water     savanna            1
+    water     snow               2
+  surface sites, fluid x landform:
+    acid      volcanic           5
+    honey     dunes              3
+    honey     highlands         31
+    honey     plains            10
+    lava      volcanic          14
+    oil       alpine             1
+    oil       breaks             9
+    oil       dunes             11
+    oil       highlands         14
+    oil       plains            59
+    quicksand highlands          2
+    sludge    highlands         13
+    sludge    plains             2
+    water     dunes              1
+    water     highlands          3
+    water     plains             2
+  deep pockets (sealed, >= 100 m below sea), fluid x layer: ON / OFF
+    acid      cavern               11879 /  9866
+    acid      cavern (deep half)       0 /  7384
+    honey     stone / deep stone    1040 /   957
+    lava      cavern                1031 /  6619
+    lava      cavern (deep half)   24813 /  5128
+    lava      stone / deep stone     280 /     0
+    oil       stone / deep stone    2365 /  1221
+    quicksand stone / deep stone       0 /   175
+    sludge    cavern               12323 /  9787
+    sludge    cavern (deep half)       0 /  7423
+    water     cavern                7710 /  6671
+    water     cavern (deep half)       0 /  4878
+    water     stone / deep stone    5283 /  6615
+all seeds, surface sites per fluid: acid 27, honey 93, lava 81, oil 236, quicksand 119, sludge 31, water 87
+steam: none generated (only where lava meets water, and there the reaction makes it).

@@ -18,6 +18,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using NUnit.Framework;
+using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
@@ -40,6 +41,7 @@ public class TorchFloodL3Tests
         foreach (var o in _oracles) o.Dispose();
         _oracles.Clear();
         _pool?.Dispose(); _pool = null;
+        TorchFloodPool.AllowSpan = false;
     }
 
     private void NewWorld(int3 chunks, Func<int3, byte> fillFor)
@@ -88,7 +90,7 @@ public class TorchFloodL3Tests
 
     private TorchFloodPool NewPool(float reachM)
     {
-        var p = new TorchFloodPool(_store, reachM, false);
+        var p = new TorchFloodPool(_store, reachM, false) { MirrorTwin = true };   // task 242: every pool also runs the scatter upload into its C# twin
         _pools.Add(p);
         return p;
     }
@@ -227,6 +229,7 @@ public class TorchFloodL3Tests
         var fresh = Scratch(torches, reachM);
         AssertSame(live.Current, fresh.Current, what + " (incremental vs scratch)");
         _pools.Remove(fresh); fresh.Dispose();
+        if (live.MirrorTwin) Assert.IsNull(live.VerifyMirror(), what + " (task 242: the scatter-uploaded GPU twin == the CPU copy)");
         if (oracleToo)
         {
             AssertSame(live.Current, OracleEncode(torches, reachM, out var o), what + " (incremental vs oracle)");
@@ -245,6 +248,7 @@ public class TorchFloodL3Tests
         Fill(new int3(40, 60, 40), new int3(87, 60, 87), Materials.Stone);
         var torches = new Dictionary<int3, byte>();
         var live = NewPool(reach);
+        TorchFloodPool.AllowSpan = (seed & 1) == 0;   // task 242: odd seeds scatter every dirty unit (as the player), even seeds also take the span fallback
         int3 Rand(int3 a, int3 b) => new int3(rng.Next(a.x, b.x + 1), rng.Next(a.y, b.y + 1), rng.Next(a.z, b.z + 1));
         bool HitsTorch(List<int3> cells) { foreach (int3 c in cells) if (torches.ContainsKey(c)) return true; return false; }
         var counts = new int[5];
@@ -316,10 +320,159 @@ public class TorchFloodL3Tests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_IncrementalEqualsScratch_ThenAllFreed() => Fuzz(80, 165);
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_Long() { Fuzz(300, 1651); Fuzz(300, 1652); }
+
+    /// Task 170: the per-frame form. Snapshots are sliced by brick plane (budget 0: one plane per round), so edits,
+    /// torch changes and removals land mid-snapshot, mid-job and mid-merge; after it settles, == from scratch.
+    [Test]
+    public void Budgeted_EditsMidSnapshot_EqualsScratch()
+    {
+        const float reach = 3f;
+        NewWorld(new int3(1, 1, 1), c => Materials.Stone);
+        var rng = new System.Random(170);
+        int3 lo = new int3(40, 40, 40), hi = new int3(87, 87, 87);
+        Fill(lo, hi, 0);
+        Fill(new int3(60, 40, 40), new int3(60, 87, 87), Materials.Stone);
+        var torches = new Dictionary<int3, byte>();
+        var live = NewPool(reach);
+        live.FrameBudgetMs = 0;
+        TorchFloodPool.AllowSpan = false;
+        int3 Rand(int3 a, int3 b) => new int3(rng.Next(a.x, b.x + 1), rng.Next(a.y, b.y + 1), rng.Next(a.z, b.z + 1));
+        for (int i = 0; i < 60; i++)
+        {
+            int kind = rng.Next(100);
+            var changed = new List<int3>();
+            if (kind < 30 || torches.Count == 0)
+            {
+                int3 v = Rand(lo, hi);
+                if (torches.ContainsKey(v)) continue;
+                byte m = TorchMats[rng.Next(TorchMats.Length)];
+                Put(v, m); torches[v] = m; changed.Add(v);
+            }
+            else if (kind < 40)
+            {
+                var keys = new List<int3>(torches.Keys);
+                int3 v = keys[rng.Next(keys.Count)];
+                torches.Remove(v); Put(v, (byte)0); changed.Add(v);
+            }
+            else
+            {
+                bool solid = kind < 70;
+                int s = rng.Next(0, 3);
+                int3 c = Rand(lo, hi);
+                var cells = Cells(c - s, c + s);
+                bool hit = false; foreach (int3 v in cells) hit |= torches.ContainsKey(v);
+                if (hit) continue;
+                _ops.Record(new EditOp(EditOpKind.Box, c, (ushort)s, solid ? Materials.Stone : (byte)0));
+                changed = cells;
+            }
+            foreach (int3 v in changed) live.OnVoxelChanged(v);
+            live.SetTorches(Sig(torches));
+            int rounds = rng.Next(1, 5);
+            for (int k = 0; k < rounds; k++)
+            {
+                live.StepBudgeted();
+                if (live.MergesDone > 0) Assert.IsNull(live.VerifyMirror(), $"op {i} round {k}: the GPU twin == CPU after every per-merge scatter upload");
+            }
+            if (i % 15 == 14)
+            {
+                live.Flush();
+                Assert.IsNull(live.VerifyMirror(), $"op {i} (settled): GPU twin == CPU");
+                var fresh = Scratch(torches, reach);
+                AssertSame(live.Current, fresh.Current, $"op {i} (settled, incremental vs scratch)");
+                _pools.Remove(fresh); fresh.Dispose();
+            }
+        }
+        live.Flush();
+        var last = Scratch(torches, reach);
+        AssertSame(live.Current, last.Current, "end (incremental vs scratch)");
+        TestContext.WriteLine($"budgeted: snapshot yields {live.SnapshotYields}, floods {live.FloodsDone}, merges {live.MergesDone}, torches {torches.Count}");
+        Assert.Greater(live.SnapshotYields, 20, "snapshots were sliced across rounds");
+    }
+
+    /// Task 242: the scatter upload across chunk tables: tables created, freed (every torch in two chunks removed) and
+    /// reused for other chunks; the C# twin of the GPU buffers (grown arrays start as 0xDEADBEEF) equals the CPU copy
+    /// after every merge's upload, with every unit scattered and with the bytes rule (scatter or span).
+    [Test]
+    public void Scatter_TablesFreedAndReused_TwinEqualsCpu([Values(false, true)] bool allowSpan)
+    {
+        TorchFloodPool.AllowSpan = allowSpan;
+        NewWorld(new int3(4, 1, 1), c => (byte)0);
+        Fill(new int3(0, 0, 0), new int3(511, 9, 127), Materials.Stone);
+        var torches = new Dictionary<int3, byte>();
+        var live = NewPool(4f);
+        live.MergeBatch = 64;   // many small merges: many uploads between the quiet points
+        void Rounds()
+        {
+            int g = 0;
+            do
+            {
+                live.StepBudgeted();
+                if (live.MergesDone > 0) Assert.IsNull(live.VerifyMirror(), $"round {g} (allow span {allowSpan})");
+            } while (live.Busy && g++ < 100000);
+        }
+        void Place(int3 t, byte m) { for (int y = 10; y < t.y; y++) Put(new int3(t.x, y, t.z), Materials.Stone); Put(t, m); torches[t] = m; }
+        // chunk 0 only, then chunks 1 and 2 (torches on both sides of their seam): tables APPENDED after the first upload
+        for (int k = 0; k < 3; k++) Place(new int3(40 + 15 * k, 16, 40 + 15 * k), TorchMats[k & 3]);
+        live.SetTorches(Sig(torches)); Rounds();
+        Assert.AreEqual(1, live.Chunks);
+        for (int k = 0; k < 4; k++) Place(new int3(238 + 12 * k, 16, 40 + 15 * k), TorchMats[k & 3]);
+        live.SetTorches(Sig(torches)); Rounds();
+        Assert.GreaterOrEqual(live.Chunks, 3);
+        // chunk 3: one more table appended INSIDE the grown capacity (no whole re-send: only the scatter / span carries its zeros)
+        int grows = live.GpuGrows;
+        Place(new int3(450, 16, 64), Materials.Torch);
+        live.SetTorches(Sig(torches)); Rounds();
+        Assert.GreaterOrEqual(live.Chunks, 4);
+        Assert.AreEqual(grows, live.GpuGrows, "the appended table fit the grown buffers");
+        // every torch removed: every table freed (their zeros uploaded)
+        torches.Clear(); live.SetTorches(Sig(torches)); Rounds();
+        Assert.AreEqual(0, live.Chunks, "every table freed");
+        // chunk 3 (and the edge of 2) reuse the freed tables
+        for (int k = 0; k < 4; k++) Place(new int3(370 + 12 * k, 16, 30 + 20 * k), TorchMats[k & 3]);
+        live.SetTorches(Sig(torches)); Rounds();
+        Assert.GreaterOrEqual(live.Chunks, 2);
+        // an edit beside one torch
+        var blk = Cells(new int3(372, 10, 26), new int3(374, 14, 34));
+        foreach (int3 v in blk) { Put(v, Materials.Stone); live.OnVoxelChanged(v); }
+        Rounds();
+        live.Flush();
+        Assert.IsNull(live.VerifyMirror(), "settled: GPU twin == CPU");
+        var fresh = Scratch(torches, 4f);
+        AssertSame(live.Current, fresh.Current, "settled vs scratch");
+        TestContext.WriteLine($"allow span {allowSpan}: merges {live.MergesDone}, sends scatter {live.ScatterSends} / span {live.SpanSends} / whole {live.WholeSends}, " +
+                              $"units scattered {live.ScatterUnits}, uploaded {live.UploadBytesTotal / 1024.0:F0} KB, GPU grows {live.GpuGrows}");
+        Assert.Greater(live.ScatterSends, 0, "the scatter path ran");
+    }
+
+    /// Task 170: the union lists grow to GrowCap exactly, in one reallocation, keeping their contents.
+    [Test]
+    public void Reserve_GrowsToGrowCapExactly_KeepsContents()
+    {
+        var l = new NativeList<uint>(16, Allocator.Persistent);
+        try
+        {
+            for (uint i = 0; i < 1000; i++) l.Add(i * 2654435761u);
+            int need = 300000;
+            TorchFloodBuild.Reserve(ref l, need);
+            int cap = TorchFloodBuild.GrowCap(need);
+            Assert.AreEqual(cap, l.Capacity, "exact GrowCap, not a power of two");
+            Assert.AreEqual(1000, l.Length);
+            for (uint i = 0; i < 1000; i++) Assert.AreEqual(i * 2654435761u, l[(int)i]);
+            Assert.LessOrEqual(cap, need + need / 4 + TorchFloodBuild.GROW_GRANULE);
+            l.Resize(need, NativeArrayOptions.ClearMemory);
+            Assert.AreEqual(cap, l.Capacity, "a resize inside the reserve keeps it");
+            Assert.AreEqual(0u, l[need - 1]);
+            TorchFloodBuild.Reserve(ref l, need - 5);
+            Assert.AreEqual(cap, l.Capacity, "no-op when it fits");
+        }
+        finally { l.Dispose(); }
+    }
 
     [Test]
     public void Doorway_SealAndReopen_12m()

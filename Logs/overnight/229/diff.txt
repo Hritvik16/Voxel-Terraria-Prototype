@@ -1,0 +1,23 @@
+# task 229 identity: -costfloodpair (rule flipped 10 frames, then back) vs the raw/raw2 control (same setting). Launch day/night (with -coststillraw).
+# px differ (max channel)
+walk_near_flood_off          control raw/raw2 830397 px (max 40) | raw2/flip 880217 px (max 29) | flip/back 958067 px (max 38) | raw2/back 1164883 px (max 39)
+walk_near_floodd2_off        control raw/raw2 843083 px (max 40) | raw2/flip 982332 px (max 36) | flip/back 947818 px (max 37) | raw2/back 1182694 px (max 37)
+walk_near_floodnear_off      control raw/raw2 880025 px (max 39) | raw2/flip 953992 px (max 33) | flip/back 897101 px (max 33) | raw2/back 1181510 px (max 33)
+walk_near_full               control raw/raw2 850365 px (max 42) | raw2/flip 893835 px (max 30) | flip/back 924638 px (max 31) | raw2/back 1166559 px (max 31)
+walk_open_flood_off          control raw/raw2 112183 px (max 34) | raw2/flip 119606 px (max 17) | flip/back 115349 px (max 16) | raw2/back 158344 px (max 17)
+walk_open_floodd2_off        control raw/raw2 111570 px (max 35) | raw2/flip 119769 px (max 25) | flip/back 117167 px (max 11) | raw2/back 159404 px (max 24)
+walk_open_floodnear_off      control raw/raw2 113864 px (max 29) | raw2/flip 121419 px (max 22) | flip/back 119259 px (max 18) | raw2/back 159818 px (max 22)
+walk_open_full               control raw/raw2 111811 px (max 34) | raw2/flip 120147 px (max 17) | flip/back 118328 px (max 25) | raw2/back 159362 px (max 25)
+torch_camp_full              control raw/raw2 742617 px (max 28) | raw2/flip 775343 px (max 24) | flip/back 771771 px (max 25) | raw2/back 893522 px (max 25)
+torch_camp_tf_on             control raw/raw2 739363 px (max 32) | raw2/flip 781740 px (max 24) | flip/back 769187 px (max 29) | raw2/back 894435 px (max 29)
+torch_camp_tf_twin           control raw/raw2 743592 px (max 32) | raw2/flip 764225 px (max 28) | flip/back 767902 px (max 25) | raw2/back 897918 px (max 28)
+# mean|d| / px>32 % (flood_off = the flip is a no-op there: the frame-to-frame floor)
+walk_near  full          control 0.38/0.001%  raw2/flip 0.38/0.000%  flip/back 0.38/0.000%  raw2/back 0.58/0.000%
+walk_near  flood_off     control 0.36/0.001%  raw2/flip 0.36/0.000%  flip/back 0.37/0.000%  raw2/back 0.56/0.000%
+walk_near  floodnear_off control 0.38/0.000%  raw2/flip 0.39/0.000%  flip/back 0.36/0.000%  raw2/back 0.58/0.000%
+walk_open  full          control 0.06/0.000%  raw2/flip 0.05/0.000%  flip/back 0.05/0.000%  raw2/back 0.09/0.000%
+walk_open  flood_off     control 0.06/0.000%  raw2/flip 0.05/0.000%  flip/back 0.05/0.000%  raw2/back 0.08/0.000%
+walk_open  floodnear_off control 0.06/0.000%  raw2/flip 0.06/0.000%  flip/back 0.05/0.000%  raw2/back 0.09/0.000%
+torch_camp tf_on         control 0.29/0.000%  raw2/flip 0.31/0.000%  flip/back 0.29/0.000%  raw2/back 0.40/0.000%
+torch_camp tf_twin       control 0.30/0.000%  raw2/flip 0.30/0.000%  flip/back 0.30/0.000%  raw2/back 0.42/0.000%
+torch_camp full          control 0.29/0.000%  raw2/flip 0.30/0.000%  flip/back 0.29/0.000%  raw2/back 0.40/0.000%

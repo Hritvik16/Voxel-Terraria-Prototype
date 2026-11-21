@@ -204,6 +204,10 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         /// per-frame chunk cap starts deferring.
         public int dirtySetSize;
         public int setDataCalls;      // count of GPU write calls issued
+        /// Task 216: out-of-view chunks written as air this pass to make GPU bodies for an
+        /// in-view one (TerrainClipmap.ViewEvict.cs), and their entry bytes (in bytesUploaded).
+        public int viewEvicted;
+        public int viewEvictBytes;
     }
 
     /// Use LockBufferForWrite/UnlockBufferAfterWrite instead of SetData for the
@@ -263,6 +267,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         _clipmapLocal = new uint[totalBricks];
         int chunkSlots = windowChunks.x * windowChunks.y * windowChunks.z;
         InitGpuPool(chunkSlots, brickPoolCapacity, gpuBrickCap);
+        FoliageDensity.RegisterTier0(BrickDataBuffer.count / 128);   // task 245 (-foliageout 1 only)
         _slotOwner = new int3[chunkSlots];
         _slotHeld = new bool[chunkSlots];
 
@@ -437,8 +442,8 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         // Fluid terrain directory (task 93e, TerrainClipmap.FluidDir.cs): drop
         // stale entries, give newly wanted out-of-box chunks one (marked dirty).
         SyncFluidDir(store);
-        // Chunks a full GPU body pool refused (task 93f): back in once a slot was freed.
-        RetryGpuRefused(store);
+        // Chunks a full GPU body pool refused (task 93f): back in as far as the free slots reach (task 207).
+        RetryGpuRefused(store, cameraChunk, ref stats);
 
         // Parked out-of-box chunks: back in the box and still resident -> dirty
         // again; evicted -> forget (the eviction marked it dirty itself).
@@ -453,7 +458,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             }
         }
 
-        if (_dirtyChunks.Count == 0) return stats;
+        if (_dirtyChunks.Count == 0 && stats.viewEvicted == 0) return stats;   // task 216: a retry's victims need their air mips sent
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         double phaseStart = 0;
@@ -468,7 +473,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         stats.sortMs = sw.Elapsed.TotalMilliseconds - phaseStart;
 
         _dirtyBrickSlots.Clear();
-        int bytes = 0;
+        int bytes = stats.viewEvictBytes;   // task 216: the retry's victims (0 without view eviction)
         int nonExemptAdmitted = 0;   // task 168e: the ring's progress rule below
 
         // §0.2's cap has to bound EVERY byte this frame puts on the bus. It did
@@ -581,7 +586,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             // unloaded chunk reads as air on the CPU too (see ChunkStore's
             // GetVoxel note), so the two mirrors agree.
             bool evicted = chunk == null;
-            if (evicted) _gpuRefused.Remove(chunkCoord);
+            if (evicted) ForgetRefused(chunkCoord);
 
             // THE LOST-UPDATE BUG (2026-09-25, -lodpop's validator: 57-94 clean
             // resident chunks wrong on the GPU, "LOST 83,138"). The dirty set is
@@ -610,9 +615,28 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             // counted, its shell draws it (IsGpuRefused), retried when slots free up.
             int slot = ChunkSlot(chunkCoord);
             bool refused = false;
-            if (!AcquireHolder(slot, chunk)) { refused = true; Refuse(chunkCoord); }
-            else if (!evicted) _gpuRefused.Remove(chunkCoord);
+            // Task 201a: sealed bricks (no ray reaches them) are staged uniform and take no GPU body.
+            int nSealed = 0;
+            if (SealActive && !evicted && cpuPool != null) { _sealPool = cpuPool; nSealed = ComputeSealed(chunk, cpuPool); }
+            ulong[] sealedMask = nSealed > 0 ? _sealScratch : null;
+            bool mapped = AcquireHolder(slot, chunk, sealedMask);
+            if (!mapped && !evicted)
+            {
+                // Task 216: an in-view (or 5x5) chunk refused -> out-of-view, farther box chunks give
+                // up their bodies first (TerrainClipmap.ViewEvict.cs). Off / no view: false at once.
+                int ve0 = stats.viewEvictBytes;
+                if (TryEvictForView(chunkCoord, cameraChunk, _lastRefusedNeed - _gpuFreeTop, ref stats))
+                {
+                    bytes += stats.viewEvictBytes - ve0;
+                    mapped = AcquireHolder(slot, chunk, sealedMask);
+                    if (mapped) GpuViewEvictSavedTotal++;
+                }
+            }
+            if (!mapped) { refused = true; Refuse(chunkCoord); }
+            else if (!evicted) ForgetRefused(chunkCoord);
             bool air = evicted || refused;
+            if (air) sealedMask = null;
+            if (SealActive || _sealedOfSlot != null) SetSlotSealed(slot, air ? 0 : nSealed);   // OFF uploads clear a slot's old mask
 
             for (int z = 0; z < 16; z++)
             for (int y = 0; y < 16; y++)
@@ -626,8 +650,13 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
                 else if (chunk.isUniform) handle = chunk.uniformMaterial;
                 else handle = chunk.bricks[local].data;
 
-                _chunkStaging[local] = GpuHandleOf(handle);
                 _clipmapLocal[BrickLinearIndex(baseBrickCoord + localBrick)] = handle;
+                if ((handle & 0x80000000u) != 0 && MaskBit(sealedMask, local))
+                {
+                    _chunkStaging[local] = SealedUniformHandle(handle, cpuPool);   // task 201a: no body
+                    continue;
+                }
+                _chunkStaging[local] = GpuHandleOf(handle);
 
                 if ((handle & 0x80000000u) != 0)
                     _dirtyBrickSlots.Add((int)(handle & 0x3FFFFFFFu));
@@ -679,7 +708,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         stats.brickSetMs = sw.Elapsed.TotalMilliseconds - phaseStart;
         phaseStart = sw.Elapsed.TotalMilliseconds;
 
-        if (stats.chunksUploaded > 0)
+        if (stats.chunksUploaded > 0 || stats.viewEvicted > 0)
         {
             if (UseLegacyAirMipUpload)
                 for (int k = 0; k < _mips.NumLevels; k++) UploadAirMipLevel(k);
@@ -734,6 +763,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         if (_shadowBodies != null) NativeArray<uint>.Copy(src, srcFirst, _shadowBodies, dstFirst, countUints);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
+        if (FoliageDensity.Enabled) FoliageDensity.WriteTier0(src, srcFirst, dstFirst, countUints);   // task 245: the side buffer, from these words
         if (UploadShadow.Enabled) UploadShadow.Record(BrickDataBuffer, "bodies", src, srcFirst, dstFirst, countUints);
 
         if (UploadRing.On) UploadRing.Shared.Write(BrickDataBuffer, src, srcFirst, dstFirst, countUints);   // task 168e

@@ -149,6 +149,29 @@
 //   TASK 168b (30 fps ceiling check): stacked arms skysun_off (sky probe + sun), sunshells_off (sun + shells),
 //            ceiling (sky probe + sun + shells; FSR 3 kept). Every run line and table row also gives p95 and
 //            the share of frames > 33 ms (the owner's E4 tail criterion).
+//   TASK 212 (8.17 T0, measurement only; opt-in, nothing changes without these): arms flood_off (TorchFloodPool OFF:
+//            the plain far-shading kernel instead of play's flood twin CSMainFarShadeFlood) and skyfill0
+//            (RaymarchFeature.SkyFill = 0, the vertical sky probe); FULL keeps the launch's -torchflood / -skyfill.
+//            -costpaths cliff times walk_near and cliff1 (task 199's heavy view: task 131's cliff1 A, a fixed still pose
+//            from LookReview 2026-11-02_065242 cliffshadow.json, sun 30 deg afternoon) instead of walk_near + walk_open.
+//            Every path now sets its own ClipPath.hours (all older paths carry the launch's hours: unchanged).
+//   TASK 219 (perf feasibility ladder; capture only, opt-in): -costfixed "name|ex,ey,ez|ax,ay,az;..." times still poses
+//            after walk_near (walk_open dropped, as with cliff), at the launch's hours; -costarms none = FULL only;
+//            every path ends with a [mem] line (MemoryLedger.Step14Line: pools, GPU refusals, process peak).
+//   TASK 226 (look, stills only): arms lotl_off (the four look-polish pieces off = before 226), vary_only, crevice_only,
+//            aerial_only, bloom_only (one piece on), vary_off, crevice_off, aerial_off, bloom_off (all but one).
+//   TASK 227 (performance): arms sfres1 (task 193's inline sky fill, one ray per pixel), sfres2 / sfres4 (the low-res
+//            trace pass, 2x2 / 4x4 blocks); FULL keeps the launch's -skyfillres (default 4).
+//   TASK 232 (performance): arms sunres_off (today's sun path, one exact ray per pixel inline), sunres2 / sunres4 (the
+//            low-res sun: records + CSSunTrace on 2x2 / 4x4 blocks); FULL keeps the launch's -sunres (default 1).
+//   TASK 225 (look, stills only): arms lookfix_off (= before 225), lookexact_off, skylinear_off; -shadeprobe 1 adds the
+//            SHADE TERMS stills shade15..18 (debug views 15-18; decoder Logs/overnight/225/probe.py, sim.py).
+//   TASK 233 (look; capture only): no -costsun = the PLAY START sun (SunCycle.PlayStartHours: -startsun DEG morning;
+//            default 0 = noon as before; -startsun 16 = the look). Arms startsun_off (noon), startsunNN (NN deg, morning), skypale_off,
+//            grade_off, look233_off (all three off = before 233), sun233_only / sky233_only / grade233_only (one piece on).
+//            The sun arms move the clock only on paths that carry the launch's start hours (not torch / cliff1 / -costsun).
+//            -coststillarms a,b,..: STILL-ONLY arms (one still each, after the timed arms, not timed, not in the table).
+//            -costtimedpaths p,q: only these paths run the timed arms; every other path takes FULL's still + the still arms.
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -178,11 +201,18 @@ public partial class PlaygroundCapture
     {
         float timed = ArgFloat("-costtimed", 20f);
         float sunDeg = ArgFloat("-costsun", -1f);
-        float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.NoonHours;
+        float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.PlayStartHours;   // task 233: was noon
         bool torchPaths = ArgValue("-costpaths") == "torch";            // task 151: night, 32 torches
+        bool cliffPaths = ArgValue("-costpaths") == "cliff";            // task 212: walk_near + cliff1
         if (torchPaths) hours = ArgFloat("-nighttod", 0.5f);
+        _costStartHours = (sunDeg > 0f || torchPaths) ? -1f : hours;   // task 233: the sun arms act only on these hours
+        string stillArmsArg = ArgValue("-coststillarms"), timedPathsArg = ArgValue("-costtimedpaths");   // task 233
+        string[] stillArms = string.IsNullOrEmpty(stillArmsArg) ? new string[0] : stillArmsArg.Split(',');
+        var timedPaths = string.IsNullOrEmpty(timedPathsArg) ? null : new HashSet<string>(timedPathsArg.Split(','));
         string armsArg = ArgValue("-costarms");
-        string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg.Split(',');
+        string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg == "none" ? new string[0] : armsArg.Split(',');   // task 219: none = FULL only
+        string fixedArg = ArgValue("-costfixed");                       // task 219: still poses "name|ex,ey,ez|ax,ay,az;..." after walk_near
+        bool fixedPaths = !string.IsNullOrEmpty(fixedArg);
         SunCycle.SetHours(hours);
         float3 sun = SunCycle.DirectionAt(hours);
         int baseShadow = RaymarchFeature.ShadowQualityLevel, baseTorch = RaymarchFeature.TorchShadowsOverride;
@@ -235,7 +265,7 @@ public partial class PlaygroundCapture
         if (ArgValue("-costpaths") == "lake") pathList.AddRange(CostLakePaths(centre, sun, hours));
         else if (torchPaths) yield return CostTorchScene(centre, hours, far, sm, cam, pathList);
         else
-        foreach (var (pname0, a0) in new[] { ("walk_near", aNear), ("walk_open", aOpen) })
+        foreach (var (pname0, a0) in (cliffPaths || fixedPaths) ? new[] { ("walk_near", aNear) } : new[] { ("walk_near", aNear), ("walk_open", aOpen) })
         {
             var path = new ClipPath { name = pname0, hours = hours, moving = true, lead = 0,
                                       pos = new Vector3[(int)(RatePathSeconds * 30f) + 1],
@@ -252,11 +282,15 @@ public partial class PlaygroundCapture
                         $"heading yaw {path.rot[0].eulerAngles.y:F0} -> {path.rot[path.rot.Length - 1].eulerAngles.y:F0} (sun yaw {math.degrees(math.atan2(sun.x, sun.z)):F0})";
             pathList.Add(path);
         }
+        if (cliffPaths) pathList.Add(CostCliffPath());
+        if (fixedPaths) pathList.AddRange(CostFixedPaths(fixedArg, hours));
         foreach (var path in pathList)
         {
             string pname = path.name;
+            SunCycle.SetHours(path.hours);   // task 212: cliff1 has its own sun; every older path carries the launch's hours
+            _costPathHours = path.hours;     // task 233: CostApply's sun arms
             L("");
-            L($"== {pname}: {path.note}");
+            L($"== {pname}: {path.note}  (sun {SunCycle.ElevationDegreesAt(path.hours):F0} deg at {path.hours:F2} h)");
             RatePose(path, RatePathSeconds * 0.5f, out Vector3 mid, out _);
             Phase4Bootstrapper.DebugStreamCentre = mid;
             cam.transform.position = mid; cam.transform.rotation = path.rot[0];
@@ -273,23 +307,33 @@ public partial class PlaygroundCapture
 
             var runs = new List<CostRun>();
             var order = new List<string> { "full" };
-            foreach (string a in costArms) { order.Add(a); order.Add(a); order.Add("full"); }
+            bool pathTimed = timedPaths == null || timedPaths.Contains(pname);   // task 233: -costtimedpaths
+            string[] pathArms = pathTimed ? costArms : new string[0];
+            foreach (string a in pathArms) { order.Add(a); order.Add(a); order.Add("full"); }
             var seen = new Dictionary<string, int>();
             foreach (string arm in order)
             {
                 int pass = seen.TryGetValue(arm, out int n) ? n : 0;
                 seen[arm] = pass + 1;
                 var r = new CostRun { arm = arm, pass = pass };
-                yield return CostTime(path, r, timed, pass == 0 ? Path.Combine(stills, $"{pname}_{arm}.png") : null, cam, acd, sm, far);
+                yield return CostTime(path, r, pathTimed ? timed : 0f, pass == 0 ? Path.Combine(stills, $"{pname}_{arm}.png") : null, cam, acd, sm, far);
                 runs.Add(r);
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p95 {Pct(r.ms, 0.95f),6:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  >33ms {Over33(r.ms),5:F1}%  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
-                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}  " +
+                  $"skyfill {RaymarchFeature.SkyFill} res {(RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SkyFillResDrawnLastFrame + "x" + RaymarchFeature.SkyFillResDrawnLastFrame)}  sunfar {RaymarchFeature.SunFarM:0.#} m  sunres {(RaymarchFeature.SunResDrawnLastFrame == 0 ? "inline" : RaymarchFeature.SunResDrawnLastFrame + "x" + RaymarchFeature.SunResDrawnLastFrame)}  flood {(RaymarchFeature.FloodTwinDrawnLastFrame ? "twin" : RaymarchFeature.FloodTwinSkippedLastFrame ? "skip" : "-")}");   // task 227, 228, 229, 232
                 if (RaymarchFeature.ShadowRoofSkip || RaymarchFeature.DebugRoofBuildOnly) L($"     {RaymarchFeature.RoofIncSummary()}");   // task 168
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
+            foreach (string sa in stillArms)   // task 233: still-only arms (not timed, not in the table)
+            {
+                var r = new CostRun { arm = sa, pass = 0 };
+                yield return CostTime(path, r, 0f, Path.Combine(stills, $"{pname}_{sa}.png"), cam, acd, sm, far);
+                L($"     still arm {sa}: sun {SunCycle.ElevationDegreesAt(SunCycle.Hours):F0} deg, skypale {(RaymarchFeature.SkyPale ? "ON" : "OFF")}, grade {(RaymarchFeature.ColourGrade ? "ON" : "OFF")}");
+            }
             CostApply("full");
+            L($"  [mem] {MemoryLedger.Step14Line().Trim()}");   // task 219: CPU / GPU pools + process footprint after this path's runs
             // Task 151: lava stills under each torch arm's knobs (PlaygroundCapture.TorchCost.cs).
             if (torchPaths) { var la = new List<string> { "full" }; foreach (string a in costArms) if (a.StartsWith("tl_") && a != "tl_none") la.Add(a); yield return CostTorchLava(cam, stills, la.ToArray()); }
             Phase4Bootstrapper.DebugStreamCentre = null;
@@ -305,9 +349,9 @@ public partial class PlaygroundCapture
             t.AppendLine("arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50");
             t.AppendLine($"full     {Pct(allFull, 0.5f),6:F1} {Pct(allFull, 0.95f),6:F1} {Pct(allFull, 0.99f),6:F1}  {Over33(allFull),6:F1}    {fulls.Count} runs: {string.Join(" ", fp50.ConvertAll(v => v.ToString("F1")))}   " +
                          $"(range {fMax - fMin:F1})   cpu {Pct(Pool(fulls, x => x.cpuMain), 0.5f):F1} / {Pct(Pool(fulls, x => x.presentWait), 0.5f):F1}   gpu* {Pct(Pool(fulls, x => x.gpu), 0.5f):F1}");
-            for (int i = 0; i < costArms.Length; i++)
+            for (int i = 0; i < pathArms.Length; i++)
             {
-                string arm = costArms[i];
+                string arm = pathArms[i];
                 CostRun x1 = runs[1 + 3 * i], x2 = runs[2 + 3 * i], before = runs[3 * i], after = runs[3 + 3 * i];
                 var both = new List<float>(x1.ms); both.AddRange(x2.ms);
                 float fb = Pct(before.ms, 0.5f), fa = Pct(after.ms, 0.5f), xp = Pct(both, 0.5f);
@@ -353,7 +397,9 @@ public partial class PlaygroundCapture
     /// FULL (play's frame at CostRows rows) with exactly one thing switched off.
     private static void CostApply(string arm)
     {
-        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, CostRows, false);
+        // Task 225: shade15..shade18 = the SHADE TERMS debug views (stills only, no upscaler so the codes stay whole).
+        int shadeView = arm.StartsWith("shade") && int.TryParse(arm.Substring(5), out int sv) && sv >= 15 && sv <= 18 ? sv : 0;
+        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" || shadeView != 0 ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, CostRows, false);
         // tiny_gate: a DIAGNOSTIC, not one thing off -- no upscaler and a 256x144
         // march (7% of 540's pixels): what is left is the CPU + fixed-cost floor
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
@@ -392,7 +438,7 @@ public partial class PlaygroundCapture
         // Task 134: the kernel diet (see the header).
         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
         // Task 161: kernel diet 2 (diet2_on / diet2_off) and the vertical sky probe off (skyprobe_off; capture only).
-        RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && _costBaseDiet2);
+        RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && arm != "floodd2_off" && _costBaseDiet2);   // task 229: floodd2_off
         RaymarchFeature.UseSkyProbeAmbient = arm != "skyprobe_off" && arm != "skysun_off" && arm != "ceiling" && _costBaseSkyProbe;   // task 168b: stacked arms
         // Task 137: the hole leap (see the header).
         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
@@ -413,14 +459,140 @@ public partial class PlaygroundCapture
         RaymarchFeature.DebugSeeSkip = arm == "see_noblend" ? 1 : arm == "see_nofar" ? 2 : arm == "see_nomarch" ? 4 : 0;
         // Task 75b: heat / see_heat show the step-count heat view (stills only; their ms are not frames
         // of the product), see_tier the LOD tier view with see-through on.
-        RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier";
-        RaymarchFeature.DebugViewOverride = arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
+        RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier" || shadeView != 0;
+        RaymarchFeature.DebugViewOverride = shadeView != 0 ? (RaymarchFeature.DebugMode)shadeView
+                                          : arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
+        // Task 212: flood_off / skyfill0 (FULL keeps the launch's values).
+        bool floodWant = arm != "flood_off" && arm != "floodd2_off" && _costBaseFlood;
+        // Task 229: floodnear_off / tf_twin = the flood twin whenever the flood is Ready (before 229); FULL keeps the launch's -floodnear.
+        RaymarchFeature.FloodNearOnly = arm != "floodnear_off" && arm != "tf_twin" && _costBaseFloodNear;
+        if (VoxelEngine.Rendering.TorchFloodPool.Enabled != floodWant) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(floodWant);
+        RaymarchFeature.SkyFill = arm == "skyfill0" ? 0 : _costBaseSkyFill;
+        RaymarchFeature.FoliageOut = arm != "foliage_off" && _costBaseFoliage;   // task 245 (needs -foliageout 1 at launch)
+        RaymarchFeature.FoliageEps = arm.StartsWith("foliage_e") && int.TryParse(arm.Substring(9), out int fe) && fe > 0 ? 1f / fe : _costBaseFoliageEps;   // foliage_eN: eps 1/N
+        // Task 227: sfres1 = task 193's inline sky fill (one ray per pixel), sfres2 / sfres4 = the low-res trace pass.
+        RaymarchFeature.SkyFillRes = arm == "sfres1" ? 1 : arm == "sfres2" ? 2 : arm == "sfres4" ? 4 : _costBaseSkyFillRes;
+        // Task 228: coarse far sun shadows. sunfar_off = exact (0); sunfarNN = coarse beyond NN m; else the launch's -sunfar.
+        RaymarchFeature.SunFarM = arm == "sunfar_off" ? 0f
+            : arm.StartsWith("sunfar") && float.TryParse(arm.Substring(6), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float sfm)
+                ? RaymarchFeature.ValidSunFar(sfm) : _costBaseSunFar;
+        // Task 232: sunres_off = today's sun path; sunres2 / sunres4 = the low-res sun; else the launch's -sunres.
+        RaymarchFeature.SunRes = arm == "sunres_off" ? 1 : arm == "sunres2" ? 2 : arm == "sunres4" ? 4 : _costBaseSunRes;
+        // Task 225: lookfix_off (both off = before 225), lookexact_off, skylinear_off (FULL keeps the launch's values).
+        RaymarchFeature.LookExactSrgb = arm != "lookfix_off" && arm != "lookexact_off" && _costBaseLookExact;
+        RaymarchFeature.SkyShareLinear = arm != "lookfix_off" && arm != "skylinear_off" && _costBaseSkyLinear;
+        // Task 226: lotl_off (all four off = before 226); X_only = only that piece on (the "after one piece" picture);
+        // X_off = all but X. FULL keeps the launch's values.
+        RaymarchFeature.VoxelVary = CostLotlPiece(arm, "vary", _costBaseVary);
+        RaymarchFeature.Crevice = CostLotlPiece(arm, "crevice", _costBaseCrevice);
+        RaymarchFeature.AerialHaze = CostLotlPiece(arm, "aerial", _costBaseAerial);
+        RaymarchFeature.Bloom = CostLotlPiece(arm, "bloom", _costBaseBloom);
+        // Task 233: the three look pieces (FULL keeps the launch's values; see the header).
+        RaymarchFeature.SkyPale = CostLook233Piece(arm, "sky", "skypale_off", _costBaseSkyPale);
+        RaymarchFeature.ColourGrade = CostLook233Piece(arm, "grade", "grade_off", _costBaseGrade);
+        if (_costStartHours >= 0f && _costPathHours == _costStartHours)
+        {
+            bool sunOn = CostLook233Piece(arm, "sun", "startsun_off", SunCycle.StartSunOn);
+            float h = sunOn ? _costStartHours : SunCycle.NoonHours;
+            if (arm.StartsWith("startsun") && arm != "startsun_off" && float.TryParse(arm.Substring(8), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out float sdeg) && sdeg > 0f)
+                h = SunCycle.HoursForElevation(sdeg, morning: true);
+            if (!SunCycle.StartSunOn && sunOn) h = _costStartHours;   // launched with -startsun 0: FULL is noon
+            SunCycle.SetHours(h);
+        }
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
         // Task 151: tl_K_I_R / tl_none torch arms (PlaygroundCapture.TorchCost.cs); no-op without -costpaths torch.
         CostTorchApply(arm);
+    }
+
+    /// Task 233: one of the three look pieces in an arm (see CostApply).
+    private static bool CostLook233Piece(string arm, string piece, string offArm, bool launchValue)
+    {
+        if (arm == "look233_off" || arm == offArm) return false;
+        if (arm == "sun233_only" || arm == "sky233_only" || arm == "grade233_only") return arm == piece + "233_only";
+        return launchValue;
+    }
+
+    /// Task 226: one look piece's state in an arm (see CostApply).
+    private static bool CostLotlPiece(string arm, string piece, bool launchValue)
+    {
+        if (arm == "lotl_off" || arm == piece + "_off") return false;
+        if (arm == "vary_only" || arm == "crevice_only" || arm == "aerial_only" || arm == "bloom_only") return arm == piece + "_only";
+        return launchValue;
+    }
+
+    /// Task 225: `-shadeprobe 1` adds the SHADE TERMS stills (views 15-18) to every arm's still set.
+    private static readonly bool CostShadeProbe = ArgValue("-shadeprobe") == "1";
+
+    // ---- TASK 244 (capture only; PERF_SLICE_BUDGETS sec. 4 / P5, levers F4 / F6): RAY-WORK COUNTERS ----
+    // -raystats 1: at each path's FULL still (pose path.pos[0], the clock paused, fluid suspended), RaymarchFeature.CollectRayStats
+    // for -raystatsframes N frames (default 32: eight turns of the 1-in-4 temporal sun reuse), read back with AsyncGPUReadback
+    // (no stall) and printed as a `[raystats]` table (RayStatsReport). The counters live only in the *Diag kernels, so a
+    // VE_ALL_KERNELS build (run-cost-split.sh's default) is needed; a play build prints zeros and says why. Day poses only:
+    // the *Diag primary kernel has no torch-flood twin (a night pose with the flood twin drawn would change the picture).
+    // With -coststillraw also the identity stills (no upscaler, temporal counters frozen): _raw_rsoff / _raw_rsoff2 (OFF,
+    // 10 frames apart: the control), _raw_rson (ON), _raw_rsback (OFF again); all four must be byte-identical.
+    private static readonly bool CostRayStats = ArgValue("-raystats") == "1";
+    /// Task 245: `-rsnoident 1` skips 244's identity stills (counts only).
+    private static readonly bool CostRayStatsNoIdentity = ArgValue("-rsnoident") == "1";
+
+    private IEnumerator CostRayStatsWindow(string pose)
+    {
+        int n = Mathf.Clamp(ArgInt("-raystatsframes", 32), 1, 1000);
+        bool floodTwin = RaymarchFeature.FloodTwinDrawnLastFrame;
+        RaymarchFeature.CollectRayStats = true;
+        RaymarchFeature.ResetRayStats();
+        yield return Frames(n);
+        var req = RaymarchFeature.RequestRayStats();
+        RaymarchFeature.CollectRayStats = false;
+        string kern = $"primary {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : "PLAY (no counters)")}, sky trace " +
+                      $"{(RaymarchFeature.SkyTraceDiagDrawnLastFrame ? "diag" : RaymarchFeature.SkyFillResDrawnLastFrame == 0 ? "inline" : "PLAY (no counters)")}";
+        float t0 = Time.realtimeSinceStartup;
+        while (req.HasValue && !req.Value.done && Time.realtimeSinceStartup - t0 < 10f) yield return null;
+        uint[] d = null;
+        if (req.HasValue && req.Value.done && !req.Value.hasError) d = req.Value.GetData<uint>().ToArray();
+        L(RayStatsReport.Format(d, $"{pose} ({n}-frame window; kernels {kern}; skyfill {RaymarchFeature.SkyFill} res {RaymarchFeature.SkyFillResDrawnLastFrame}, " +
+                                   $"sun res {RaymarchFeature.SunRes}, temporal shadows {(RaymarchFeature.TemporalShadows ? $"1 in {RaymarchFeature.ShadowReusePeriod}" : "OFF")}; " +
+                                   $"buffer {RaymarchFeature.RayStatsBytes} B; readback {(Time.realtimeSinceStartup - t0) * 1000f:F0} ms" +
+                                   (floodTwin ? "; WARNING: the flood twin was drawn before the window, the counted frames drew without it" : "") + ")").TrimEnd('\n'));
+        if (req.HasValue && (!req.Value.done || req.Value.hasError)) L($"  [raystats] {pose}: readback {(req.Value.done ? "FAILED" : "timed out")}");
+        if (VoxelEngine.Memory.FoliageDensity.Enabled)   // task 245
+            L($"  {VoxelEngine.Memory.FoliageDensity.Report()}; shader early-out {(RaymarchFeature.FoliageOut ? $"ON eps {RaymarchFeature.FoliageEps:0.####}" : "OFF")}");
+    }
+
+    private IEnumerator CostRayStatsIdentity(string still)
+    {
+        RaymarchFeature.DebugFreezeTemporal = true;
+        // The frozen frame: the sun records and the sky-fill means settle to one image. A mean moves 1/16 of the way per
+        // frame and stops once a step rounds to nothing (12 bits): ~100 frames from the worst start; 60 left 1-8 levels.
+        int settle = Mathf.Clamp(ArgInt("-rsfreeze", 300), 10, 3000);
+        yield return Frames(settle);
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsoff.png")); yield return Frames(10);
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsoff2.png")); yield return Frames(2);
+        RaymarchFeature.CollectRayStats = true;
+        RaymarchFeature.ResetRayStats();
+        yield return Frames(10);
+        bool diag = RaymarchFeature.ShellDiagDrawnLastFrame, skyDiag = RaymarchFeature.SkyTraceDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rson.png")); yield return Frames(2);
+        RaymarchFeature.CollectRayStats = false;
+        yield return Frames(10);
+        bool backDiag = RaymarchFeature.ShellDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsback.png")); yield return Frames(2);
+        // The *Diag kernel with the counters OFF (-shelldiet 0's kernel): splits "the Diag kernel draws differently" from
+        // "the counters change a pixel" (rsdiag vs rsback = the kernel; rsdiag vs rson = the counters).
+        bool diet = RaymarchFeature.ShellKernelDiet;
+        RaymarchFeature.ShellKernelDiet = false;
+        yield return Frames(10);
+        bool diagOff = RaymarchFeature.ShellDiagDrawnLastFrame;
+        ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw_rsdiag.png")); yield return Frames(2);
+        RaymarchFeature.ShellKernelDiet = diet;
+        yield return Frames(4);
+        RaymarchFeature.DebugFreezeTemporal = false;
+        L($"  [rspair] {Path.GetFileName(still)}: temporal frozen {settle} frames; rsoff / rsoff2 (control) / rson (counters ON: primary {(diag ? "diag" : "play")}, " +
+          $"sky trace {(skyDiag ? "diag" : "play/inline")}) / rsback (OFF: primary {(backDiag ? "diag" : "play")}) / rsdiag (OFF, primary {(diagOff ? "diag" : "play")}); compare: python3 -I tools/rspair244.py <stills>");
     }
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
@@ -431,6 +603,16 @@ public partial class PlaygroundCapture
     private static float _costBaseRung1;
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
+    private static bool _costBaseFlood; private static int _costBaseSkyFill;   // task 212
+    private static bool _costBaseFoliage; private static float _costBaseFoliageEps;   // task 245
+    private static bool _costBaseFloodNear = true;   // task 229
+    private static int _costBaseSkyFillRes = 4;   // task 227
+    private static float _costBaseSunFar;         // task 228
+    private static int _costBaseSunRes = 1;       // task 232
+    private static bool _costBaseLookExact = true, _costBaseSkyLinear = true;   // task 225
+    private static bool _costBaseVary = true, _costBaseCrevice = true, _costBaseAerial = true, _costBaseBloom = true;   // task 226
+    private static bool _costBaseSkyPale = true, _costBaseGrade = true;   // task 233
+    private static float _costStartHours = -1f, _costPathHours = -2f;   // task 233: the sun arms' hours
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -565,6 +747,45 @@ public partial class PlaygroundCapture
         return list;
     }
 
+    /// Task 212: task 199's heavy cliff view = task 131's cliff1 A (seed 42; LookReview 2026-11-02_065242 cliffshadow.json):
+    /// Q (5217.2, 4768.8) m, eye 1.6 m over today's generated ground, facing the sun (the cliff, 260 m off, 173 m high
+    /// then), pitch 5 deg up, sun 30 deg at 15.95 h. A still pose (fixed, not searched again: the same view every run).
+    /// Task 219: -costfixed "name|ex,ey,ez|ax,ay,az;..." (the -wsfixed syntax, metres): one still path per pose,
+    /// eye ex,ey,ez looking at ax,ay,az, at the launch's hours. Capture only, opt-in.
+    private List<ClipPath> CostFixedPaths(string arg, float hours)
+    {
+        var list = new List<ClipPath>();
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        foreach (string item in arg.Split(';'))
+        {
+            string[] f = item.Split('|');
+            if (f.Length < 3) { L($"  -costfixed: skipped '{item}' (want name|ex,ey,ez|ax,ay,az)"); continue; }
+            string[] e = f[1].Split(','), a = f[2].Split(',');
+            if (e.Length < 3 || a.Length < 3) { L($"  -costfixed: skipped '{item}'"); continue; }
+            var eye = new Vector3(float.Parse(e[0], ci), float.Parse(e[1], ci), float.Parse(e[2], ci));
+            var at = new Vector3(float.Parse(a[0], ci), float.Parse(a[1], ci), float.Parse(a[2], ci));
+            var rot = Quaternion.LookRotation((at - eye).normalized, Vector3.up);
+            int n = (int)(RatePathSeconds * 30f) + 1;
+            var path = new ClipPath { name = f[0], hours = hours, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+            for (int k = 0; k < n; k++) { path.pos[k] = eye; path.rot[k] = rot; }
+            path.note = $"still pose (-costfixed), eye {eye:F1} looking at {at:F1}, yaw {rot.eulerAngles.y:F0}, pitch {-Mathf.DeltaAngle(0f, rot.eulerAngles.x):F0} up";
+            list.Add(path);
+        }
+        return list;
+    }
+
+    private ClipPath CostCliffPath()
+    {
+        var eye = new Vector3(5217.2f, 0f, 4768.8f);
+        eye.y = WalkEyeY(eye.x, eye.z, 531.6f);
+        var rot = Quaternion.LookRotation(new Vector3(-0.9687342f, 0f, 0.248101011f), Vector3.up) * Quaternion.Euler(-5f, 0f, 0f);
+        int n = (int)(RatePathSeconds * 30f) + 1;
+        var path = new ClipPath { name = "cliff1", hours = 15.9470482f, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+        for (int f = 0; f < n; f++) { path.pos[f] = eye; path.rot[f] = rot; }
+        path.note = $"still pose, eye {eye:F1} (1.6 m over the ground; task 131's cliff1 A was 531.6), yaw {rot.eulerAngles.y:F0}, pitch 5 up";
+        return path;
+    }
+
     /// One timed run: settle at pose 0 with the arm applied, history reset, a
     /// still (first pass only), then the path by real time; the frames after
     /// CostSettle s are kept. Fluid off again afterwards (the waits).
@@ -572,7 +793,13 @@ public partial class PlaygroundCapture
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
-        if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true; }   // task 168e
+        if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true;   // task 168e
+                                 _costBaseFlood = VoxelEngine.Rendering.TorchFloodPool.Enabled; _costBaseFloodNear = RaymarchFeature.FloodNearOnly; _costBaseSkyFill = RaymarchFeature.SkyFill; _costBaseSkyFillRes = RaymarchFeature.SkyFillRes; _costBaseSunFar = RaymarchFeature.SunFarM; _costBaseSunRes = RaymarchFeature.SunRes;   // task 212, 232
+                                 _costBaseFoliage = RaymarchFeature.FoliageOut; _costBaseFoliageEps = RaymarchFeature.FoliageEps;   // task 245
+                                 _costBaseLookExact = RaymarchFeature.LookExactSrgb; _costBaseSkyLinear = RaymarchFeature.SkyShareLinear;   // task 225
+                                 _costBaseVary = RaymarchFeature.VoxelVary; _costBaseCrevice = RaymarchFeature.Crevice;   // task 226
+                                 _costBaseAerial = RaymarchFeature.AerialHaze; _costBaseBloom = RaymarchFeature.Bloom;
+                                 _costBaseSkyPale = RaymarchFeature.SkyPale; _costBaseGrade = RaymarchFeature.ColourGrade; }   // task 233
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
@@ -604,6 +831,15 @@ public partial class PlaygroundCapture
                 yield return Frames(6);
                 ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
             }
+            // Task 225 (-shadeprobe 1): the SHADE TERMS views 15-18 at the same pose, every arm
+            // (decoder: Logs/overnight/225/probe.py). 20 frames first: the sky-fill history follows the kernel switch.
+            if (CostShadeProbe)
+                for (int sv = 15; sv <= 18; sv++)
+                {
+                    RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)sv;
+                    yield return Frames(sv == 15 ? 20 : 6);
+                    ScreenCapture.CaptureScreenshot(still.Replace(".png", "_shade" + sv + ".png")); yield return Frames(2);
+                }
             RaymarchFeature.UseDebugViewOverride = false;
             // Task 93b4: no-upscaler stills (no jitter) for byte-identity between arms.
             if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-coststillraw") >= 0)
@@ -626,6 +862,22 @@ public partial class PlaygroundCapture
                         ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
                     }
                     L($"  [d2pair] {Path.GetFileName(still)}: raw / raw2 / d2back diet2 {(d2 ? "ON" : "OFF")}, d2flip {(d2 ? "OFF" : "ON")}; last frame kernel {(RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                }
+                // Task 229: -costfloodpair -- the flood-twin rule (-floodnear) flipped, then back: raw2 / fnflip / fnback.
+                // Where the rule skips the twin, fnflip draws the twin and fnback the plain kernel: both must equal raw2.
+                if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costfloodpair") >= 0)
+                {
+                    bool fn = RaymarchFeature.FloodNearOnly;
+                    var kinds = new List<string>();
+                    foreach (var (on, suffix) in new[] { (!fn, "_raw_fnflip.png"), (fn, "_raw_fnback.png") })
+                    {
+                        RaymarchFeature.FloodNearOnly = on;
+                        yield return Frames(10);
+                        kinds.Add((RaymarchFeature.FloodTwinDrawnLastFrame ? "twin" : RaymarchFeature.FloodTwinSkippedLastFrame ? "skip" : "-")
+                                  + "/" + (RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean"));
+                        ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+                    }
+                    L($"  [fnpair] {Path.GetFileName(still)}: raw / raw2 / fnback floodnear {(fn ? "ON" : "OFF")}, fnflip {(fn ? "OFF" : "ON")}; flood/kernel flip {kinds[0]}, back {kinds[1]}");
                 }
                 // Task 168: -costroofpair -- the same with the shadow roof skip flipped (raw2 / roofflip / roofback).
                 if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costroofpair") >= 0)
@@ -683,10 +935,14 @@ public partial class PlaygroundCapture
                     L($"  [uploadcheck] {Path.GetFileName(still)}: GPU vs CPU shadow (sequential SetData): {bad} of {words} written words differ  (ring {(VoxelEngine.Memory.UploadRing.Enabled ? "ON" : "OFF")}, recorded {VoxelEngine.Memory.UploadShadow.WordsRecorded})");
                     foreach (var ln in lines) L(ln);
                 }
+                // Task 244: -raystats 1 -- the counters' identity stills (FULL only, see CostRayStatsIdentity).
+                if (CostRayStats && r.arm == "full" && !CostRayStatsNoIdentity) yield return CostRayStatsIdentity(still);
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);
             }
             yield return CostFarCounters(r.arm);
+            // Task 244: -raystats 1 -- the ray-work counters at this pose, FULL's first pass, play's upscaler and rows.
+            if (CostRayStats && (r.arm == "full" || r.arm.StartsWith("foliage_"))) yield return CostRayStatsWindow(path.name + (r.arm == "full" ? "" : " [" + r.arm + "]"));   // task 245: + foliage arms
             acd.resetHistory = true;
             yield return Frames(10);
         }

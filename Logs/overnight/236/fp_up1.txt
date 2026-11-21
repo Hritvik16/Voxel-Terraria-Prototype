@@ -1,0 +1,1286 @@
+pid 27190 start 23:32:56
+== 23:32:56.357
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2311 MB (16384 bytes per page)
+1133 MB        0 B       240 KB       5301    IOAccelerator (graphics)
+ 960 MB        0 B          0 B        248    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2868 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:32:56.525
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2311 MB (16384 bytes per page)
+1133 MB        0 B       240 KB       5301    IOAccelerator (graphics)
+ 961 MB        0 B          0 B        248    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2868 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:32:56.703
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2320 MB (16384 bytes per page)
+1133 MB        0 B       240 KB       5301    IOAccelerator (graphics)
+ 970 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2868 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:32:56.866
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2320 MB (16384 bytes per page)
+1133 MB        0 B       240 KB       5301    IOAccelerator (graphics)
+ 970 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2868 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:32:57.037
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2324 MB (16384 bytes per page)
+1133 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 974 MB        0 B          0 B        251    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2868 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:32:57.192
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2319 MB (16384 bytes per page)
+1133 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 974 MB        0 B          0 B        251    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:57.341
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2319 MB (16384 bytes per page)
+1133 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 974 MB        0 B          0 B        251    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:57.489
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2320 MB (16384 bytes per page)
+1133 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 974 MB        0 B          0 B        251    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:57.654
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2309 MB (16384 bytes per page)
+1122 MB        0 B        11 MB       5301    IOAccelerator (graphics)
+ 975 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:57.804
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2309 MB (16384 bytes per page)
+1122 MB        0 B        11 MB       5301    IOAccelerator (graphics)
+ 975 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:57.967
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2309 MB (16384 bytes per page)
+1122 MB        0 B      2992 KB       5301    IOAccelerator (graphics)
+ 975 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.135
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.297
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.462
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.626
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.785
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:58.933
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.077
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.226
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2310 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 976 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.386
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2311 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 977 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.528
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2311 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 977 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.668
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2315 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 981 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.810
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2315 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 981 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:32:59.955
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2316 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 982 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:33:00.106
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2316 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 982 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:33:00.254
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2316 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 982 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:33:00.424
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2316 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 982 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:33:00.582
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2318 MB (16384 bytes per page)
+1122 MB        0 B          0 B       5301    IOAccelerator (graphics)
+ 983 MB        0 B          0 B        252    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+1856 KB        0 B          0 B        115    Stack
+== 23:33:00.753
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1149 MB        0 B          0 B       5305    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        249    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  44 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:00.963
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2352 MB (16384 bytes per page)
+1152 MB        0 B          0 B       5305    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        249    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  44 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:01.171
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2352 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5307    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        249    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:01.392
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1152 MB        0 B          0 B       5307    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        249    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:01.617
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1152 MB        0 B          0 B       5308    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        249    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:01.847
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2351 MB (16384 bytes per page)
+1152 MB        0 B          0 B       5307    IOAccelerator (graphics)
+ 978 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:02.089
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1144 MB        0 B        64 KB       5304    IOAccelerator (graphics)
+ 986 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         29    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7296 KB        0 B          0 B         57    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:02.322
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1152 MB        0 B        64 KB       5306    IOAccelerator (graphics)
+ 986 MB        0 B        96 KB        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  44 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+7424 KB        0 B          0 B         58    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:02.575
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2343 MB (16384 bytes per page)
+1133 MB        0 B          0 B       5299    IOAccelerator (graphics)
+ 986 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:02.805
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2348 MB (16384 bytes per page)
+1138 MB        0 B       464 KB       5296    IOAccelerator (graphics)
+ 986 MB        0 B        80 KB        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:03.035
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2356 MB (16384 bytes per page)
+1128 MB        0 B        96 KB       5297    IOAccelerator (graphics)
+ 986 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  60 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  59 MB        0 B          0 B          3    IOSurface
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:03.271
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2356 MB (16384 bytes per page)
+1146 MB        0 B        96 KB       5300    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:03.517
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1154 MB        0 B        32 KB       5310    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:03.755
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2362 MB (16384 bytes per page)
+1144 MB        0 B        32 KB       5307    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:04.008
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2362 MB (16384 bytes per page)
+1144 MB        0 B        32 KB       5306    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:04.246
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5310    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:04.479
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+  10 MB        0 B          0 B         80    Owned physical footprint (unmapped)
+5343 KB        0 B          0 B       1075    __DATA
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:04.717
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:04.955
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:05.203
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1146 MB        0 B          0 B       5310    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:05.455
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2357 MB (16384 bytes per page)
+1153 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:05.698
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2357 MB (16384 bytes per page)
+1144 MB        0 B          0 B       5309    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:05.947
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5312    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:06.193
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5313    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:06.423
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5312    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:06.672
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:06.915
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2358 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5310    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:07.159
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5314    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:07.412
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5312    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:07.669
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5313    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  60 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:07.915
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:08.149
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2350 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5312    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:08.394
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5311    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        250    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         29    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:08.640
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:08.882
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2360 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:09.131
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5314    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:09.373
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1153 MB        0 B          0 B       5315    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  61 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  44 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:09.619
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1153 MB        0 B          0 B       5317    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:09.886
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5315    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:10.158
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:10.421
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2359 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5315    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:10.698
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:10.987
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:11.260
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:11.519
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 987 MB        0 B          0 B        251    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:11.770
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:12.033
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1147 MB        0 B          0 B       5317    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:12.293
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:12.584
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1147 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:12.889
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B        32 KB       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:13.189
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B        32 KB       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:13.467
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:13.739
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:14.011
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         80    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:14.274
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:14.545
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1155 MB    8128 KB          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:14.820
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:15.108
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5315    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         29    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:15.387
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1154 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  44 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:15.662
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         29    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:15.937
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:16.215
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2362 MB (16384 bytes per page)
+1146 MB        0 B          0 B       5317    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:16.489
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:16.780
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5319    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:17.044
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2374 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:17.333
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:17.617
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1148 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         28    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:17.881
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  52 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:18.161
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2361 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:18.442
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2353 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5318    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:18.712
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2353 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:18.977
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2353 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5316    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:19.245
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2363 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5320    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:19.532
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5321    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:19.821
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5321    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:20.105
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1155 MB        0 B          0 B       5322    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:20.395
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2362 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5317    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         26    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:20.674
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2362 MB (16384 bytes per page)
+1145 MB        0 B          0 B       5317    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  50 MB        0 B          0 B         27    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+== 23:33:20.940
+Voxel Terraria 1 Byte BrickMap [27190]: 64-bit    Footprint: 2364 MB (16384 bytes per page)
+1156 MB        0 B          0 B       5321    IOAccelerator (graphics)
+ 989 MB        0 B          0 B        252    Untagged
+  62 MB        0 B          0 B         25    Malloc Small
+  59 MB        0 B          0 B          3    IOSurface
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  32 MB        0 B          0 B          5    Malloc Large
+5343 KB        0 B          0 B       1075    __DATA
+5120 KB        0 B          0 B         47    Owned physical footprint (unmapped)
+2884 KB        0 B          0 B          1    page table
+2816 KB     352 KB          0 B       1073    __DATA_CONST
+done

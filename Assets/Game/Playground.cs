@@ -915,8 +915,8 @@ public partial class Playground : MonoBehaviour
         cam.transform.position = new Vector3(col.x * 0.1f + 0.05f, (col.y + 1) * 0.1f + 0.02f + 1.6f, col.z * 0.1f + 0.05f);
         if (startView)
         {
-            // The M key's noon; the clock keeps running from here.
-            SunCycle.SetHours(SunCycle.NoonHours);
+            // Task 233: the start sun (-startsun DEG, morning; default 0 = the M key's noon); the clock keeps running from here.
+            SunCycle.SetHours(SunCycle.PlayStartHours);
             if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
             float yaw = MostOpenYaw(cam.transform.position, cam.transform.rotation.eulerAngles.y);
             if (_cam != null) _cam.SetLook(yaw, 0f);
@@ -1212,7 +1212,7 @@ public partial class Playground : MonoBehaviour
         for (int f = 0; f < 900 && !(_store.IsResident(CoordMath.VoxelToChunk(feet)) &&
                                      _store.IsResident(CoordMath.VoxelToChunk(feet - new int3(0, EngineConfig.CHUNK_EDGE_VOXELS, 0)))); f++)
             yield return null;
-        if (startView) SunCycle.SetHours(SunCycle.NoonHours);
+        if (startView) SunCycle.SetHours(SunCycle.PlayStartHours);   // task 233 (was noon)
         cam.transform.position = new Vector3(p.x, p.y + 1.6f, p.z);
         if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
         if (_cam != null) _cam.SetLook(p.yaw, p.pitch);

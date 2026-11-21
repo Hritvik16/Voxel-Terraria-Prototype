@@ -213,6 +213,7 @@ public partial class PlaygroundCapture
                     yield return null;
                 }
                 L($"  [shells] waited {Time.realtimeSinceStartup - t0:F0} s (cap {cap:F0} s): {ShellCountsLine(sh)}");
+                L($"  [pools] {ShellPoolLine(sh)}");   // task 188
             }
             cam.transform.position = eye; cam.transform.rotation = rot;
             yield return Frames(60);

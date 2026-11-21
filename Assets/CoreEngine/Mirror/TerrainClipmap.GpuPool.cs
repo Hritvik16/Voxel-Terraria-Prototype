@@ -63,7 +63,26 @@ public partial class TerrainClipmap
     private int _chunkSlotCount;
     private readonly HashSet<int3> _gpuRefused = new HashSet<int3>();
     private readonly List<int3> _gpuRefusedScratch = new List<int3>();
-    private int _gpuFreeAtRefusal;
+    // Task 207: GPU bodies each refused chunk asked for at its refusal (its dense, non-sealed bricks),
+    // and the re-queued chunks still waiting in the dirty queue with the bodies they were promised.
+    private readonly Dictionary<int3, int> _gpuRefusedNeed = new Dictionary<int3, int>();
+    private readonly Dictionary<int3, int> _gpuRetryPending = new Dictionary<int3, int>();
+    private readonly List<int3> _gpuPendingScratch = new List<int3>();
+    private int _lastRefusedNeed;
+    private int _gpuFreeAtRefusal;     // RetryOnlyWhatFits = false only (the old trigger)
+    /// Task 207: false = the old retry (one freed slot re-queues the whole refused set); `-retryfit 0`,
+    /// for before pictures. Default true.
+    public static bool RetryOnlyWhatFits = true;
+    private int _retryAvailSeen = -1;
+    private int3 _retryCamSeen;
+    private int3 _retryCam;
+    private System.Comparison<int3> _retryOrder;
+    /// Task 207: refused chunks put back in the dirty queue (only when their bodies fit), all time.
+    public long GpuPoolRetriesTotal { get; private set; }
+    /// Task 207: re-queued chunks whose upload is still queued (promised GPU bodies, not yet landed).
+    /// Task 207: retried chunks refused AGAIN by their re-upload (the churn: a retry without a slot).
+    public long GpuPoolReRefusedTotal { get; private set; }
+    public int GpuPoolRetryPending { get { PurgeRetryPending(); return _gpuRetryPending.Count; } }
     private readonly List<int> _acqNew = new List<int>();
     private readonly List<bool> _acqKept = new List<bool>();
     private readonly List<long> _bodyPairs = new List<long>();   // (gpu << 32) | cpu, sorted by gpu
@@ -99,10 +118,15 @@ public partial class TerrainClipmap
     /// shell hand-over treats its column as missing.
     public bool IsGpuRefused(int3 chunkCoord) => _gpuRefused.Count > 0 && _gpuRefused.Contains(chunkCoord);
 
+    /// The refused chunks now (task 194: capture diagnostics; read-only view).
+    public IReadOnlyCollection<int3> GpuRefusedChunks => _gpuRefused;
+
     /// Writes holder `h`'s new dense set (the chunk's bricks; null / uniform =
     /// none) and releases its previous one. False = refused (pool full): the
     /// holder then holds nothing and must be written as air.
-    private bool AcquireHolder(int h, Chunk chunk)
+    /// Task 201a: `sealedMask` (4096 bits, null = none) = bricks staged as a uniform
+    /// handle (TerrainClipmap.Sealed.cs): they take no GPU body.
+    private bool AcquireHolder(int h, Chunk chunk, ulong[] sealedMask = null)
     {
         if (_gpuOfCpu == null) return true;
         _acqNew.Clear(); _acqKept.Clear();
@@ -110,7 +134,7 @@ public partial class TerrainClipmap
         {
             BrickHandle[] bricks = chunk.bricks;
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
-                if ((bricks[i].data & 0x80000000u) != 0) _acqNew.Add((int)(bricks[i].data & 0x3FFFFFFFu));
+                if ((bricks[i].data & 0x80000000u) != 0 && !MaskBit(sealedMask, i)) _acqNew.Add((int)(bricks[i].data & 0x3FFFFFFFu));
         }
 
         // 1. Keep what is already mapped (refs++), count what needs a new slot.
@@ -128,6 +152,7 @@ public partial class TerrainClipmap
         if (need > _gpuFreeTop)
         {
             for (int i = 0; i < _acqNew.Count; i++) if (_acqKept[i]) Unref(_acqNew[i]);
+            _lastRefusedNeed = _acqNew.Count;   // task 207: the holder holds nothing now, so a retry needs all of them
             return false;
         }
         for (int i = 0; i < _acqNew.Count; i++)
@@ -164,21 +189,122 @@ public partial class TerrainClipmap
 
     private void Refuse(int3 c)
     {
+        if (_gpuRetryPending.Remove(c)) GpuPoolReRefusedTotal++;
         _gpuRefused.Add(c);
+        _gpuRefusedNeed[c] = _lastRefusedNeed;
         GpuPoolRefusedTotal++;
         _gpuFreeAtRefusal = _gpuFreeTop;
     }
 
-    /// Start of UploadDirty: refused chunks are retried once a GPU slot was freed
-    /// since the last refusal; evicted ones are forgotten (their clear runs anyway).
-    private void RetryGpuRefused(ChunkStore store)
+    /// c left the refused set through its own upload (landed or evicted).
+    private void ForgetRefused(int3 c)
     {
-        if (_gpuRefused.Count == 0 || _gpuFreeTop <= _gpuFreeAtRefusal) return;
+        if (_gpuRefused.Remove(c)) _gpuRefusedNeed.Remove(c);
+    }
+
+    /// Start of UploadDirty: refused chunks go back in the dirty queue only as far as the
+    /// free GPU bodies reach (task 207, owner Q-AB (a)). Before, ONE freed slot cleared the
+    /// WHOLE refused set: up to ~1,250 re-uploads then waited in the budgeted queue holding
+    /// the refusal's air, most were refused again, and the churn never settled (task 197).
+    /// Now: nearest to the camera first, a chunk is re-queued (and leaves the refused set)
+    /// only if the bodies it asked for at its refusal fit in what is free minus what earlier
+    /// re-queued, still-queued chunks were promised; a chunk that does not fit stays refused
+    /// (197's hand-over keeps drawing it) and a farther, smaller one may still go.
+    /// Evicted chunks are forgotten (their clear runs anyway); a refused chunk now outside the
+    /// box (and not a fluid-dir chunk) needs no body: it is re-queued to park, as before.
+    /// Runs only when the free count, the promises or the camera chunk changed.
+    private void RetryGpuRefused(ChunkStore store, int3 cameraChunk, ref UploadStats stats)
+    {
+        int promised = PurgeRetryPending();   // every pass: a promise ends once its upload ran
+        if (_gpuRefused.Count == 0) return;
+        if (!RetryOnlyWhatFits) { RetryAllRefused(store); return; }
+
+        // Task 216: with view eviction the retry also runs when the view moved (new victims, new
+        // requesters), and requesters (in view / 5x5) are ranked before the rest. Off = 207's retry.
+        bool view = ViewEvictActive;
+        int avail = _gpuFreeTop - promised;
+        if (avail == _retryAvailSeen && cameraChunk.Equals(_retryCamSeen) && (!view || _viewVersion == _retryViewSeen)) return;
+        _retryAvailSeen = avail; _retryCamSeen = cameraChunk; _retryViewSeen = view ? _viewVersion : -1;
+        if (avail <= 0 && !view) return;
+
+        _gpuRefusedScratch.Clear();
+        _retryOthers.Clear();
+        if (view)
+        {
+            foreach (int3 c in _gpuRefused)
+                if (IsViewRequester(c, cameraChunk)) _gpuRefusedScratch.Add(c); else if (avail > 0) _retryOthers.Add(c);
+            if (_gpuRefusedScratch.Count == 0 && _retryOthers.Count == 0) return;
+        }
+        else _gpuRefusedScratch.AddRange(_gpuRefused);
+        _retryCam = cameraChunk;
+        _retryOrder ??= (a, b) =>
+        {
+            int d = ChebyshevXZ(a, _retryCam).CompareTo(ChebyshevXZ(b, _retryCam));
+            if (d != 0) return d;
+            if (a.y != b.y) return a.y.CompareTo(b.y);
+            if (a.z != b.z) return a.z.CompareTo(b.z);
+            return a.x.CompareTo(b.x);
+        };
+        _gpuRefusedScratch.Sort(_retryOrder);
+        int nRequesters = view ? _gpuRefusedScratch.Count : 0;
+        if (_retryOthers.Count > 0) { _retryOthers.Sort(_retryOrder); _gpuRefusedScratch.AddRange(_retryOthers); }
+
+        int promisedNow = 0, freedNow = 0;
+        for (int i = 0; i < _gpuRefusedScratch.Count; i++)
+        {
+            int3 c = _gpuRefusedScratch[i];
+            if (store.GetChunk(c) == null) { ForgetRefused(c); continue; }
+            if (!InMirrorBox(c) && FluidDirEntryOf(c) < 0) { ForgetRefused(c); _dirtyChunks.Add(c); continue; }
+            int need = _gpuRefusedNeed.TryGetValue(c, out int n) ? n : 0;
+            if (_dirtyChunks.Contains(c)) { avail -= need; continue; }   // queued by an edit: its upload decides
+            if (need > avail)
+            {
+                // Task 216: a requester may make room from out-of-view, farther box chunks.
+                if (i >= nRequesters || !InMirrorBox(c)) continue;       // stays refused, still handed over
+                int f0 = _gpuFreeTop;
+                if (!TryEvictForView(c, cameraChunk, need - avail, ref stats)) continue;
+                freedNow += _gpuFreeTop - f0;
+                avail += _gpuFreeTop - f0;
+                if (need > avail) continue;                               // freed less than counted (shared bodies)
+                GpuViewEvictSavedTotal++;
+            }
+            avail -= need;
+            ForgetRefused(c);
+            _dirtyChunks.Add(c);
+            _gpuRetryPending[c] = need;
+            promisedNow += need;
+            GpuPoolRetriesTotal++;
+        }
+        // = the next pass's (free - promised) while nothing changes: it then skips the sort.
+        _retryAvailSeen += freedNow - promisedNow;
+    }
+    private readonly List<int3> _retryOthers = new List<int3>();   // task 216: non-requesters, after the requesters
+
+    /// Ends the promises of re-queued chunks whose upload already ran (landed, refused again,
+    /// parked, evicted: no longer dirty); returns the GPU bodies still promised.
+    private int PurgeRetryPending()
+    {
+        if (_gpuRetryPending.Count == 0) return 0;
+        int promised = 0;
+        _gpuPendingScratch.Clear();
+        foreach (var kv in _gpuRetryPending)
+            if (!_dirtyChunks.Contains(kv.Key)) _gpuPendingScratch.Add(kv.Key);
+            else promised += kv.Value;
+        for (int i = 0; i < _gpuPendingScratch.Count; i++) _gpuRetryPending.Remove(_gpuPendingScratch[i]);
+        return promised;
+    }
+
+    /// The pre-207 retry (`_rf0` arm only): one freed slot re-queues every refused chunk.
+    private void RetryAllRefused(ChunkStore store)
+    {
+        _retryAvailSeen = -1;
+        if (_gpuFreeTop <= _gpuFreeAtRefusal) return;
         _gpuRefusedScratch.Clear();
         _gpuRefusedScratch.AddRange(_gpuRefused);
         _gpuRefused.Clear();
+        _gpuRefusedNeed.Clear();
         foreach (int3 c in _gpuRefusedScratch)
-            if (store.GetChunk(c) != null) _dirtyChunks.Add(c);
+            if (store.GetChunk(c) != null) { _dirtyChunks.Add(c); _gpuRetryPending[c] = 0; GpuPoolRetriesTotal++; }   // tracked for the re-refusal count
         _gpuFreeAtRefusal = _gpuFreeTop;
     }
 

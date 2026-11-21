@@ -91,6 +91,10 @@
 #pragma kernel FarMipBuild
 #pragma kernel TaaResolve
 #pragma kernel TaaSharpen
+// TASK 226 (look): bloom, a post step at a QUARTER of the render rows (RaymarchFeature.Bloom, -bloom 0|1).
+#pragma kernel BloomDown
+#pragma kernel BloomBlur
+#pragma kernel BloomAdd
 #pragma kernel CSMainChecker
 // TASK 24: CSMain + the voxel-detail square (DetailRadius.cs). Every task-24
 // line is under #ifdef VE_DETAIL_SPEED, so CSMain/CSMainChecker compile from
@@ -114,6 +118,10 @@
 // shell march asks ShellByDistance only when the distance leaves its band. Their *Diag twins are
 // the code as it was before task 134, line for line: RaymarchFeature dispatches them for a counter
 // window, a debug view, a _DebugShellSkip arm, -shellmask 1 / -shellcolleap 1, or -shelldiet 0.
+// TASK 194b (BUILD TIME ONLY, nothing here changed): Assets/Editor/DevKernelStrip.cs leaves CSMainFarShadeDiag,
+// CSShellPrepassDiag, CSShellProbe, CSMainChecker and CSMainDetail out of PLAYER builds (play never dispatches
+// them); build with VE_ALL_KERNELS=1 to keep them. A run that asks for one draws with play's kernel and says so
+// once ([kernels]). Editor play and the EditMode suite always have every kernel.
 #pragma kernel CSMainFarShadeDiag VE_FAR_SHADE VE_SHELL_DIAG
 #pragma kernel CSShellPrepassDiag VE_FAR_SHADE VE_SHELL_DIAG
 // TASK 158 (TORCH_LIGHT_PLAN L2, -torchflood 1, OFF by default): the torch-flood twins of
@@ -149,6 +157,14 @@
 // a hit. Every task-168c line is under #ifdef VE_SUNDEFER, so every other kernel is unchanged.
 #pragma kernel CSMainFarShadeLeanSun VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
 #pragma kernel CSSunDeferLean VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
+// TASK 227: LOW-RES SKY FILL's trace pass (see that block): one sky-fill ray per 2x2 / 4x4 pixel block, after the
+// primary passes. VE_FAR_SHADE so its TraceShadowRay is the play kernels' (task 133's shell-continued distance cap).
+#pragma kernel CSSkyFillTrace VE_FAR_SHADE VE_SKYFILL_TRACE
+// TASK 244 (capture only, -raystats 1): its *Diag twin, with the RayStats sky-ray counters (RaymarchFeature.CollectRayStats).
+#pragma kernel CSSkyFillTraceDiag VE_FAR_SHADE VE_SKYFILL_TRACE VE_SHELL_DIAG
+// TASK 232: LOW-RES SUN's trace pass (see that block): one exact sun ray per 2x2 / 4x4 pixel block, after the primary
+// passes, written into every record of the block that shows the same face.
+#pragma kernel CSSunTrace VE_FAR_SHADE VE_SUN_TRACE
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -182,6 +198,23 @@ float4 _TierOuterRangeVoxels;
 static const int _UseLODCascade = 0;   // task 161: folded (see the VE_DIET2 pragma)
 #else
 int _UseLODCascade;
+#endif
+#if defined(VE_TORCH_FLOOD) && !defined(VE_DIET2)
+// TASK 206: folded in the torch-flood twins too. With the flood's three pool buffers, task 193's sky-fill
+// history (SkyHistR + SkyHistW) took CSMainFarShadeFlood and CSMainFlood to 33 Metal buffer slots, and
+// Metal's argument table holds 31 (indices 0-30): "'buffer' attribute parameter is out of bounds" at run
+// time, the kernel never loaded, and play with the flood on (task 175's default) kept a stale image in a
+// player. Without the tier 1-2 march the four tier buffers drop out (29 slots). RaymarchFeature draws a
+// flood twin only while the cascade is off -- always, while the shells draw (play) -- so this is exact.
+#define _UseLODCascade 0
+#endif
+#if defined(VE_SHELL_DIAG) && !defined(VE_TORCH_FLOOD)
+// TASK 244: the same fold in the *Diag twins (CSMainFarShadeDiag, CSShellPrepassDiag, CSShellProbe, CSSkyFillTraceDiag).
+// CSMainFarShadeDiag had 32 Metal buffer slots since task 193's sky-fill history (cap 31): it never loaded in a player
+// ("[kernels] FAILED: Raymarch.CSMainFarShadeDiag did not load", Logs/overnight/219, 221), so every counter window
+// (ShadowStats lines) and the far-shading debug views drew magenta / read 0; task 244's RayStats made it 33. Without the
+// tier 1-2 march: 29. RaymarchFeature draws a *Diag twin only while the cascade is off (always, while the shells draw).
+#define _UseLODCascade 0
 #endif
 
 // --- AIR-MIP: legacy four-buffer form (modes 0-4) ---
@@ -268,6 +301,82 @@ int _CollectShadowStats;
 #define SHADOW_STATS_ON (_CollectShadowStats != 0)
 #endif
 
+// TASK 244 (capture only, PERF_SLICE_BUDGETS sec. 4 / P5, levers F4 / F6): RAY-WORK COUNTERS by ray kind and distance band.
+// Compiled into the *Diag kernels only (CSMainFarShadeDiag, CSSkyFillTraceDiag): every play kernel folds RAY_STATS_ON
+// to false and never names RayStats. Written only while _RayStats != 0 (RaymarchFeature.CollectRayStats, -raystats 1).
+// Layout (uints): [0] frames (pass-1 thread 0 of the primary kernel), [1] in-bounds primary pixels, [2..7] spare;
+// then 12 records of RS_REC = kind (0 primary, 1 sun, 2 sky) x 4 + band (camera distance of the ray's pixel / face:
+// 0-10 m, 10-40 m, 40-82 m, 82 m+ or no hit): [0] rays, [1] steps, [2] of them tier-0 steps, [3] blocked (primary: hit),
+// [4] blocked by a tier-0 LEAF voxel (primary: hit a leaf), [5] stopped by the foliage early-out (task 245),
+// [6] primary only: the hit is WOOD, [7] primary only: the hit is GROUND (task 248, RayStatsMatClass; other = [3] - [4] - [5] - [6] - [7]),
+// primary [5] (no foliage early-out on a primary ray): the hit is GRASS FRINGE (task 250, 137 / 146, `-fringe 1`),
+// [8..199] histogram of steps per ray (RayStatsBin).
+// Steps = loop iterations of the marches the ray ran (tier-0 DDA / leaps, shell iterations, far-band steps), counted ONCE
+// per ray (pass 2 of the shell pre-pass re-runs a handed-over group's tier-0 march; that repeat is not counted).
+RWStructuredBuffer<uint> RayStats;
+int _RayStats;
+#ifdef VE_SHELL_DIAG
+#define RAY_STATS_ON (_RayStats != 0)
+#else
+#define RAY_STATS_ON false
+#endif
+#define RS_HDR  8u
+#define RS_REC  200u
+#define RS_HIST 8u
+/// 0-63 exact, 64-1087 in 16s, 1088-5119 in 64s, 191 = 5120 and over (C# twin RayStatsReport.BinLow).
+uint RayStatsBin(uint s) { return s < 64u ? s : (s < 1088u ? 64u + ((s - 64u) >> 4) : min(128u + ((s - 1088u) >> 6), 191u)); }
+/// Camera distance in VOXELS (0.1 m) -> band 0-3 (10 / 40 / 82 m).
+uint RayStatsBand(float tVox) { return tVox < 100.0 ? 0u : (tVox < 400.0 ? 1u : (tVox < 820.0 ? 2u : 3u)); }
+/// The leaf materials (task 225's class 2: 183-186, 216).
+bool RayStatsLeaf(uint mat) { return (mat >= 183u && mat <= 186u) || mat == 216u; }
+/// Task 248 (WORLD_FILL_BUDGET sec. 5 E1): the primary hit's material class for the porous / solid coverage split.
+/// 1 wood (task 225's class 1: 147, 204-207, 215, 221), 2 ground (every other generator id 128..223 that is not leaf),
+/// 0 = not counted here (leaf is [4]; other = water / fluids / placed / engine ids < 128 or > 223, derived on the CPU).
+/// Task 250: 3 = grass fringe (137 savanna fringe, 146 grass fringe), counted in the primary record's [5].
+uint RayStatsMatClass(uint mat)
+{
+    if (mat == 137u || mat == 146u) return 3u;
+    if ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) return 1u;
+    if (RayStatsLeaf(mat)) return 0u;
+    return (mat >= 128u && mat <= 223u) ? 2u : 0u;
+}
+void RayStatsAdd(uint kind, uint band, uint steps, uint stepsT0, bool blocked, bool leaf, bool fol, uint matCls)
+{
+    uint b = RS_HDR + (kind * 4u + band) * RS_REC;
+    InterlockedAdd(RayStats[b], 1u);
+    InterlockedAdd(RayStats[b + 1u], steps);
+    InterlockedAdd(RayStats[b + 2u], stepsT0);
+    if (blocked) InterlockedAdd(RayStats[b + 3u], 1u);
+    if (leaf) InterlockedAdd(RayStats[b + 4u], 1u);
+    InterlockedAdd(RayStats[b + RS_HIST + RayStatsBin(steps)], 1u);
+    if (fol) InterlockedAdd(RayStats[b + 5u], 1u);   // task 245: stopped by the foliage early-out
+    if (matCls == 1u) InterlockedAdd(RayStats[b + 6u], 1u);        // task 248: primary hit is wood
+    else if (matCls == 2u) InterlockedAdd(RayStats[b + 7u], 1u);   // task 248: primary hit is ground
+    else if (matCls == 3u) InterlockedAdd(RayStats[b + 5u], 1u);   // task 250: primary hit is grass fringe (primary fol is always false)
+}
+
+// ---- TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6; owner Q-AT D4): FOLIAGE LIGHT EARLY-OUT ----
+// A sun ray (and a sky-fill ray's visibility leg) that crosses leaf bricks carries a leaf TRANSMITTANCE: every air cell
+// it steps through inside a dense brick multiplies it by (1 - f), f = that brick's leaf fill (leaf voxels / 512, from the
+// CPU side buffer FoliageDens, FoliageDensity.cs: one byte per body, f = byte / 256). That is the chance a cell of the
+// brick is NOT leaf, so the product is how likely a ray through those cells would have got through. Once it is below
+// _FoliageEps the ray counts as BLOCKED (sunVis 0) and stops marching: the light that still threads the remaining
+// gaps of a crown that deep is dropped. Exact elsewhere: a brick with no leaf gives f = 0 (no change); the first leaf
+// voxel hit still blocks as before. Tier-0 march (TraceShadowRay) and the shell march (ShellMarch, shadow rays; shell
+// bodies carry a byte per compact sub-brick). The ground leg of a ground-bounce sky sample never uses it (its hit point
+// is used). Far-shading kernels only (one Metal buffer slot); RaymarchFeature.FoliageOut (`-foliageout 1`), OFF by default.
+StructuredBuffer<uint> FoliageDens;
+int   _FoliageOut;        // 0 off (the dummy is bound), 1 on
+float _FoliageEps;        // the transmittance floor (FoliageDensity / RaymarchFeature.FoliageEps)
+int   _FoliageShellBase;  // first uint of the shell region
+#ifdef VE_FAR_SHADE
+#define FOLIAGE_ON (_FoliageOut != 0)
+#else
+#define FOLIAGE_ON false
+#endif
+/// Byte i of FoliageDens (tier 0: i = the body index).
+uint FoliageByte(uint i) { return (FoliageDens[i >> 2] >> ((i & 3u) * 8u)) & 0xFFu; }
+
 // ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
 // The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
 // with shadows, 18.6 ms without). The world is static between edits, so a
@@ -289,8 +398,23 @@ int _CollectShadowStats;
 // history is keyed by the shadow-origin cell (hit voxel + normal), which is
 // everything TraceShadowRay's result depends on: a match reuses exactly the
 // value this pixel would trace (bar the sun's drift over a few frames).
-StructuredBuffer<uint2> ShadowHistR;      // x = asuint(sunVis), y = ShadowOriginKey; 0xFFFFFFFF = none
-RWStructuredBuffer<uint2> ShadowHistW;
+// Task 232: the record is 12 B (was uint2 {asuint(sunVis), key}): v = asuint(sunVis) with two flag bits (SUN_REC_PRIOR,
+// SUN_REC_SHELL; sunVis is in [0, 1], so bits 30-31 of its float are always 0), a, b = SkyReqPack(voxel, normal), the
+// FACE (b == SKY_REQ_NONE = none). The key is derived (ShadowOriginKey(voxel + normal)), so matching is unchanged; the
+// face lets CSSunTrace trace a record's ray (LOW-RES SUN, -sunres 2|4). CPU twin SunLowReference.
+struct SunRec { uint v; uint a; uint b; };
+#define SUN_REC_PRIOR 0x80000000u   // task 232: the value came from agreeing neighbours, not this face's own ray
+#define SUN_REC_SHELL 0x40000000u   // task 232: a shell hit (its ray is the shell march from the face)
+#define SUN_REC_VIS   0x3FFFFFFFu
+StructuredBuffer<SunRec> ShadowHistR;
+RWStructuredBuffer<SunRec> ShadowHistW;
+int _SunLow;            // task 232: 0 = today's sun path; 1 / 2 = LOW-RES SUN with CSSunTrace on 2x2 / 4x4 blocks
+float4 _SunLowParams;   // task 232: x, y = dispatch width, height; z = render pixel angle (rad); w unused
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+#define SUN_LOW_ON (_SunLow != 0)   // task 232: the far-shading primary kernels (and CSSunTrace) only
+#else
+#define SUN_LOW_ON false
+#endif
 float4x4 _PrevViewProj;
 int _TemporalShadows;
 int _ShadowHistValid;
@@ -474,6 +598,25 @@ float _MaterialVariationAmount;
 // values are more conservative.
 // =====================================================================
 float _ShadowTravelLOD;
+
+// TASK 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"; RaymarchFeature.SunFarM, `-sunfar <m>`):
+// COARSE FAR SUN SHADOWS. 0 = off (every sun ray exact, the old path). > 0: a sun ray whose RECEIVER (the primary
+// hit) is at least this many voxels from the camera is a FAR ray. Once a far ray has climbed two bricks of the grid
+// it marches above its origin (SunCoarseY: 16 << k voxels, k = 0 tier 0, 1 the task-133 continuation, the hit's
+// shell for a shell hit), a DENSE brick counts as solid: one handle read, no per-voxel steps, no near-miss scans.
+// The coarse copy is the brick directory the march already reads (no new data). A near receiver's ray takes the
+// old path byte for byte (coarseY = SUN_COARSE_NEVER). The rule only ADDS occlusion: every exact hit is still a hit
+// (a solid voxel lies in a uniform-solid or a dense brick), and an added hit lies within one brick of solid, so a
+// far shadow can widen by at most one brick (0.8 m tier 0, 1.6 m shell 1 ...). The climb guard keeps a far
+// receiver's own surface bricks exact (no self-shadow). CPU twin: ShadowRayReference.Trace(coarseY).
+// Why no cascade tier here: with the shells on, tiers 1/2 are not drawn (_ShadowTravelLOD has nothing to read).
+float _SunFarVoxels;
+#define SUN_COARSE_NEVER 2147483647
+int SunCoarseY(float receiverDistVox, int originY, int k)
+{
+    if (_SunFarVoxels <= 0.0 || receiverDistVox < _SunFarVoxels) return SUN_COARSE_NEVER;
+    return originY + (16 << k);
+}
 
 
 // §6.5's fallback ladder, from EngineConfig.SHADOW_QUALITY_LEVEL:
@@ -771,7 +914,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
     float3(0.184, 0.498, 0.722),   // 136 river lip
-    float3(0.900, 0.100, 0.800),   // 137 (none)
+    float3(0.760, 0.649, 0.318),   // 137 savanna fringe
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
     float3(0.760, 0.603, 0.347),   // 140 sand
@@ -780,18 +923,18 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.628, 0.242),   // 143 savanna grass
     float3(0.760, 0.522, 0.393),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
-    float3(0.900, 0.100, 0.800),   // 146 (none)
-    float3(0.900, 0.100, 0.800),   // 147 (none)
+    float3(0.482, 0.706, 0.278),   // 146 grass fringe
+    float3(0.760, 0.734, 0.672),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.760, 0.548, 0.299),   // 149 packed sand
     float3(0.521, 0.681, 0.760),   // 150 packed ice
     float3(0.353, 0.227, 0.141),   // 151 mud
     float3(0.643, 0.325, 0.180),   // 152 red earth
     float3(0.627, 0.392, 0.290),   // 153 hardpan
-    float3(0.900, 0.100, 0.800),   // 154 (none)
-    float3(0.900, 0.100, 0.800),   // 155 (none)
-    float3(0.900, 0.100, 0.800),   // 156 (none)
-    float3(0.900, 0.100, 0.800),   // 157 (none)
+    float3(0.231, 0.204, 0.251),   // 154 latent cobalt ore in shale
+    float3(0.431, 0.165, 0.149),   // 155 latent cobalt ore in maroon mudstone
+    float3(0.173, 0.192, 0.251),   // 156 latent cobalt ore in basalt
+    float3(0.149, 0.188, 0.165),   // 157 latent cobalt ore in black basalt
     float3(0.760, 0.707, 0.574),   // 158 limestone
     float3(0.290, 0.353, 0.431),   // 159 slate
     float3(0.760, 0.526, 0.163),   // 160 ochre clay
@@ -800,8 +943,8 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.642, 0.548),   // 163 kopje granite
     float3(0.431, 0.204, 0.141),   // 164 ironstone
     float3(0.478, 0.439, 0.416),   // 165 gneiss
-    float3(0.900, 0.100, 0.800),   // 166 (none)
-    float3(0.900, 0.100, 0.800),   // 167 (none)
+    float3(0.478, 0.439, 0.416),   // 166 latent cobalt ore in gneiss
+    float3(0.361, 0.212, 0.267),   // 167 latent cobalt ore in plum shale
     float3(0.760, 0.687, 0.532),   // 168 cream sandstone
     float3(0.722, 0.271, 0.165),   // 169 red sandstone
     float3(0.760, 0.418, 0.181),   // 170 orange sandstone
@@ -817,11 +960,11 @@ static const float3 kTg2Palette[96] = {
     float3(0.173, 0.192, 0.251),   // 180 basalt
     float3(0.247, 0.620, 0.604),   // 181 teal quartzite
     float3(0.659, 0.690, 0.741),   // 182 silver schist
-    float3(0.900, 0.100, 0.800),   // 183 (none)
-    float3(0.900, 0.100, 0.800),   // 184 (none)
-    float3(0.900, 0.100, 0.800),   // 185 (none)
-    float3(0.900, 0.100, 0.800),   // 186 (none)
-    float3(0.900, 0.100, 0.800),   // 187 (none)
+    float3(0.278, 0.463, 0.169),   // 183 forest leaves
+    float3(0.173, 0.478, 0.204),   // 184 jungle leaves
+    float3(0.435, 0.475, 0.180),   // 185 savanna leaves
+    float3(0.184, 0.353, 0.235),   // 186 pine needles
+    float3(0.478, 0.165, 0.078),   // 187 latent emberstone in magma crust
     float3(0.760, 0.756, 0.608),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
     float3(0.753, 0.314, 0.173),   // 190 laterite
@@ -838,10 +981,10 @@ static const float3 kTg2Palette[96] = {
     float3(0.102, 0.078, 0.141),   // 201 obsidian
     float3(0.478, 0.165, 0.078),   // 202 magma crust
     float3(0.133, 0.133, 0.133),   // 203 bedrock
-    float3(0.900, 0.100, 0.800),   // 204 (none)
-    float3(0.900, 0.100, 0.800),   // 205 (none)
-    float3(0.900, 0.100, 0.800),   // 206 (none)
-    float3(0.900, 0.100, 0.800),   // 207 (none)
+    float3(0.420, 0.290, 0.188),   // 204 forest wood
+    float3(0.353, 0.227, 0.165),   // 205 jungle wood
+    float3(0.478, 0.400, 0.337),   // 206 acacia wood
+    float3(0.369, 0.227, 0.149),   // 207 pine wood
     float3(0.760, 0.722, 0.623),   // 208 sinter
     float3(0.235, 0.525, 0.760),   // 209 crystal blue
     float3(0.760, 0.531, 0.173),   // 210 crystal amber
@@ -855,9 +998,9 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.251, 0.478),   // 218 mushroom cap
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
-    float3(0.900, 0.100, 0.800),   // 221 (none)
-    float3(0.900, 0.100, 0.800),   // 222 (none)
-    float3(0.900, 0.100, 0.800)    // 223 (none)
+    float3(0.310, 0.541, 0.235),   // 221 cactus
+    float3(0.490, 0.463, 0.439),   // 222 latent emberstone in ash
+    float3(0.102, 0.078, 0.141)    // 223 latent emberstone in obsidian
 };
 static const float3 kTg2PaletteLook[96] = {
     float3(0.900, 0.100, 0.800),   // 128 (none)
@@ -869,7 +1012,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
     float3(0.184, 0.498, 0.722),   // 136 river lip
-    float3(0.900, 0.100, 0.800),   // 137 (none)
+    float3(0.863, 0.737, 0.361),   // 137 savanna fringe
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
     float3(0.910, 0.722, 0.416),   // 140 sand
@@ -878,18 +1021,18 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.788, 0.651, 0.251),   // 143 savanna grass
     float3(0.788, 0.541, 0.408),   // 144 badlands clay
     float3(0.557, 0.529, 0.486),   // 145 gravel
-    float3(0.900, 0.100, 0.800),   // 146 (none)
-    float3(0.900, 0.100, 0.800),   // 147 (none)
+    float3(0.482, 0.706, 0.278),   // 146 grass fringe
+    float3(0.816, 0.788, 0.722),   // 147 birch bark
     float3(0.478, 0.290, 0.165),   // 148 loam
     float3(0.788, 0.569, 0.310),   // 149 packed sand
     float3(0.624, 0.816, 0.910),   // 150 packed ice
     float3(0.353, 0.227, 0.141),   // 151 mud
     float3(0.643, 0.325, 0.180),   // 152 red earth
     float3(0.627, 0.392, 0.290),   // 153 hardpan
-    float3(0.900, 0.100, 0.800),   // 154 (none)
-    float3(0.900, 0.100, 0.800),   // 155 (none)
-    float3(0.900, 0.100, 0.800),   // 156 (none)
-    float3(0.900, 0.100, 0.800),   // 157 (none)
+    float3(0.231, 0.204, 0.251),   // 154 latent cobalt ore in shale
+    float3(0.431, 0.165, 0.149),   // 155 latent cobalt ore in maroon mudstone
+    float3(0.173, 0.192, 0.251),   // 156 latent cobalt ore in basalt
+    float3(0.149, 0.188, 0.165),   // 157 latent cobalt ore in black basalt
     float3(0.847, 0.788, 0.639),   // 158 limestone
     float3(0.290, 0.353, 0.431),   // 159 slate
     float3(0.788, 0.545, 0.169),   // 160 ochre clay
@@ -898,8 +1041,8 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.761, 0.643, 0.549),   // 163 kopje granite
     float3(0.431, 0.204, 0.141),   // 164 ironstone
     float3(0.478, 0.439, 0.416),   // 165 gneiss
-    float3(0.900, 0.100, 0.800),   // 166 (none)
-    float3(0.900, 0.100, 0.800),   // 167 (none)
+    float3(0.478, 0.439, 0.416),   // 166 latent cobalt ore in gneiss
+    float3(0.361, 0.212, 0.267),   // 167 latent cobalt ore in plum shale
     float3(0.941, 0.851, 0.659),   // 168 cream sandstone
     float3(0.722, 0.271, 0.165),   // 169 red sandstone
     float3(0.871, 0.478, 0.208),   // 170 orange sandstone
@@ -915,11 +1058,11 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.173, 0.192, 0.251),   // 180 basalt
     float3(0.247, 0.620, 0.604),   // 181 teal quartzite
     float3(0.659, 0.690, 0.741),   // 182 silver schist
-    float3(0.900, 0.100, 0.800),   // 183 (none)
-    float3(0.900, 0.100, 0.800),   // 184 (none)
-    float3(0.900, 0.100, 0.800),   // 185 (none)
-    float3(0.900, 0.100, 0.800),   // 186 (none)
-    float3(0.900, 0.100, 0.800),   // 187 (none)
+    float3(0.278, 0.463, 0.169),   // 183 forest leaves
+    float3(0.173, 0.478, 0.204),   // 184 jungle leaves
+    float3(0.435, 0.475, 0.180),   // 185 savanna leaves
+    float3(0.184, 0.353, 0.235),   // 186 pine needles
+    float3(0.478, 0.165, 0.078),   // 187 latent emberstone in magma crust
     float3(0.784, 0.780, 0.627),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
     float3(0.753, 0.314, 0.173),   // 190 laterite
@@ -936,10 +1079,10 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.102, 0.078, 0.141),   // 201 obsidian
     float3(0.478, 0.165, 0.078),   // 202 magma crust
     float3(0.133, 0.133, 0.133),   // 203 bedrock
-    float3(0.900, 0.100, 0.800),   // 204 (none)
-    float3(0.900, 0.100, 0.800),   // 205 (none)
-    float3(0.900, 0.100, 0.800),   // 206 (none)
-    float3(0.900, 0.100, 0.800),   // 207 (none)
+    float3(0.420, 0.290, 0.188),   // 204 forest wood
+    float3(0.353, 0.227, 0.165),   // 205 jungle wood
+    float3(0.478, 0.400, 0.337),   // 206 acacia wood
+    float3(0.369, 0.227, 0.149),   // 207 pine wood
     float3(0.937, 0.890, 0.769),   // 208 sinter
     float3(0.294, 0.656, 0.950),   // 209 crystal blue
     float3(0.950, 0.663, 0.216),   // 210 crystal amber
@@ -953,14 +1096,28 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.761, 0.251, 0.478),   // 218 mushroom cap
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
-    float3(0.900, 0.100, 0.800),   // 221 (none)
-    float3(0.900, 0.100, 0.800),   // 222 (none)
-    float3(0.900, 0.100, 0.800)    // 223 (none)
+    float3(0.310, 0.541, 0.235),   // 221 cactus
+    float3(0.490, 0.463, 0.439),   // 222 latent emberstone in ash
+    float3(0.102, 0.078, 0.141)    // 223 latent emberstone in obsidian
 };
 // <<< TG2 PALETTE
 
+// Task 181 (latent ores, owner R2 (a)): cobalt and emberstone are generated as a
+// TWIN per host rock whose table colour IS the host's, so at stage 0 nothing here
+// runs. From the unlock stage (world.state's stage, set as a global by
+// LatentOres.SetStage) a twin takes its ore's colour. Mirrors LatentOres.Resolve.
+uint _WorldStage;
+uint LatentResolve(uint m)
+{
+    if (_WorldStage == 0u) return m;
+    if (m == 154u || m == 155u || m == 156u || m == 157u || m == 166u || m == 167u) return _WorldStage >= 1u ? 196u : m;
+    if (m == 187u || m == 222u || m == 223u) return _WorldStage >= 2u ? 197u : m;
+    return m;
+}
+
 float3 MaterialAlbedo(uint mat)
 {
+    mat = LatentResolve(mat);   // task 181
     // The TerrainGen world's block (MaterialPalette's TG2 table, palette D).
     if (mat >= 128u && mat < 224u) return kTg2Palette[mat - 128u];
     if (mat == 2u)  return float3(0.440, 0.425, 0.400);  // Stone
@@ -1019,7 +1176,38 @@ float  _LookHazeDensity;
 float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
 int    _EmissiveBleed;     // 1 = faces next to lava/torches get glow (default), 0 = off
 
-float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
+// TASK 225 (owner Q-AN "why are the tree trunks pitch black"): _LookFix (RaymarchFeature.LookFix, both bits ON by default).
+// Bit 0 (`-lookexact 0` = off): LookToLinear is the EXACT inverse of the encode URP applies (the sRGB piecewise
+// curve; task 225's probe ramp measured it: byte 2/255 -> 22, where a 2.2 power would give 28). pow 2.2 is not its
+// inverse below display ~0.1: a display value of 0.03 reached the screen as 0.006 (5x darker), 0.067 as 0.034 --
+// exactly the shaded-trunk range -- so the stated contract above ("the encode lands back on the Brickmap's value")
+// failed in every dark area. Above display ~0.2 the two curves agree within 1 %.
+// Bit 1 (`-skylinear 0` = off): see LookSkyOpen.
+int _LookFix;
+float3 LookToLinear(float3 c)
+{
+    c = saturate(c);
+    if ((_LookFix & 1) == 0) return pow(c, 2.2);
+    return lerp(pow((c + 0.055) / 1.055, 2.4), c / 12.92, step(c, 0.04045));
+}
+// LookToLinear's inverse (the display value back from a finished linear colour).
+float3 LookToDisplay(float3 c)
+{
+    c = saturate(c);
+    if ((_LookFix & 1) == 0) return pow(c, 1.0 / 2.2);
+    return lerp(1.055 * pow(c, 1.0 / 2.4) - 0.055, c * 12.92, step(c, 0.0031308));
+}
+// The look's sky openness from the sky visibility. Sky fill (task 193) made skyVis a FRACTION -- the cosine-weighted
+// share of the hemisphere's light that arrives -- which is a share of LINEAR light; the vertical probe it replaced was
+// 0 or 1, where display and linear space agree. This look multiplies light in DISPLAY space and LookToLinear raises
+// the product to ~2.2, so a face with 25 % of its sky open got 0.25^2.2 = 4.7 % of the open-sky light. Bit 1 converts
+// the share to display space first (v^(1/2.2): the look's own display<->linear model), so 25 % open gives 25 % of the
+// light. 0 and 1 are unchanged: open ground, shells / far hits (skyVis 1) and sealed caves (0) are bit-identical.
+float LookSkyOpen(float skyVis)
+{
+    float v = (_LookFix & 2) != 0 ? pow(saturate(skyVis), 1.0 / 2.2) : skyVis;
+    return lerp(_UndergroundAmbientFloor, 1.0, v);
+}
 
 // The cinematic grade's highlight shoulder: identity below the knee, then an
 // exponential roll-off that approaches 1 instead of clipping at it. Knee 1 is
@@ -1056,6 +1244,11 @@ float4 _LookSkyRim;        // rgb the rim colour, a its strength (0 by day)
 // Task 126 (SunCycle.LookSkyRimShapeAt, -skyrimscale): x the rim's weight away from the sun
 // (task 121: 0.4), y the power of the halo floor's lobe round the sun (task 121: 8).
 float4 _LookSkyRimShape;
+// TASK 233 (-skypale, _SkyLook bit 8; SunCycle.PaleSkyZenithAt / HorizonAt): the pale hazy sky the EYE sees (rgb,
+// display space, night colours below the day factor) and w = the day factor (the clouds' weight). Lighting keeps
+// _LookSkyZenith / _LookSkyHorizon (the pale hue at the old luma, set on the CPU).
+float4 _SkyPaleZenith;
+float4 _SkyPaleHorizon;
 #define SKY_RIM_POW 3.0
 #define SKY_DISC_COS_IN  0.99994516    // cos 0.60 deg: the disc's full radius
 #define SKY_DISC_COS_OUT 0.99990252    // cos 0.80 deg: its soft edge
@@ -1070,7 +1263,10 @@ float3 LookAtmosphere(float3 dir)
     {
         float down = 1.0 - saturate(dir.y);
         float d2 = down * down;
-        baseSky = lerp(_LookSkyZenith.rgb, _LookSkyHorizon.rgb, d2 * d2);
+        if ((_SkyLook & 8) != 0)   // task 233: pale, the horizon band widened by day (down^2; night = down^4 as before)
+            baseSky = lerp(_SkyPaleZenith.rgb, _SkyPaleHorizon.rgb, lerp(d2 * d2, d2, _SkyPaleHorizon.w));
+        else
+            baseSky = lerp(_LookSkyZenith.rgb, _LookSkyHorizon.rgb, d2 * d2);
         float2 hd = dir.xz / max(length(dir.xz), 1e-4);
         float2 hs = sd.xz / max(length(sd.xz), 1e-4);
         float facing = dot(hd, hs) * 0.5 + 0.5;
@@ -1108,11 +1304,69 @@ float3 LookSkyBackground(float3 dir)
     return c + hue * (disc * 1.5 + glow * 0.35) * up;
 }
 
+// TASK 233 (-skypale): soft clouds, 2 octaves of value noise on a flat layer (procedural: 0 bytes). Called ONLY for
+// pixels whose ray reached nothing (CSMainBody: !hit && !farHit), so the ALU lands on sky pixels alone. A function of
+// the direction only: the clouds sit at infinity like the sky (FSR 3 reprojects sky by rotation, so they are stable).
+// Weight x the day factor (_SkyPaleHorizon.w): none at night. Warmed by the horizon rim at a low sun. Display space.
+float SkyCloudHash(int2 c)
+{
+    uint h = (uint)c.x * 0x8da6b343u ^ (uint)c.y * 0xd8163841u;
+    h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+    return (float)(h & 0xFFFFu) * (1.0 / 65535.0);
+}
+float SkyCloudNoise(float2 p)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    int2 c = (int2)i;
+    return lerp(lerp(SkyCloudHash(c), SkyCloudHash(c + int2(1, 0)), f.x),
+                lerp(SkyCloudHash(c + int2(0, 1)), SkyCloudHash(c + int2(1, 1)), f.x), f.y);
+}
+float3 SkyClouds(float3 dir, float3 c)
+{
+    if ((_SkyLook & 8) == 0 || _SkyPaleHorizon.w <= 0.0 || dir.y <= 0.02) return c;
+    float2 p = dir.xz / (dir.y + 0.10) * 1.4;
+    float n = 0.65 * SkyCloudNoise(p) + 0.35 * SkyCloudNoise(p * 2.3 + float2(17.3, 5.1));
+    float cov = smoothstep(0.52, 0.76, n) * smoothstep(0.03, 0.22, dir.y) * _SkyPaleHorizon.w * 0.85;
+    float3 col = float3(1.0, 0.98, 0.95) * (0.88 + 0.12 * smoothstep(0.45, 0.8, n));
+    col = lerp(col, col * _LookSkyRim.rgb * 1.25, _LookSkyRim.a * 0.5);
+    return lerp(c, col, cov);
+}
+
+// TASK 233 (-grade): the light colour grade, CSMainBody's last colour step before the ResultTexture write (render rows,
+// before FSR 3). Display space (LookToDisplay / LookToLinear; HDR above 1 passes through untouched). Constants from
+// RaymarchFeature.GradeA / GradeB / GradeWarm (Logs/overnight/233/grade_tune.py): greens desaturated toward olive, all a
+// little, warm midtones, a gentle S-curve pivoted at 0.40, a toe lift, a faint corner vignette. Amount _Grade233.x =
+// the day factor (0 = off; 0 at night: night is bit-identical).
+float4 _Grade233;
+float4 _Grade233A;      // x green desat, y all desat, z olive, w S-curve
+float4 _Grade233B;      // x S-curve pivot, y toe lift, z vignette
+float4 _Grade233Warm;   // rgb warm-midtone tint
+float3 Grade233(float3 lin, uint2 px, uint w, uint h)
+{
+    float k = _Grade233.x;
+    if (k <= 0.0) return lin;
+    float3 over = max(lin - 1.0, 0.0);
+    float3 c = LookToDisplay(lin);
+    float L = dot(c, float3(0.2126, 0.7152, 0.0722));
+    float green = smoothstep(0.0, 0.12, c.g - max(c.r, c.b));
+    c = L + (c - L) * (1.0 - _Grade233A.x * green - _Grade233A.y);
+    c.r += _Grade233A.z * green * L;
+    c = saturate(c + (4.0 * L * (1.0 - L)) * _Grade233Warm.rgb);
+    c = c + _Grade233A.w * (c - _Grade233B.x) * c * (1.0 - c) * 4.0;
+    c = c * (1.0 - _Grade233B.y) + _Grade233B.y;
+    float2 uv = (float2(px) + 0.5) / float2(max(w, 1u), max(h, 1u)) * 2.0 - 1.0;
+    float rr = 0.5 * dot(uv, uv);
+    c *= 1.0 - _Grade233B.z * rr * rr;
+    return lerp(lin, LookToLinear(c) + over, k);
+}
+
 // MIRRORS MaterialPalette.OfLook in MaterialRules.cs (the authoritative
 // table). PaletteSyncTests parses this function exactly as it does
 // MaterialAlbedo. Change a colour in BOTH places.
 float3 MaterialAlbedoLook(uint mat)
 {
+    mat = LatentResolve(mat);   // task 181
     if (mat >= 128u && mat < 224u) return kTg2PaletteLook[mat - 128u];
     if (mat == 2u)  return float3(0.480, 0.480, 0.500);  // Stone
     if (mat == 3u)  return float3(0.330, 0.550, 0.240);  // Grass
@@ -1192,6 +1446,30 @@ float3 LookAlbedo(uint mat, int3 voxel)
         baseColor = lerp(mixColor, colorDeep, smoothstep(0.3, 0.9, noiseMedium));
     }
     return baseColor + noiseDetail;
+}
+
+// ---- TASK 226 (look, owner Q-AN 2026-11-16: "cheap look polish ... closer to Lay of the Land") ----
+// _LotlLook (RaymarchFeature.LotlLookBits; every bit ON by default, 0 = the pre-226 look byte for byte):
+//   bit 0 VOXEL VARY  (-voxvary): every voxel its own brightness (+-A) and a slight warm/cool shift (+-_LotlParams.y),
+//                     from two position hashes -- world-anchored, so stable under FSR / TAA. A comes from the
+//                     material's OWN look albedo (darker material -> larger relative swing, so light ones do not
+//                     clip): A = lerp(_LotlParams.x, _LotlParams.x * 0.5, luma). Fades out where a voxel is < 4 px
+//                     -> 2 px (it would only alias there); fluids, self-lit and emitting materials keep their colour.
+//   bit 1 CREVICE     (-crevice): FaceAO (task-old VAO, the 8 occupancy reads the hit already pays) also darkens the
+//                     DIRECT term by _LotlParams.z of its depth; before, it touched only the ambient, so on a sunlit
+//                     face (most of a day frame) crevices did not show. No new read.
+//   bit 2 AERIAL      (-aerial): FarShadeApplyHaze's desaturation share _LotlParams.w (was 0.5); the haze range
+//                     itself is RaymarchFeature.AerialHazeRangeM (in _FarShadeParams.y, set on the CPU).
+// Bloom (-bloom) is not a bit here: it is its own post step (BloomDown / BloomBlur / BloomAdd below).
+int    _LotlLook;
+float4 _LotlParams;   // x vary amplitude (dark end), y hue shift, z crevice share of direct, w aerial desaturation
+float3 LotlVoxelVary(uint mat, int3 v, float fade)
+{
+    float luma = dot(MaterialAlbedoLook(mat), float3(0.2126, 0.7152, 0.0722));
+    float amp = lerp(_LotlParams.x, _LotlParams.x * 0.5, saturate(luma)) * fade;
+    float b = VoxelHash(v.zxy + int3(7919, 104729, 1299709)) * 2.0 - 1.0;
+    float t = VoxelHash(v.yzx + int3(15485863, 32452843, 49979687)) * 2.0 - 1.0;
+    return (1.0 + amp * b) * (1.0 + _LotlParams.y * fade * t * float3(1.0, 0.0, -1.0));
 }
 
 // Self-lit materials skip the darkening terms so they stay hot. This is a
@@ -1325,6 +1603,19 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 // ===========================================================================
 #define HEIGHT_LEVELS 6
 RWStructuredBuffer<uint> HeightMip;
+// TASK 206 (bug from 198): the raymarch kernels only READ the pyramid, but a read through this RW
+// declaration still takes a UAV slot, and CSMainFarShade / CSMain / the *Diag twins carried 9 UAVs
+// (ResultTexture, DebugOut, ShadowStats or ShellPre, ShadowHistW, TaaCur, TaaMetaW, TaaDynW, HeightMip,
+// SkyHistW) -- Metal's limit here is 8, so in a PLAYER those kernels failed to load ("more uavs (9) than
+// the maximum supported (8)") and every debug view drew nothing. Every kernel outside diet 2 reads it
+// through this read-only alias (RaymarchFeature binds the same buffer to both names on the primary
+// kernel); the diet-2 play kernels (no DebugOut: 8 UAVs) keep the RW read, so their code is unchanged.
+#ifdef VE_DIET2
+#define HEIGHT_MIP_READ HeightMip
+#else
+StructuredBuffer<uint> HeightMipRO;
+#define HEIGHT_MIP_READ HeightMipRO
+#endif
 #ifdef VE_DIET2
 #ifdef VE_DIET2_ROOF
 static const int _ShadowRoofSkip = 1;   // task 168: CSMainFarShadeLeanRoof, the diet-2 kernel with the roof skip ON
@@ -1356,7 +1647,7 @@ uint ReadHeight(int L, int bx, int bz)
     int nz = (int)_WindowDimsBricksPacked.z >> L;
     int cx = (bx >> L) & (nx - 1);
     int cz = (bz >> L) & (nz - 1);
-    return HeightMip[HeightOffset(L) + cx + cz * nx];
+    return HEIGHT_MIP_READ[HeightOffset(L) + cx + cz * nx];
 }
 
 // ---- AO helpers live HERE, below ReadClipmap, because they call it.
@@ -1911,6 +2202,9 @@ struct ShadowHit
     float sunVis;   // C.9's sunVis: 0 fully occluded .. 1 fully lit
     int   steps;    // outer iterations, for the §10.3 heat view and §10.4 dump
     float exitT;    // task 133: >= 0 = the ray left the window or the band ceiling unblocked at this t; -1 otherwise
+    int3  hitV;     // task 193: the blocking voxel (the cell the ray was in when it stopped; sunVis 0 only)
+    float hitT;     // task 193: the ray's t on entering hitV; -1 = not blocked
+    bool  fol;      // task 245: blocked by the foliage early-out (hitV is then the AIR cell it stopped in)
 };
 
 // TASK 133 (owner Q83 (a); RaymarchFeature.NearShadowShells, `-nearshadowshells`): a tier-0 sun ray
@@ -2015,14 +2309,23 @@ int ShadowClipmapFlatIndex(int3 voxel, uint3 windowDimsBricks)
 // only for a caller that does not read r.exitT: the sky probe, and a sun ray with no task-133 shell
 // continuation after it. Task 168's first walk_open stills: the sun ray WITH the continuation came out
 // 1,648 px brighter on the sea at the window edge (the shell march started from another exitT).
+// coarseY (task 228, SunCoarseY): at voxel.y >= coarseY a dense tier-0 brick counts as solid. SUN_COARSE_NEVER = exact.
+// foliage (task 245): this ray may take the foliage early-out (FOLIAGE_ON too): sun rays and visibility legs, not a
+// leg whose hit point is used.
 ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
-                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof)
+                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof, int coarseY, bool foliage)
 {
     bool roofSkip = _ShadowRoofSkip != 0 && allowRoof;
     ShadowHit r;
     r.sunVis = 1.0;
     r.steps = 0;
     r.exitT = -1.0;
+    r.hitV = int3(0, 0, 0);
+    r.hitT = -1.0;
+    r.fol = false;
+    bool folOn = foliage && FOLIAGE_ON;
+    float folT = 1.0, folKeep = 1.0;   // task 245: leaf transmittance; this body's (1 - f)
+    uint folPool = 0xFFFFFFFFu;
 
     // ---- §6.5's ORIGIN RULE. One cell off the hit face, at its centre. ----
     // There is no bias term here and there must never be one: §13's failure
@@ -2194,6 +2497,8 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
 
             if ((handle & 0x80000000) != 0)
             {
+                // Task 228: a far ray above its climb guard: the dense brick is the coarse occluder.
+                if (voxel.y >= coarseY) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
                 uint poolIdx = handle & 0x3FFFFFFF;
                 uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
                 uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
@@ -2202,7 +2507,15 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
                 // OCCLUSION ONLY. §6.5: "first hit = done." The material is
                 // deliberately not recorded -- nothing downstream may branch on
                 // WHAT cast a shadow, only that something did.
-                if (mat != 0) { r.sunVis = 0.0; return r; }
+                if (mat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
+
+                // TASK 245: the foliage early-out (header at FoliageDens). This air cell of a dense brick.
+                if (folOn)
+                {
+                    if (poolIdx != folPool) { folPool = poolIdx; folKeep = 1.0 - (float)FoliageByte(poolIdx) * (1.0 / 256.0); }
+                    folT *= folKeep;
+                    if (folT < _FoliageEps) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; r.fol = true; return r; }
+                }
 
                 // ---- C.10, tracked on the DENSE path only ----
                 // A BOUNDED, STATED APPROXIMATION, not an oversight. Scanning
@@ -2240,7 +2553,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
             }
 
             uint umat = handle & 0xFF;
-            if (umat != 0) { r.sunVis = 0.0; return r; }
+            if (umat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
             LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                      brickCoord * 8, 8, nrm, exitIters, nonExitIters);
@@ -2264,7 +2577,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
                 uint vIdx = (uint)LocalVoxelIndex(tierVoxel & 7);
                 uint packed = ReadBrickDataTier(tier, poolIdx, vIdx >> 2);
                 uint mat = (packed >> ((vIdx & 3u) * 8u)) & 0xFF;
-                if (mat != 0) { r.sunVis = 0.0; return r; }
+                if (mat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
                 LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                          tierVoxel << tierShift, 1 << tierShift,
@@ -2273,7 +2586,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
             }
 
             uint umat = handle & 0xFF;
-            if (umat != 0) { r.sunVis = 0.0; return r; }
+            if (umat != 0) { r.sunVis = 0.0; r.hitV = voxel; r.hitT = currentDist; return r; }
 
             LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
                                      (tierBrick * 8) << tierShift, 8 << tierShift,
@@ -2743,7 +3056,22 @@ bool FarChunkResident(int2 rc)
 // float point: at x ~ 40000 a float step (0.0039) is wider than a fixed t
 // nudge moves the point, so floor() returned the same chunk after a -x/-z
 // face and the walk stalled to its cap (task 19, the coast black bar).
-float FarStartT(float3 O, float3 D, float tLimit)
+// (FarStartT = ColumnWalkT(.., false), defined below it.)
+
+// TASK 194: is a chunk of this window-relative column refused by the GPU body pool? The refused
+// bits follow the residency bits in FarResident (FarField.UpdateResidency, words [w, 2w)).
+bool Tier0ColumnRefused(int2 rc)
+{
+    int dx = (int)_WindowDimsChunksPacked.x, dz = (int)_WindowDimsChunksPacked.z;
+    if (rc.x < 0 || rc.y < 0 || rc.x >= dx || rc.y >= dz) return false;
+    uint i = (uint)(rc.y * dx + rc.x);
+    uint w = ((uint)(dx * dz) + 31u) >> 5;
+    return ((FarResident[w + (i >> 5)] >> (i & 31u)) & 1u) != 0u;
+}
+
+// FarStartT's walk; refusedOnly (task 194): stop at the first REFUSED column instead of the first
+// non-resident one (Tier0HandOverReference.FirstColumnT is its CPU twin).
+float ColumnWalkT(float3 O, float3 D, float tLimit, bool refusedOnly)
 {
     D = FarSafeDir(D);
     int2 oc = _WindowOriginBricksPacked.xz >> 4;
@@ -2762,7 +3090,7 @@ float FarStartT(float3 O, float3 D, float tLimit)
     [loop]
     for (int i = 0; i < 96; i++)
     {
-        if (!FarChunkResident(rc)) return tEnter;
+        if (refusedOnly ? Tier0ColumnRefused(rc) : !FarChunkResident(rc)) return tEnter;
         float2 bmin = float2((rc + oc) * 128);
         float2 bmax = bmin + 128.0;
         float2 tE = (float2(s.x > 0 ? bmax.x : bmin.x, s.y > 0 ? bmax.y : bmin.y) - O.xz) * invD;
@@ -2773,6 +3101,7 @@ float FarStartT(float3 O, float3 D, float tLimit)
     }
     return tLimit;
 }
+float FarStartT(float3 O, float3 D, float tLimit) { return ColumnWalkT(O, D, tLimit, false); }
 
 // FAR WALL ROCK (2026-10-01): a far column stores ONE surface material, so a
 // side face more than FAR_WALL_LIP voxels below the top would be drawn in the
@@ -3032,6 +3361,10 @@ static const int _ShellHoleLeap = 0;   // task 161: folded
 int    _ShellHoleLeap;
 #endif
 #define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
+// TASK 194: 1 while the near GPU body pool holds refused chunks (TerrainClipmap.GpuPoolRefusedNow > 0, shells
+// and far band on): a tier-0 hit past the ray's entry into a non-resident column is handed to the shells
+// (the REFUSED-CHUNK HAND-OVER block in CSMainBody). 0: that block does nothing.
+int    _Tier0Refused;
 // TASK 153: the COLUMN HEIGHT LEAP (-shellheightbound; RaymarchFeature.ShellHeightBound). Per shell, per
 // ring column, one int in ShellPages from _ShellHeightBase + _ShellBounds[k].w (ShellStore COLUMN HEIGHTS):
 // every chunk of that world column inside the published box and outside the hole is held and holds no
@@ -3213,6 +3546,32 @@ int ShellResolve(int kd, int3 voxel, out uint e, out bool whole)
     return -1;
 }
 
+/// TASK 188 (ShellBrickPack.cs): voxel vIdx ((vz << 6) | (vy << 3) | vx) of the dense shell
+/// brick with handle h. Bit 30 = COMPACT: h's low 30 bits are a shell-local uint offset of
+/// 17 uints, [0] = a | (b << 8), then 512 bits (set = b); else they are a 128-uint body index.
+uint ShellBrickVoxel(int k, uint h, uint vIdx)
+{
+    uint bb = (uint)_ShellHi[k].w * 128u;
+    if ((h & 0x40000000u) != 0u)
+    {
+        uint o = bb + (h & 0x3FFFFFFFu);
+        uint bit = (ShellBricks[o + 1u + (vIdx >> 5)] >> (vIdx & 31u)) & 1u;
+        return (ShellBricks[o] >> (bit * 8u)) & 0xFFu;
+    }
+    return (ShellBricks[bb + (h & 0x3FFFFFFFu) * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// TASK 245: the leaf-fill byte (FoliageDens's shell region) of shell k's dense brick with handle h: a full body
+/// its byte 0, a compact sub-brick (offset o = body * 128 + sub * 17) byte `sub`; 8 bytes per global shell body.
+uint FoliageShellByte(int k, uint h)
+{
+    uint o = h & 0x3FFFFFFFu;
+    uint body = (uint)_ShellHi[k].w, sub = 0u;
+    if ((h & 0x40000000u) != 0u) { body += o >> 7; sub = (o & 127u) / 17u; }
+    else body += o;
+    return FoliageByte((uint)_FoliageShellBase * 4u + body * 8u + sub);
+}
+
 /// Material at `voxel` in shell k (entry e) and the log2 span of its uniform region.
 uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
 {
@@ -3222,10 +3581,8 @@ uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
     uint h = ShellPages[((uint)_ShellLo[k].w + page) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
     if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
     int3 s = (voxel >> k) & 7;
-    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
-    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
     spanShift = k;
-    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+    return ShellBrickVoxel(k, h, (uint)((s.z << 6) | (s.y << 3) | s.x));
 }
 
 /// TASK 93b4: ShellLookup with the brick handle `h` already read (paged chunks).
@@ -3233,10 +3590,8 @@ uint ShellLookupHandle(int k, uint h, int3 voxel, out int spanShift)
 {
     if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
     int3 s = (voxel >> k) & 7;
-    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
-    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
     spanShift = k;
-    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+    return ShellBrickVoxel(k, h, (uint)((s.z << 6) | (s.y << 3) | s.x));
 }
 
 /// Did the last step enter a new cell of shell k (through the face `normal`)?
@@ -3418,7 +3773,8 @@ bool ShellHoleBox(int3 voxel, int3 step, float3 org, int skyY, out int3 lo, out 
 /// it holds there is leapt (0 = off: shadow rays). ShellRayReference.March, line for line.
 /// skyY (task 99): a rising ray (step.y > 0) at voxel.y >= skyY ends SHELL_END_SKY (no hit);
 /// SHELL_SKY_NEVER = off. ShellSkyY: primary / shadow.
-ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY)
+// coarseY (task 228, SunCoarseY): a shadow ray at voxel.y >= coarseY counts a dense shell brick as solid. SUN_COARSE_NEVER = exact.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY, int coarseY)
 {
     dir = FarSafeDir(dir);
     int3 step = int3(sign(dir));
@@ -3440,6 +3796,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     int kPrev = 0;
     int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
     int pcK = -1; int3 pcBrick = int3(0, 0, 0); uint pcH = 0u;            // task 93b4: page cache
+    float folT = 1.0, folKeep = 1.0; uint folH = 0u; int folK = -1;        // task 245: leaf transmittance, its brick's (1 - f)
 #ifdef VE_SHELL_LEAN
     int bandKd = -1; float bandLo = 1.0, bandHi = 0.0;                     // task 134: band cache (empty)
 #endif
@@ -3534,6 +3891,12 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
                 r.pageReads++;
 #endif
             }
+            // Task 228: a far sun ray above its climb guard: the dense brick is the coarse occluder.
+            if ((pcH & 0x80000000u) != 0u && voxel.y >= coarseY && t >= (float)(3 << k))
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = 1u; r.inside = false; r.normal = normal;
+                return r;
+            }
             mat = ShellLookupHandle(k, pcH, voxel, sh);
         }
         if (mat != 0u)
@@ -3552,6 +3915,18 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
                 return r;
             }
             sh = k;   // a shadow ray's start cell: leave it
+        }
+        // TASK 245: the foliage early-out (header at FoliageDens) -- a shadow ray's air cell of a dense shell brick
+        // (sh == k: the paged path, pcH = its handle). Ends as a HIT with mat 0 (no real hit has mat 0).
+        else if (shadow && FOLIAGE_ON && sh == k)
+        {
+            if (pcH != folH || k != folK) { folH = pcH; folK = k; folKeep = 1.0 - (float)FoliageShellByte(k, pcH) * (1.0 / 256.0); }
+            folT *= folKeep;
+            if (folT < _FoliageEps)
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = 0u; r.inside = false; r.normal = normal;
+                return r;
+            }
         }
 #ifdef VE_SHELL_DIAG
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
@@ -3771,6 +4146,36 @@ float FarShadeBlend(float distVoxels)
 // over the four texel centres around p, at the finest level whose texel is
 // >= 2 px there. False where no ring holds p, or p is more than one texel below
 // the lowest / above the highest of the four tops (a cave, an overhang).
+// Task 205: the same test, as a code: 0 = no ring holds p (n = +Y); 2 = on the surface
+// (FarSlopeNormal's true, same math); outside the four tops' bracket (n = the column slope
+// anyway): 1 = BELOW it (a recess, a cave, a 3D wall under the column heights), 3 = ABOVE it
+// (something the 2.5D heights do not hold: a tree, an overhang's lip).
+uint FarSlopeCode(float3 p, float distVoxels, out float3 n)
+{
+    n = float3(0.0, 1.0, 0.0);
+    if (_FarEnabled == 0) return 0u;
+    float2 camV = _CameraPos.xz * 10.0;
+    float cheb = max(abs(p.x - camV.x), abs(p.z - camV.y));
+    float fp = 2.0 * distVoxels * _ShellPixelAngle;
+    int L = 0;
+    [loop] while (L < FAR_LEVELS - 1 && ((float)(8 << L) < fp || cheb >= (float)((FAR_USE_RADIUS - 2) * (8 << L)))) L++;
+    float tv = (float)(8 << L);
+    if (cheb >= (float)(FAR_USE_RADIUS - 2) * tv) return 0u;
+    float2 f = p.xz / tv - 0.5;
+    int2 c = int2(floor(f));
+    float2 fr = f - float2(c);
+    float h00 = (float)(FarTexelAt(L, c) & 0xFFFFu);
+    float h10 = (float)(FarTexelAt(L, c + int2(1, 0)) & 0xFFFFu);
+    float h01 = (float)(FarTexelAt(L, c + int2(0, 1)) & 0xFFFFu);
+    float h11 = (float)(FarTexelAt(L, c + int2(1, 1)) & 0xFFFFu);
+    float lo = min(min(h00, h10), min(h01, h11));
+    float hi = max(max(h00, h10), max(h01, h11));
+    float dx = lerp(h10 - h00, h11 - h01, fr.y);
+    float dz = lerp(h01 - h00, h11 - h10, fr.x);
+    n = normalize(float3(-dx, tv, -dz));
+    return (p.y < lo - tv) ? 1u : (p.y > hi + tv) ? 3u : 2u;
+}
+
 bool FarSlopeNormal(float3 p, float distVoxels, out float3 n)
 {
     n = float3(0.0, 1.0, 0.0);
@@ -3893,6 +4298,33 @@ float CubeFilterWeight(float3 p, float distVoxels, uint m, out float3 nS)
     return w;
 }
 
+// ===========================================================================
+// TASK 205 (task 198's option 1, `-dashfix 1|2`; DEFAULT 2 since task 215, 0 = OFF): white 1-px dashes on steep walls
+// are sun-lit voxel TREADS (top faces) lit by their OWN face where the bracket test above fails
+// (CubeFilterWeight 0; 205's oracle: every such dash lies ABOVE the four column tops). With _DashFix
+// the filtered light also applies there -- with the column slope -- scaled by `open`, the hit's sky
+// visibility (skyVis: the tier-0 sky probe, 1 where none runs, e.g. shell hits), so sky-closed hits
+// (caves) keep their face light. Which faces (the caller passes open 0 for the others):
+// 1 = every face but undersides (y < 0): kills the dashes, but trees / cacti (also above the
+//     column tops) lose their cube look -- lit by the ground's slope;
+// 2 = TOP faces only (y > 0): the treads take their staircase's mean, every side face keeps its own
+//     light; a top face over flat ground is lit the same either way (the mean of nS = +Y is the top).
+// Off: exactly CubeFilterWeight.
+// ===========================================================================
+int _DashFix;
+
+float CubeFilterWeightOpen(float3 p, float distVoxels, uint m, float open, out float3 nS)
+{
+    nS = float3(0.0, 1.0, 0.0);
+    float w = CubeFilterBlend(distVoxels);
+    if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u) return 0.0;
+    uint code = FarSlopeCode(p, distVoxels, nS);
+    if (code == 2u) return w;
+    if (code == 1u || code == 3u) return w * saturate(open);
+    nS = float3(0.0, 1.0, 0.0);
+    return 0.0;
+}
+
 float FarShadeHaze(float distVoxels, float y0, float y1)
 {
     float a = max(y0 - 23.0, 0.0) / _FarShadeParams.z;
@@ -3922,7 +4354,7 @@ float3 DrawnEdgeFade(float3 colorLinear, float3 rayDir, float distVoxels)
 {
     float f = DrawnEdgeAmount(rayDir, distVoxels);
     if (f <= 0.0) return colorLinear;
-    float3 c = pow(saturate(colorLinear), 1.0 / 2.2);   // LookToLinear's inverse
+    float3 c = LookToDisplay(colorLinear);   // LookToLinear's inverse
     return LookToLinear(lerp(c, LookShoulder(LookAtmosphere(rayDir), _LookGrade.z), f));
 }
 
@@ -3938,7 +4370,7 @@ float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distV
         // Task 125 (bit 2, -edgefade): that fade is DrawnEdgeFade instead, the pixel's last step.
         if ((_SkyLook & 4) == 0) h = max(h, DrawnEdgeAmount(rayDir, distVoxels));
         // Aerial perspective also takes colour out (half the haze amount).
-        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, 0.5 * h);
+        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, ((_LotlLook & 4) != 0 ? _LotlParams.w : 0.5) * h);   // task 226 bit 2
     }
     return lerp(lit, LookAtmosphere(rayDir), h) + lightAdd * (h * (1.0 - _FarShadeParams.w));
 }
@@ -3998,6 +4430,440 @@ float SeeCutFade(float pathVoxels, float maxPathVoxels)
     return saturate((maxPathVoxels - pathVoxels) / max(1.0e-3, SEE_CUT_FADE * maxPathVoxels));
 }
 
+// ===========================================================================
+// TASK 193 (look, owner 2026-11-12 "Yeah"; SOFT_SKY_PLAN.md step S2 + a ground-bounce half):
+// SKY FILL, `-skyfill 1|2` (RaymarchFeature.SkyFill), OFF by default (0 = the vertical probe).
+//
+// WHY SHADE WAS BLACK. The AMBIENT SKY VISIBILITY block traced ONE ray straight up: skyVis 0 or 1.
+// skyOpen = lerp(_UndergroundAmbientFloor (High: 0.02), 1, skyVis) scales the ambient AND the
+// sun-shadow floor, so a face blocked straight up (ground under a crown, a trench wall under a lip,
+// every down face: its own voxel blocks it) and out of the sun got 2 % of its light = black.
+//
+// WHAT REPLACES IT. skyVis becomes how OPEN the face's hemisphere is, from the voxels themselves:
+//  S = the cosine-weighted share of the face's sky half (directions with y > 0) whose ray reaches
+//      the sky (SkyVisReference's quantity divided by its open value: a side face's open sky half is
+//      1, not 0.5 -- the ambient term already carries the normal's share of the sky).
+//  B = (-skyfill 2 only) the share of the face's ground half (y < 0) that lands on SUNLIT ground: the
+//      ray runs to the first solid voxel, then one sun ray from the cell it came through. A ray that
+//      finds nothing (leaves the window) counts as open, as every other ray here does. Night: 0
+//      (the bounce term is 0 then anyway).
+// Mode 1 uses S for everything (B = S; a down face has no sky half -> 0, today's answer). Mode 2 mixes
+// them by what each carries at this normal: the sky term FarShadeSky(n) and the bounce term
+// CubeBounceLight(n, sun) (luma weights), so an up face is S, a down face B, a side face both.
+// A sealed cave: every sky ray and every ground ray's sun ray is blocked -> exactly 0, zero noise.
+// Open ground on sunlit ground: exactly 1 (today's value), zero noise.
+//
+// ESTIMATE. One direction per pixel per frame (side faces in mode 2: sky half on even frames, ground
+// half on odd ones), from SkyVisReference's R2 sequence, seeded by the SURFACE CELL (its key), not the
+// pixel: every pixel of one voxel face takes the same sample, so a face converges to its own
+// stratified 16-sample mean while the camera moves. A per-pixel history (SkyHistR/W, ping-pong, keyed
+// ShadowOriginKey(voxel + normal), found by reprojection like the sun history) keeps a running mean
+// per half: weight 1/n for 16 samples, then 1/16; a new key restarts. CPU twin: SkyFillReference.
+// Shell / far hits keep skyVis 1 (plan Q5 (a)); a sky ray leaving the window sideways counts as open
+// (plan step S3, not done here).
+// ===========================================================================
+// ---- TASK 225 (DIAGNOSTIC, capture only; CSMainFarShade / Diag, never the diet-2 play kernels) ----
+// SHADE TERMS views, 6-bit codes (byte = 4 * code + 2) like view 14, rows 0-3 a grey calibration ramp
+// (16 px per code) for Logs/overnight/225/probe.py. Linear q(x) = round(63 x); log L(x) = 0 for x <= 2^-10,
+// else round(63 (log2 x + 10) / 12) clamped 1..63 (2^-10 .. 4, 0.19 stop per code).
+//  15: R = class (mat 0 none / 1 trunk / 2 leaf / 3 other | face 0 up / 1 side / 2 down << 2 | shell << 4),
+//      G = q(skyVis), B = q(sunVis)
+//  16: R = q(S), G = q(B) (the sky-fill halves' running means; 0 when a half has no sample), B = q(VAO)
+//  17: R = L(albedo luma), G = L(direct luma, graded), B = L(ambient luma, graded)
+//  18: R = q(skyOpen), G = L(lit luma, before bleed/fog), B = L(final colour luma)
+uint ShadeProbeQ(float x) { return (uint)round(63.0 * saturate(x)); }
+uint ShadeProbeL(float x) { return x <= 0.0009765625 ? 0u : (uint)clamp(round(63.0 * (log2(x) + 10.0) / 12.0), 1.0, 63.0); }
+float4 ShadeProbeColor(int mode, uint2 px, bool hit, uint mat, int3 n, int shell, float skyV, float sunV,
+                       float sS, float sB, float4 L, float4 L2, float3 finalC)
+{
+    uint3 c = uint3(0u, 0u, 0u);
+    if (hit)
+    {
+        uint cls = ((mat >= 204u && mat <= 207u) || mat == 147u || mat == 215u || mat == 221u) ? 1u
+                 : ((mat >= 183u && mat <= 186u) || mat == 216u) ? 2u : 3u;
+        uint face = n.y > 0 ? 0u : (n.y < 0 ? 2u : 1u);
+        if (mode == 15) c = uint3(cls | (face << 2) | (shell > 0 ? 16u : 0u), ShadeProbeQ(skyV), ShadeProbeQ(sunV));
+        else if (mode == 16) c = uint3(sS >= 0.0 ? ShadeProbeQ(sS) : 0u, sB >= 0.0 ? ShadeProbeQ(sB) : 0u, ShadeProbeQ(L.w));
+        else if (mode == 17) c = uint3(ShadeProbeL(L.x), ShadeProbeL(L.y), ShadeProbeL(L.z));
+        else c = uint3(L2.x >= 0.0 ? ShadeProbeQ(L2.x) : 0u, ShadeProbeL(L2.z), ShadeProbeL(dot(finalC, float3(0.2126, 0.7152, 0.0722))));
+    }
+    float4 o = float4(float3(c * 4u + 2u) / 255.0, 1.0);
+    if (px.y < 4u) { float r = float(min(px.x >> 4, 63u) * 4u + 2u) / 255.0; o = float4(r, r, r, 1.0); }
+    return o;
+}
+
+// ---- TASK 227 (performance, owner Q-AN 2026-11-16: "lower-resolution sky and bounce light, like Lumen's Low") ----
+// LOW-RES SKY FILL (`-skyfillres 2|4`, default 4, RaymarchFeature.SkyFillRes; 1 = task 193's inline path, for A/B). 212's cost
+// split put sky fill 2 at 40 ms of a 107 ms walk_near frame: one cosine ray per tier-0 pixel per frame (two legs on a
+// ground-half sample), most of them long, near-level rays that run to the window edge. What changes:
+//  * the primary kernel no longer traces: it shades with the face's history (the same running mean as before, now one
+//    frame old) and writes the record, which also carries the FACE (voxel + normal, SkyReqPack);
+//  * CSSkyFillTrace (after the primary passes) runs ONE thread per B x B pixel block (B = 2: a quarter of the rays;
+//    B = 4: a sixteenth), takes one face of the block (the scan starts at a slot that rotates every 2 frames, so a
+//    side face's lone pixel still gets both halves), traces that face's ray EXACTLY as the inline path did (same
+//    seed, same direction, same legs: SkyFillTraceSample) and folds the sample into every pixel of the block that
+//    shows THE SAME FACE PLANE: same normal, same coordinate along it, tangential distance within twice the block's
+//    footprint at that distance (SkyShareBad). A trunk side never takes a ground sample, a ledge top never the floor's
+//    below it, a wall behind a trunk (same normal, other plane) never the trunk's -- the depth/normal-aware filter.
+//    Pixels of one face already took the SAME sample inline (the seed is the face's key), so inside a face nothing
+//    changes but the cost;
+//  * a pixel whose face has no history (a disocclusion) takes a compatible neighbour's record from the reprojected
+//    probes (the same SkyShareBad; its counts capped at SKY_PRIOR_N), and only when none fits does it trace inline as
+//    before (an "orphan": exact, never a guessed value). The first frame after a reset is all orphans.
+// Record (12 B, was 8): v = S 12b | B 12b << 12 | nS 4b << 24 | nB 4b << 28; a, b = SkyReqPack(voxel, normal);
+// b == SKY_REQ_NONE = none. The key is DERIVED (ShadowOriginKey(voxel + normal)), so matching is task 193's exactly.
+struct SkyRec { uint v; uint a; uint b; };
+#define SKY_REQ_NONE 0xFFFFFFFFu
+#define SKY_PRIOR_N 8u
+StructuredBuffer<SkyRec> SkyHistR;
+RWStructuredBuffer<SkyRec> SkyHistW;
+int _SkyFill;            // 0 off (the vertical probe), 1 sky, 2 sky + ground bounce
+int _SkyHistValid;       // 0 = SkyHistR holds nothing usable (first frame, resize, mode change)
+int _SkyFrame;           // frame counter: the sample index
+float4x4 _SkyPrevViewProj;
+int _SkyFillLow;         // task 227: 0 = trace inline (task 193); 1 / 2 = CSSkyFillTrace with 2x2 / 4x4 blocks
+float4 _SkyLowParams;    // task 227: x, y = dispatch width, height; z = render pixel angle (rad); w unused
+
+// Task 227: the face a record holds. x, z 21 bits, y 18 bits (two's complement), normal index 0-5 in b's top nibble
+// (so b is never SKY_REQ_NONE). CPU twin SkyFillReference.ReqPack / ReqUnpack.
+uint SkyNormalIndex(int3 n) { return n.x > 0 ? 0u : (n.x < 0 ? 1u : (n.y > 0 ? 2u : (n.y < 0 ? 3u : (n.z > 0 ? 4u : 5u)))); }
+int3 SkyNormalFromIndex(uint i)
+{
+    int s = (i & 1u) != 0u ? -1 : 1;
+    return i < 2u ? int3(s, 0, 0) : (i < 4u ? int3(0, s, 0) : int3(0, 0, s));
+}
+uint2 SkyReqPack(int3 v, int3 n)
+{
+    uint a = ((uint)v.x & 0x1FFFFFu) | (((uint)v.y & 0x7FFu) << 21);
+    uint b = ((uint)v.z & 0x1FFFFFu) | ((((uint)v.y >> 11) & 0x7Fu) << 21) | (SkyNormalIndex(n) << 28);
+    return uint2(a, b);
+}
+void SkyReqUnpack(uint a, uint b, out int3 v, out int3 n)
+{
+    v.x = ((int)(a << 11)) >> 11;
+    v.z = ((int)(b << 11)) >> 11;
+    uint y18 = (a >> 21) | (((b >> 21) & 0x7Fu) << 11);
+    v.y = ((int)(y18 << 14)) >> 14;
+    n = SkyNormalFromIndex(b >> 28);
+}
+SkyRec SkyRecNone() { SkyRec r; r.v = 0u; r.a = 0u; r.b = SKY_REQ_NONE; return r; }
+
+// Task 227: may face (rv, rn) take a sample / estimate of face (v, n)? Same normal, same plane, and within shareT
+// voxels along the plane (Chebyshev): returns 0 then, else a positive number. INTEGER ARITHMETIC ONLY, no bool select
+// or early return: the first version (`return (along == 0 && tang <= shareT) ? 1u : 0u` after an `any(rn != n)` return)
+// came out of HLSLcc as `as_type<float>(bool)` in CSMainFarShadeFlood, which Metal rejects (the kernel never loaded in
+// the player; task 206's failure again). n is an axis unit vector. CPU twin SkyFillReference.ShareOk.
+int SkyShareBad(int3 v, int3 n, int3 rv, int3 rn, float shareT)
+{
+    int3 dn = abs(rn - n);
+    int3 d = abs(rv - v);
+    int3 an = abs(n);
+    int along = an.x * d.x + an.y * d.y + an.z * d.z;
+    int tang = max(max((1 - an.x) * d.x, (1 - an.y) * d.y), (1 - an.z) * d.z);
+    int over = max(0, tang - (int)floor(shareT));
+    return dn.x + dn.y + dn.z + along + over;
+}
+
+// Task 227: the plane distance two neighbouring faces of a B-pixel block may be apart: twice the block's footprint at
+// the face's distance (voxels per pixel = distance x pixel angle), plus one voxel. A face seen at a grazing angle has
+// a wider pixel footprint than this, so its far-apart pixels stop sharing (the edge stop).
+float SkyShareT(int3 v, float blockPx)
+{
+    float dist = length((float3)v + 0.5 - _CameraPos * 10.0);
+    return 1.0 + 2.0 * blockPx * dist * _SkyLowParams.z;
+}
+
+// ---- TASK 232 (performance; owner Q-AN 2026-11-16, supervisor's (a) 2026-11-17): LOW-RES SUN ----
+// `-sunres 2|4` (RaymarchFeature.SunRes; 1 = today's path, the default until proven). 228 put the sun at 18-30 ms per
+// pose, and 124 found that HALVING the traced rays inside the big kernel saved nothing: a SIMD group waits for its
+// slowest lane, so a few scattered rays cost as much as all of them. So the low path takes the rays OUT of the big
+// kernel, as task 227 did for sky fill:
+//  * the primary kernel shades from a record: this face's own (key match: its exact value, at most a few frames old),
+//    else, when at least SUN_PRIOR_MIN reprojected neighbours on the SAME FACE PLANE (SkyShareBad, 1 px of footprint)
+//    hold it and AGREE (max - min <= SUN_AGREE), their value: a "prior", flagged SUN_REC_PRIOR. Neighbours that
+//    disagree mean a shadow edge (or its soft penumbra) is here: the pixel traces inline, exactly as today (an
+//    "orphan"); so are pixels with no compatible neighbour (disocclusions, small faces). Covers ALL the sun rays: the
+//    tier-0 ray, task 133's continuation, task 80's shell-hit ray (which today marches every frame, with no reuse).
+//  * CSSunTrace (after the primary passes) runs ONE thread per B x B pixel block (B = 2 / 4), compacted: every lane
+//    traces. It picks one record of the block (on even frames the first PRIOR one, else the rotating slot's), traces
+//    that face's ray exactly (SunTraceFace) and writes the value into every record of the block that shows THE SAME
+//    FACE (same voxel and normal: the same ray, so exact). A traced prior that was wrong (off by > SUN_AGREE) drops
+//    the block's other priors on that plane, so next frame they trace inline instead of guessing.
+//  * a shell hit's ray starts at its 0.1 m face's centre (just off the face) instead of the exact hit point, inline
+//    and in CSSunTrace alike, so every pixel of one face has the same ray (< 0.05 m off; the shells' cells are
+//    0.2 m or larger). Tier-0 rays are today's exactly. -sunfar is not used on this path (exact only).
+// Steady state: no ray in the big kernel; 1 / B^2 of the faces re-traced per frame (sun drift, edits: a record is
+// refreshed within ~2 B^2 frames). CPU twin SunLowReference (SunLowReferenceTests).
+#define SUN_AGREE (1.0 / 16.0)
+#define SUN_PRIOR_MIN 2u
+
+SunRec SunRecNone() { SunRec r; r.v = 0u; r.a = 0u; r.b = SKY_REQ_NONE; return r; }
+SunRec SunRecMake(float vis, int3 v, int3 n, uint flags)
+{
+    uint2 ab = SkyReqPack(v, n);
+    SunRec r; r.v = (asuint(saturate(vis)) & SUN_REC_VIS) | flags; r.a = ab.x; r.b = ab.y;
+    return r;
+}
+
+// The same-plane distance a prior may come from: one pixel's footprint at the face's distance, plus one voxel.
+float SunShareT(int3 v)
+{
+    float dist = length((float3)v + 0.5 - _CameraPos * 10.0);
+    return 1.0 + 2.0 * dist * _SunLowParams.z;
+}
+
+// Last frame's record for this face: 1 = its own (key match), 2 = a prior (>= SUN_PRIOR_MIN compatible probes, all
+// within SUN_AGREE of each other), 0 = none (trace inline). vis / flags = the value and the flags to carry on.
+// Task 206 / 227 rules: no return inside the unrolled loop (it walks the probes backwards and keeps the last match =
+// the first probe in order), and no bool select: plain ifs on uint / float. CPU twin SunLowReference.Fetch.
+uint SunHistFetch(uint key, int3 fv, int3 fn, float shareT, float3 hpVox, uint width, uint height, out float vis, out uint flags)
+{
+    vis = 1.0; flags = 0u;
+    if (_ShadowHistValid == 0) return 0u;
+    float4 pc = mul(_PrevViewProj, float4(hpVox * 0.1, 1.0));
+    if (pc.w <= 1e-4) return 0u;
+    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+    int2 p0 = int2(floor(ppf));
+    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+    uint kind = 0u, nComp = 0u, keyFlags = 0u;
+    float keyVis = 1.0, pFirst = 1.0, pMin = 2.0, pMax = -1.0;
+    [unroll]
+    for (int q = 3; q >= 0; q--)
+    {
+        int2 pp = probes[q];
+        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+        {
+            SunRec hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.b != SKY_REQ_NONE)
+            {
+                int3 hvV, hvN;
+                SkyReqUnpack(hv.a, hv.b, hvV, hvN);
+                float hvis = asfloat(hv.v & SUN_REC_VIS);
+                if (ShadowOriginKey(hvV + hvN) == key) { keyVis = hvis; keyFlags = hv.v & SUN_REC_PRIOR; kind = 1u; }
+                else if (SkyShareBad(fv, fn, hvV, hvN, shareT) == 0)
+                {
+                    pFirst = hvis; pMin = min(pMin, hvis); pMax = max(pMax, hvis); nComp += 1u;
+                }
+            }
+        }
+    }
+    if (kind == 1u) { vis = keyVis; flags = keyFlags; }
+    else if (nComp >= SUN_PRIOR_MIN && pMax - pMin <= SUN_AGREE) { vis = pFirst; flags = SUN_REC_PRIOR; kind = 2u; }
+    return kind;
+}
+
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+// One face's sun visibility, exactly as the primary kernel's sun block computes it for a hit on that face: a tier-0
+// face = TraceShadowRay + task 133's continuation through the shells; a shell face (shell != 0) = task 80's shell
+// march, started at the face's centre (see LOW-RES SUN). Used by CSSunTrace and by the primary kernel's orphans.
+float SunTraceFace(int3 v, int3 n, uint shell)
+{
+    float3 cam = _CameraPos * 10.0;
+    float3 sd = normalize(_SunDir);
+    float vis = 1.0;
+    if (shell != 0u)
+    {
+        float3 so = (float3)v + 0.5 + (float3)n * 0.51;
+        ShellHit ss = ShellMarch(so, sd, 0.0, true, cam, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
+        if (ss.end == SHELL_END_HIT) vis = 0.0;
+    }
+    else
+    {
+        bool soft = (_ShadowQualityLevel <= 1) && (_KSoft > 0.0);
+        bool cont = _NearShadowShells != 0 && _ShellCount > 1;
+#if defined(VE_DIET2_ROOF)
+        bool roof = false;
+#else
+        bool roof = !cont;
+#endif
+        ShadowHit sh = TraceShadowRay(v, n, _SunDir, _WindowDimsBricksPacked.xyz, soft, false, roof, SUN_COARSE_NEVER, true);
+        vis = sh.sunVis;
+        if (cont && sh.exitT >= 0.0 && sh.sunVis > 0.0)
+        {
+            ShellHit ns = ShellMarch((float3)(v + n) + 0.5, sd, sh.exitT, true, cam, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
+            if (ns.end == SHELL_END_HIT) vis = 0.0;
+        }
+    }
+    return vis;
+}
+#endif
+
+uint SkyFillHash(uint x)   // lowbias32, SkyVisReference.Hash
+{
+    x ^= x >> 16; x *= 0x7FEB352Du;
+    x ^= x >> 15; x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return x;
+}
+
+// SkyVisReference.SamplePoint: the R2 lattice, rotated per seed, 23 bits + a half step.
+float2 SkyFillPoint(uint seed, uint index)
+{
+    uint r1 = SkyFillHash(seed), r2 = SkyFillHash(r1);
+    uint ux = index * 0xC13FA9A9u + r1;
+    uint vx = index * 0x91E10DA6u + r2;
+    return float2(((float)(ux >> 9) + 0.5) * (1.0 / 8388608.0), ((float)(vx >> 9) + 0.5) * (1.0 / 8388608.0));
+}
+
+// SkyVisReference.CosineDir: cosine-weighted about the axis normal n.
+float3 SkyFillCosineDir(int3 n, float2 uv)
+{
+    float r = sqrt(uv.x), z = sqrt(1.0 - uv.x);
+    float sn, cs;
+    sincos(6.28318530718 * uv.y, sn, cs);
+    float a = r * cs, b = r * sn;
+    if (n.y != 0) return float3(a, z * (float)n.y, b);
+    if (n.x != 0) return float3(z * (float)n.x, a, b);
+    return float3(a, b, z * (float)n.z);
+}
+
+// Which half this frame samples: 0 = sky, 1 = ground (SkyFillReference.Half).
+uint SkyFillHalf(int3 n, uint frame)
+{
+    if (_SkyFill != 2 || n.y > 0) return 0u;
+    if (n.y < 0) return 1u;
+    return frame & 1u;
+}
+
+// This frame's direction (SkyFillReference.Direction): a side face's cosine lobe folded onto the
+// half being sampled (y -> +|y| or -|y|: the fold keeps the cosine weight, n.y being 0).
+float3 SkyFillDirection(int3 n, uint seed, uint frame, uint half)
+{
+    uint idx = (_SkyFill == 2 && n.y == 0) ? (frame >> 1) : frame;
+    float3 d = SkyFillCosineDir(n, SkyFillPoint(seed, idx));
+    if (n.y == 0) d.y = (half != 0u) ? -abs(d.y) : abs(d.y);
+    return d;
+}
+
+// The face a TraceShadowRay ray entered its blocking voxel through (the ray's own setup: origin cell
+// centre, normalized, axis lift): the axis whose entry plane the entry point lies closest to.
+// int3(0,0,0) = blocked in its own origin cell (no face to bounce from).
+int3 ShadowEntryNormal(int3 originCell, float3 dirIn, int3 v, float t)
+{
+    if (t <= 0.0) return int3(0, 0, 0);
+    float3 d = normalize(dirIn);
+    d.x = abs(d.x) < 1e-6 ? (d.x >= 0 ? 1e-6 : -1e-6) : d.x;
+    d.y = abs(d.y) < 1e-6 ? (d.y >= 0 ? 1e-6 : -1e-6) : d.y;
+    d.z = abs(d.z) < 1e-6 ? (d.z >= 0 ? 1e-6 : -1e-6) : d.z;
+    float3 p = (float3)originCell + 0.5 + d * t;
+    float3 fv = (float3)v;
+    float3 e = abs(p - (fv + 1.0 - step(0.0, d)));   // entry plane: v on a + axis, v + 1 on a - axis
+    if (e.x <= e.y && e.x <= e.z) return int3(d.x > 0.0 ? -1 : 1, 0, 0);
+    if (e.y <= e.z) return int3(0, d.y > 0.0 ? -1 : 1, 0);
+    return int3(0, 0, d.z > 0.0 ? -1 : 1);
+}
+
+// Last frame's record for this surface cell: the reprojected pixel, then its neighbours toward the
+// point (the sun history's probe set); the key decides. Returns 0 = none, 1 = the key's record (`found`),
+// 2 (task 227, only with shareT > 0) = no key matched but a probe holds a compatible face (SkyShareBad 0): its
+// record, the disocclusion prior. The FIRST probe in order wins within a kind, a key match over any prior.
+// TASK 206: no return inside the unrolled loop (HLSLcc turned one into `as_type<float>(bool)`, which Metal
+// rejects at run time): the loop walks the probes BACKWARDS and keeps the last match = the first one.
+// Task 227: every kernel now uses this loop (diet 2's early-return copy is gone with the 8-byte record).
+uint SkyHistFetch(uint key, int3 fv, int3 fn, float shareT, float3 hpVox, uint width, uint height, out SkyRec found)
+{
+    found = SkyRecNone();
+    if (_SkyHistValid == 0) return 0u;
+    float4 pc = mul(_SkyPrevViewProj, float4(hpVox * 0.1, 1.0));
+    if (pc.w <= 1e-4) return 0u;
+    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+    int2 p0 = int2(floor(ppf));
+    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+    uint kind = 0u;
+    [unroll]
+    for (int q = 3; q >= 0; q--)
+    {
+        int2 pp = probes[q];
+        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+        {
+            SkyRec hv = SkyHistR[(uint)pp.y * width + (uint)pp.x];
+            if (hv.b != SKY_REQ_NONE)
+            {
+                int3 hvV, hvN;
+                SkyReqUnpack(hv.a, hv.b, hvV, hvN);
+                if (ShadowOriginKey(hvV + hvN) == key) { found = hv; kind = 1u; }
+                else if (kind != 1u && shareT > 0.0 && SkyShareBad(fv, fn, hvV, hvN, shareT) == 0) { found = hv; kind = 2u; }
+            }
+        }
+    }
+    return kind;
+}
+
+// Task 227 (moved out of the primary kernel unchanged, so CSSkyFillTrace runs the very same rays): one sky-fill
+// sample of face (voxel, normal) along probeDir. A ground-half sample (fillHalf 1) takes a second leg, the sun
+// ray from where the first one landed. Also the vertical probe's trace (sky fill 0: fillHalf 0, one leg).
+float SkyFillTraceSample(int3 voxel, int3 normal, float3 probeDir, uint fillHalf)
+{
+    float fillSample = 0.0;
+    int3 tv = voxel, tn = normal;
+    float3 td = probeDir;
+    int legs = (fillHalf != 0u) ? 2 : 1;
+    uint3 wdb = _WindowDimsBricksPacked.xyz;
+#ifdef VE_SHELL_DIAG
+    uint rsSteps = 0u; bool rsLeaf = false, rsFol = false;   // task 244: one sky ray = this sample, both legs (245: rsFol)
+#endif
+    [loop]
+    for (int leg = 0; leg < legs; leg++)
+    {
+        // Task 245: the foliage early-out on the visibility leg only (a ground leg's hit point is used below).
+        ShadowHit sky = TraceShadowRay(tv, tn, td,
+                                       wdb, false, false, true, SUN_COARSE_NEVER, leg == legs - 1);   // task 168: exitT unused, so the roof skip is exact here
+#ifdef VE_SHELL_DIAG
+        if (RAY_STATS_ON)
+        {
+            rsSteps += (uint)sky.steps;
+            if (sky.hitT >= 0.0 && RayStatsLeaf(VoxelMaterialAt(sky.hitV, wdb))) rsLeaf = true;
+            if (sky.fol) rsFol = true;   // task 245
+        }
+#endif
+        fillSample = sky.sunVis;
+        if (leg == 0 && legs == 2)
+        {
+            if (sky.hitT < 0.0) break;                     // the ground ray found nothing: open
+            float3 sdn = normalize(_SunDir);
+            int3 en = ShadowEntryNormal(tv + tn, td, sky.hitV, sky.hitT);
+            if (sdn.y <= 0.0 || (en.x == 0 && en.y == 0 && en.z == 0)) { fillSample = 0.0; break; }
+            tv = sky.hitV; tn = en; td = sdn;               // one bounce: is the ground it landed on in sun?
+        }
+    }
+#ifdef VE_SHELL_DIAG
+    // Task 244: band = the face's camera distance (both callers: the primary kernel's orphans, CSSkyFillTraceDiag's blocks).
+    if (RAY_STATS_ON)
+        RayStatsAdd(2u, RayStatsBand(length((float3)voxel + 0.5 - _CameraPos * 10.0)), rsSteps, rsSteps, fillSample <= 0.0, rsLeaf, rsFol, 0u);
+#endif
+    return fillSample;
+}
+
+// One half's running mean (SkyFillReference.Fold): 12-bit value, 4-bit count (samples so far, capped 15).
+void SkyFillFold(inout float v, inout uint c, float sample)
+{
+    uint n = min(c + 1u, 16u);
+    v += (sample - v) / (float)n;
+    v = (float)(uint)round(saturate(v) * 4095.0) / 4095.0;
+    c = min(n, 15u);
+}
+
+// The face's openness from the two halves (SkyFillReference.Open). A half with no sample yet takes
+// the other's value.
+float SkyFillOpen(int3 n, float s, uint cs, float b, uint cb)
+{
+    if (_SkyFill != 2) return s;
+    if (cs == 0u) s = b;
+    if (cb == 0u) b = s;
+    float3 nf = (float3)n;
+#ifdef VE_FAR_SHADE
+    const float3 LW = float3(0.2126, 0.7152, 0.0722);
+    float ws = dot(FarShadeSky(nf), LW);
+    float wb = dot(CubeBounceLight(nf, normalize(_SunDir)), LW);
+#else
+    float ws = 0.5 + 0.5 * nf.y, wb = 0.5 - 0.5 * nf.y;
+#endif
+    float w = ws + wb;
+    return w > 1e-6 ? (ws * s + wb * b) / w : (n.y > 0 ? s : b);
+}
+
 // What lies behind the fluid, lit with the light that got through it (lightT):
 // the far band's combine (no AO, no point lights), then haze at its own
 // distance, grade and the output transform -- the same space `color` is in.
@@ -4010,7 +4876,7 @@ float3 SeeBehindColour(uint m, int3 v, float3 nF, float sunVisB, float skyVisB, 
     {
         float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
         float softened = lerp(0.4, 1.0, saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2);
-        float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVisB);
+        float skyOpen = LookSkyOpen(skyVisB);   // task 225
         float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVisB);
         float3 direct = _LookSun.rgb * saturate(dot(nF, sd) * 0.8 + 0.2) * sunExposure * softened
                       + _LookMoon.rgb * saturate(dot(nF, -sd) * 0.8 + 0.2) * softened * skyOpen;
@@ -4065,6 +4931,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // (0.185%), and at 1920x1080 both dimensions divide by 8 exactly (0.000%).
     bool inBounds = (id.x < width && id.y < height);
     uint lane = gtid.y * 8u + gtid.x;
+#ifdef VE_SHELL_DIAG
+    // Task 244: one frame = one pass-1 (or one-pass) dispatch of this kernel.
+    if (RAY_STATS_ON && tid.x == 0u && tid.y == 0u && _ShellPrepass != 2) InterlockedAdd(RayStats[0], 1u);
+#endif
 #ifdef VE_FAR_SHADE
     // TASK 132 (R1, the shell pre-pass; see ShellPre): pass 2 runs only the groups pass 1 handed
     // over (a group-uniform return: no lane of a returned group reaches a barrier). Out-of-bounds
@@ -4634,6 +5504,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
+    // TASK 194: THE REFUSED-CHUNK HAND-OVER. A chunk the full GPU body pool refused is held as AIR in
+    // tier 0 and its column is non-resident (FarField.UpdateResidency), so that the shells draw it
+    // (TerrainClipmap.GpuPool.cs, FULL POOL). But tier 0 still holds the rest of the column (the uniform
+    // rock under a surface chunk needs no body) and the columns around it: a ray through the refused
+    // chunk's air hit the rock below or a neighbour's side -- a 12.8 m box PIT (191's town shots). So a
+    // tier-0 hit past the ray's entry into a column with a REFUSED chunk is not tier 0's: its march ends
+    // at that entry (ColumnWalkT, FarStartT's DDA over the refused bits), and the shell march below takes
+    // over from there (t >= tTier0: shell k by distance, which stores the chunk unless it lies in shell
+    // 1's hole). Refused columns only: a column non-resident because it is still streaming stays tier 0's
+    // (as before) -- near the camera those lie in shell 1's hole, where no shell holds anything.
+    // Tier0HandOverReference is the CPU twin. Only while chunks are refused; else nothing runs.
+    if (_Tier0Refused != 0 && hit && passMat == 0u && _ShellCount > 1)
+    {
+        float tRes = ColumnWalkT(rayStart, rayDir, tVoxelLimit, true);
+        if (tRes < tVoxelLimit) { hit = false; currentDist = tRes; tVoxelLimit = tRes; }
+    }
 #ifdef VE_FAR_SHADE
     // TASK 132 (R1): pass 1 hands the group over when any lane would run the shell march below
     // (the same condition), and returns; pass 2 draws the group (see ShellPre).
@@ -4719,7 +5605,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // so the one-pass march is dead; the diet-2 kernel runs only with the pre-pass (KernelDiet2Rule.Settings + the caller).
         { shr = (ShellHit)0; shr.end = SHELL_END_CAP; shr.t = tTier0; shr.shell = -1; }
 #else
-        shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
+        shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true), SUN_COARSE_NEVER);
 #endif
 #ifdef VE_SHELL_DIAG
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
@@ -4883,7 +5769,20 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // =======================================================================
 
     float sunVis = 0.0;
+#ifdef VE_SHELL_DIAG
+    // Task 244: this pixel's sun ray this frame (tier-0 TraceShadowRay + task 133's shell continuation, task 80's shell-hit
+    // ray, the far band's sun ray): traced at all, its steps, of them tier 0, blocked, blocked by a tier-0 leaf voxel.
+    bool rsSun = false, rsSunBlk = false, rsSunLeaf = false, rsSunFol = false;
+    uint rsSunSteps = 0u, rsSunT0 = 0u;
+#endif
     float skyVis = 1.0;
+    SkyRec skyRec = SkyRecNone();   // task 193: this pixel's sky-fill record (none); task 227: 12 B, carries the face
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+    // Task 225 (DIAGNOSTIC, capture only): SHADE TERMS views 15-18 (ShadeProbeColor). -1 = not recorded.
+    float spS = -1.0, spB = -1.0;                       // the sky-fill halves (history means after this frame)
+    float4 spL = float4(-1.0, -1.0, -1.0, -1.0);        // lumas: albedo, direct, ambient, VAO
+    float4 spL2 = float4(-1.0, -1.0, -1.0, -1.0);       // lumas: point lights, lit; x = skyOpen
+#endif
     int shadowSteps = 0;
 
     // §6.5's night rule and rung 3, evaluated once and shared by every branch
@@ -4938,7 +5837,24 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // gsAnyShadowNeeded is now GROUP-UNIFORM, so this branch is scalar: a group
     // that is entirely sky skips instantiating the shadow path altogether,
     // which is the behaviour §6.5 asks for.
-    if (gsAnyShadowNeeded != 0u)
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+    // TASK 232: LOW-RES SUN (see that block). This face's record (its own, or an agreeing same-plane prior), else
+    // the exact ray inline (SunTraceFace: the tier-0 ray + task 133's continuation, or the shell-hit ray). The
+    // reuse / temporal block below and the shell-hit march are skipped (_SunLow is uniform: barriers stay uniform).
+    SunRec sunLowRec = SunRecNone();
+    if (SUN_LOW_ON && needsShadowRay)
+    {
+        uint slShell = shellAtHit > 0 ? SUN_REC_SHELL : 0u;
+        float slVis = 1.0;
+        uint slFlags = 0u;
+        uint slKind = SunHistFetch(ShadowOriginKey(voxel + normal), voxel, normal, SunShareT(voxel),
+                                   rayStart + rayDir * currentDist, width, height, slVis, slFlags);
+        if (slKind == 0u) { slVis = SunTraceFace(voxel, normal, slShell); slFlags = 0u; }
+        sunVis = slVis;
+        sunLowRec = SunRecMake(slVis, voxel, normal, slFlags | slShell);
+    }
+#endif
+    if (gsAnyShadowNeeded != 0u && !SUN_LOW_ON)
     {
         // §6.5 rung 1: "shadow rays beyond LOD1 drop to half resolution with
         // NEIGHBOUR REUSE (near shadows, the ones by the player, untouched)."
@@ -5039,8 +5955,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                         int2 pp = probes[q];
                         if (!histHit && pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
                         {
-                            uint2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                            if (hv.y == shadowKey) { histHit = true; histVis = asfloat(hv.x); }
+                            SunRec hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];   // task 232: 12 B; this path keeps the key in .a
+                            if (hv.a == shadowKey) { histHit = true; histVis = asfloat(hv.v); }
                         }
                     }
                 }
@@ -5064,7 +5980,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
         bool sunRoof = true;
 #endif
-        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof);
+        // Task 228: a far receiver's ray goes coarse above its climb guard (SunCoarseY); near receivers stay exact.
+        int sunCoarseY0 = SunCoarseY(currentDist, voxel.y + normal.y, 0);
+        sh.fol = false;
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof, sunCoarseY0, true);
 #ifdef VE_FAR_SHADE
         // TASK 133 (see _NearShadowShells): a tier-0 sun ray that left the window or the band ceiling
         // unblocked goes on through the shells from where it left, as a shell hit's sun ray does
@@ -5077,8 +5996,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // Task 168c: blocked -> 0, else sh.sunVis stays: the same march in CSSunDeferLean.
             sdPending = true; sdStart = nso; sdT0 = sh.exitT;
 #else
-            ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+            ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),
+                                     SunCoarseY(currentDist, voxel.y + normal.y, 1));   // task 228
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
+#ifdef VE_SHELL_DIAG
+            if (RAY_STATS_ON) { rsSunSteps += (uint)ns.iters; if (ns.end == SHELL_END_HIT) rsSunBlk = true; if (ns.end == SHELL_END_HIT && ns.mat == 0u) rsSunFol = true; }   // task 244 / 245
+#endif
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
             if (SHADOW_STATS_ON)
             {
@@ -5116,6 +6039,20 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // say so. Same instrument-before-guessing that settled rung 1 (§F.1).
             if (traceMine) InterlockedAdd(ShadowStats[4], (uint)sh.steps);
         }
+#ifdef VE_SHELL_DIAG
+        // Task 244: the tier-0 sun ray (its continuation's iterations were added above).
+        if (RAY_STATS_ON && traceMine)
+        {
+            rsSun = true;
+            rsSunSteps += (uint)sh.steps; rsSunT0 += (uint)sh.steps;
+            if (sh.fol) rsSunFol = true;   // task 245
+            if (sh.hitT >= 0.0)
+            {
+                rsSunBlk = true;
+                rsSunLeaf = RayStatsLeaf(VoxelMaterialAt(sh.hitV, _WindowDimsBricks));
+            }
+        }
+#endif
     }
 
     // When shadows are OFF (rung 3), §6.5 says "sun becomes a flat N.L term
@@ -5129,7 +6066,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // 8.14 shells (task 80): a shell hit's sun ray marches the shells (the
     // tier-0 ray above left the window at once). Starts just off the hit face;
     // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
-    if (shellAtHit > 0 && needsShadowRay
+    if (shellAtHit > 0 && needsShadowRay && !SUN_LOW_ON   // task 232: the low path traced (or reused) it above
 #ifdef VE_SHELL_DIAG
         && (_DebugShellSkip & 1) == 0   // task 93b4: the shellshadow_off arm
 #endif
@@ -5141,20 +6078,32 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         sdPending = true; sdStart = so; sdT0 = 0.0;
         sunVis = 1.0;
 #else
-        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),
+                                 SunCoarseY(currentDist, (int)floor(so.y), shellAtHit));   // task 228
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
 #endif
 #if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
         // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
         if (SHADOW_STATS_ON) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
 #endif
+#ifdef VE_SHELL_DIAG
+        if (RAY_STATS_ON) { rsSun = true; rsSunSteps += (uint)ss.iters; if (ss.end == SHELL_END_HIT) rsSunBlk = true; if (ss.end == SHELL_END_HIT && ss.mat == 0u) rsSunFol = true; }   // task 244 / 245
+#endif
     }
 
     // Temporal reuse: every pixel records what it used, for the next frame.
+    // Task 232: the record is a SunRec; this (task 56) path keeps {asuint(sunVis), key, 0} as the uint2 was.
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
+    if (SUN_LOW_ON && inBounds) ShadowHistW[id.y * width + id.x] = sunLowRec;
+    else
+#endif
     if (_TemporalShadows != 0 && inBounds)
-        ShadowHistW[id.y * width + id.x] = needsShadowRay
-            ? uint2(asuint(sunVis), ShadowOriginKey(voxel + normal))
-            : uint2(0u, 0xFFFFFFFFu);
+    {
+        SunRec tr;
+        tr.v = 0u; tr.a = 0xFFFFFFFFu; tr.b = 0u;
+        if (needsShadowRay) { tr.v = asuint(sunVis); tr.a = ShadowOriginKey(voxel + normal); }
+        ShadowHistW[id.y * width + id.x] = tr;
+    }
 
     // -----------------------------------------------------------------------
     // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")
@@ -5186,10 +6135,76 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         //
         // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
         // ring buffer, or the dump would describe the wrong ray.
-        ShadowHit sky = TraceShadowRay(voxel, normal, SkyProbeDir(normal, rayDir),   // task 138: tilted when _SkyProbeTilt
-                                       _WindowDimsBricks, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
-        skyVis = sky.sunVis;
+        //
+        // Task 193 (`-skyfill`, see SKY FILL): the same call site, one direction per frame over the face's
+        // hemisphere; a ground-half ray (mode 2) takes a second leg, the sun ray from where it landed.
+        float3 probeDir = SkyProbeDir(normal, rayDir);   // task 138: tilted when _SkyProbeTilt
+        uint fillKey = 0u, fillHalf = 0u;
+        bool fillTrace = true;
+        if (_SkyFill != 0)
+        {
+            fillKey = ShadowOriginKey(voxel + normal);
+            fillHalf = SkyFillHalf(normal, (uint)_SkyFrame);
+            fillTrace = !(_SkyFill == 1 && normal.y < 0);   // mode 1: a down face has no sky half (0, as before)
+            probeDir = SkyFillDirection(normal, SkyFillHash(fillKey), (uint)_SkyFrame, fillHalf);
+        }
+        // Task 227: the history first. With the low-res path (_SkyFillLow) a face that has one is NOT traced here:
+        // CSSkyFillTrace folds this frame's sample in after the primary passes (see LOW-RES SKY FILL). A face with
+        // none takes a compatible neighbour's record (hk 2), and only with neither is it traced here (an orphan).
+        SkyRec hv = SkyRecNone();
+        float hs = 0.0, hb = 0.0;
+        uint cs = 0u, cb = 0u;
+        if (_SkyFill != 0)
+        {
+            uint hk = SkyHistFetch(fillKey, voxel, normal, _SkyFillLow != 0 ? SkyShareT(voxel, 2.0) : 0.0,
+                                   rayStart + rayDir * currentDist, width, height, hv);
+            if (hk != 0u)
+            {
+                hs = (float)(hv.v & 0xFFFu) / 4095.0;
+                hb = (float)((hv.v >> 12) & 0xFFFu) / 4095.0;
+                cs = (hv.v >> 24) & 0xFu;
+                cb = (hv.v >> 28) & 0xFu;
+                if (hk == 2u) { cs = min(cs, SKY_PRIOR_N); cb = min(cb, SKY_PRIOR_N); }
+            }
+        }
+        bool traceHere = fillTrace && (_SkyFill == 0 || _SkyFillLow == 0 || (cs == 0u && cb == 0u));
+        float fillSample = 0.0;
+        if (traceHere) fillSample = SkyFillTraceSample(voxel, normal, probeDir, fillHalf);
+        skyVis = fillSample;
+        if (_SkyFill != 0)
+        {
+            if (traceHere)
+            {
+                if (fillHalf == 0u) SkyFillFold(hs, cs, fillSample);
+                else                SkyFillFold(hb, cb, fillSample);
+            }
+            if (fillTrace)
+            {
+                uint2 face = SkyReqPack(voxel, normal);
+                skyRec.v = (uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28);
+                skyRec.a = face.x; skyRec.b = face.y;
+            }
+            skyVis = fillTrace ? SkyFillOpen(normal, hs, cs, hb, cb) : 0.0;
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+            spS = cs > 0u ? hs : -1.0; spB = cb > 0u ? hb : -1.0;   // task 225 probe
+#endif
+        }
     }
+    // Task 193: every pixel writes its record (none when it has no tier-0 sky fill), so a stale one
+    // never outlives a frame.
+    if (_SkyFill != 0 && inBounds) SkyHistW[id.y * width + id.x] = skyRec;
+#ifdef VE_SHELL_DIAG
+    // Task 244: this pixel's primary ray (tier-0 march + shell iterations + far-band steps) and its sun ray, once per frame
+    // (a handed-over group reaches here in pass 2 only). Band: the hit's camera distance; no hit / far band = band 3.
+    if (RAY_STATS_ON && inBounds)
+    {
+        InterlockedAdd(RayStats[1], 1u);
+        uint rsBand = hit ? RayStatsBand(currentDist) : 3u;
+        RayStatsAdd(0u, rsBand, (uint)steps + (uint)dbgShellIters + (uint)fh.steps, (uint)steps, hit, hit && RayStatsLeaf(mat), false, hit ? RayStatsMatClass(mat) : 0u);
+        if (farShadowSteps > 0) { rsSun = true; rsSunSteps += (uint)farShadowSteps; if (farSunVis <= 0.0) rsSunBlk = true; }
+        if (rsSun) RayStatsAdd(1u, rsBand, rsSunSteps, rsSunT0, rsSunBlk, rsSunLeaf, rsSunFol, 0u);
+    }
+#endif
 
     // §10.4's scalar record for the shadow path, alongside the ring buffer the
     // trace filled. Written unconditionally for the debug pixel so a dump
@@ -5392,7 +6407,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #endif
     float4 color = _SkyColor;
     float3 upsDynRgb = float3(0.0, 0.0, 0.0);   // task 174: the dynamic light's share of `lit` (TaaDynW)
-    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);
+    if (_Look == 1 && _UseDevColors != 0)
+    {
+        float3 skyBg = LookSkyBackground(rayDir);
+        if (!hit && !farHit) skyBg = SkyClouds(rayDir, skyBg);   // task 233: sky pixels only
+        color = float4(LookToLinear(LookShoulder(skyBg, _LookGrade.z)), 1.0);
+    }
     // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
     bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
     float riverFoam = 0.0;   // task 76: foam on a river top face (near or far)
@@ -5413,6 +6433,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
             float3 baseColor = LookAlbedo(lm, voxel);
 #endif
+            if ((_LotlLook & 1) != 0 && !selfLit && MaterialEmissive(lm) <= 0.0 && !MaterialIsClearFluid(RiverLipAsWater(lm)))
+            {   // task 226 bit 0: per-voxel colour (the drawn cell's hash, as LookAlbedo's)
+#ifdef VE_FAR_SHADE
+                float vpa = max(_ShellPixelAngle, 1e-6);
+                baseColor *= LotlVoxelVary(lm, _CellHash != 0 ? (voxel >> cellShift) << cellShift : voxel,
+                                           1.0 - smoothstep(0.25 / vpa, 0.5 / vpa, currentDist));   // 4 px -> 2 px
+#else
+                baseColor *= LotlVoxelVary(lm, voxel, 1.0);
+#endif
+            }
             if (_RiverLook != 0 && lm == 6u && passMat == 0u && normal.y > 0)   // task 76: flow and foam
             {
                 float rb;
@@ -5429,7 +6459,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float cubeW = 0.0;
             if (_CubeFilter != 0)
             {
-                if (!selfLit) cubeW = CubeFilterWeight(rayStart + rayDir * currentDist, currentDist, lm, nSlope);
+                if (!selfLit)
+                {
+                    if (_DashFix != 0)   // task 205: sky-open hits keep the filtered light past the bracket test
+                        cubeW = CubeFilterWeightOpen(rayStart + rayDir * currentDist, currentDist, lm,
+                                                     (normal.y > 0 || (_DashFix == 1 && normal.y == 0)) ? skyVis : 0.0, nSlope);
+                    else
+                        cubeW = CubeFilterWeight(rayStart + rayDir * currentDist, currentDist, lm, nSlope);
+                }
                 if (cubeW > 0.0) nF = normalize(lerp(nF, nSlope, cubeW));
             }
             else if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);
@@ -5445,7 +6482,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // terrace contours. skyOpen keeps sealed caves dark: with no sky
             // visibility the shadow floor collapses to the underground floor.
             float sunLight = saturate(dot(nF, sd) * 0.8 + 0.2);
-            float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVis);
+            float skyOpen = LookSkyOpen(skyVis);   // task 225: the share in linear light
             float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVis);
             float3 direct = _LookSun.rgb * sunLight * sunExposure * softened;
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
@@ -5482,6 +6519,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
 #endif
+            if ((_LotlLook & 2) != 0)   // task 226 bit 1: crevices also shade the direct light
+            {
+#ifdef VE_FAR_SHADE
+                direct *= lerp(1.0, lerp(vao, 1.0, aoFade), _LotlParams.z);
+#else
+                direct *= lerp(1.0, vao, _LotlParams.z);
+#endif
+            }
 
             float3 hitPosM = hitP * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
@@ -5541,6 +6586,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                               : baseColor * faceLight;
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
                 if (!selfLit) upsDynRgb = baseColor * pointTerm;   // task 174
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+                {   // task 225 probe: the look-1 terms, lumas
+                    const float3 LW5 = float3(0.2126, 0.7152, 0.0722);
+                    spL = float4(dot(baseColor, LW5), dot(direct * _LookGrade.x, LW5), dot(ambient * _LookGrade.x, LW5), vao);
+                    spL2 = float4(skyOpen, dot(pointTerm, LW5), dot(lit, LW5), 0.0);
+                }
+#endif
 #ifdef VE_FAR_SHADE
                 lightAdd = MaterialEmissiveTint(lm) * MaterialEmissive(lm);
                 if (!selfLit)   // the point lights' share of faceLight
@@ -5952,10 +7004,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // without a motion vector: track its whole displayed colour (LookToLinear's pow 2.2 undone).
             // Any other surface: only the dynamic light, so still terrain stays exactly 0 change.
             bool wholePx = passMat != 0u || (hit && (MaterialIsClearFluid(mat) || MaterialIsSelfLit(mat) || MaterialEmissive(mat) > 0.0));
-            float3 dv = wholePx ? pow(saturate(color.rgb), 1.0 / 2.2) : saturate(upsDynRgb);
+            float3 dv = wholePx ? LookToDisplay(color.rgb) : saturate(upsDynRgb);
             TaaDynW[pi] = dot(dv, float3(0.299, 0.587, 0.114)) * 255.0;
         }
     }
+    if (_Look == 1 && _UseDevColors != 0) color.rgb = Grade233(color.rgb, id.xy, width, height);   // task 233
     // -shellsdebug (task 80): each pixel tinted by what drew it -- tier 0 blue,
     // shells 1.. green/yellow/orange/red/magenta/cyan/white, far band grey.
     if (_ShellTint != 0 && _ShellCount > 1 && (hit || farHit))
@@ -5963,6 +7016,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float tintLum = dot(color.rgb, float3(0.299, 0.587, 0.114));
         color.rgb = lerp(color.rgb, (hit ? ShellTintColor(shellAtHit) : float3(0.5, 0.5, 0.5)) * (0.35 + 0.65 * tintLum), 0.6);
     }
+#if defined(VE_FAR_SHADE) && !defined(VE_DIET2)
+    if (_DebugMode >= 15 && _DebugMode <= 18)   // task 225: SHADE TERMS (capture only)
+        color = ShadeProbeColor(_DebugMode, id.xy, hit, mat, normal, shellAtHit, skyVis, sunVis, spS, spB, spL, spL2, color.rgb);
+#endif
 #ifdef VE_SUNDEFER
     if (sdPass != 0u) { if (inBounds) SunDeferB[id.xy] = color; } else   // task 168c: the blocked outcome
 #endif
@@ -6044,11 +7101,146 @@ void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
     ShellPre[idx].e = 0u;
     float3 rayStart = _CameraPos * 10.0;
     float3 so = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
-    ShellHit ss = ShellMarch(so, normalize(_SunDir), asfloat(q.d), true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+    ShellHit ss = ShellMarch(so, normalize(_SunDir), asfloat(q.d), true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false), SUN_COARSE_NEVER);
     if (ss.end == SHELL_END_HIT)
     {
         ResultTexture[tid.xy] = SunDeferB[tid.xy];
-        if (_TemporalShadows != 0) ShadowHistW[idx].x = asuint(0.0);
+        if (_TemporalShadows != 0) ShadowHistW[idx].v = asuint(0.0);
+    }
+#endif
+}
+
+// TASK 227: LOW-RES SKY FILL's trace pass. One thread per B x B block (B = 2 << (_SkyFillLow - 1)): it picks one
+// face of the block (the first record with a face, scanning from a slot that rotates every 2 frames and differs per
+// block), traces that face's sample exactly as the inline path would (SkyFillTraceSample, its seed, this frame's
+// half and direction) and folds it into every record of the block that shows the same face plane (SkyShareBad 0).
+// Single writer: each record belongs to one block. Runs after both primary passes, so every record is this frame's.
+// Task 244: the body is shared with CSSkyFillTraceDiag (VE_SHELL_DIAG: + the RayStats sky counters, -raystats 1 only).
+void SkyFillTraceBody(uint3 tid)
+{
+#ifdef VE_SKYFILL_TRACE
+    uint width = (uint)_SkyLowParams.x, height = (uint)_SkyLowParams.y;
+    uint bs = (uint)clamp(_SkyFillLow, 1, 2);
+    uint bw = 1u << bs, nPix = bw * bw;
+    uint2 o = tid.xy << bs;
+    if (o.x >= width || o.y >= height || _SkyFill == 0) return;   // no barrier in this kernel
+    uint frame = (uint)_SkyFrame;
+    uint start = ((frame >> 1) + SkyFillHash(tid.x * 0x9E3779B1u ^ tid.y)) & (nPix - 1u);
+    SkyRec rep = SkyRecNone();
+    [loop]
+    for (uint k = 0u; k < nPix; k++)
+    {
+        uint j = (start + k) & (nPix - 1u);
+        uint2 p = o + uint2(j & (bw - 1u), j >> bs);
+        if (rep.b == SKY_REQ_NONE && p.x < width && p.y < height)
+        {
+            SkyRec r = SkyHistW[p.y * width + p.x];
+            if (r.b != SKY_REQ_NONE) rep = r;
+        }
+    }
+    if (rep.b == SKY_REQ_NONE) return;
+    int3 v, n;
+    SkyReqUnpack(rep.a, rep.b, v, n);
+    uint key = ShadowOriginKey(v + n);
+    uint hf = SkyFillHalf(n, frame);
+    float smp = SkyFillTraceSample(v, n, SkyFillDirection(n, SkyFillHash(key), frame, hf), hf);
+    float shareT = SkyShareT(v, (float)bw);
+    [loop]
+    for (uint k2 = 0u; k2 < nPix; k2++)
+    {
+        uint2 p = o + uint2(k2 & (bw - 1u), k2 >> bs);
+        if (p.x < width && p.y < height)
+        {
+            uint idx = p.y * width + p.x;
+            SkyRec r = SkyHistW[idx];
+            if (r.b != SKY_REQ_NONE)
+            {
+                int3 rv, rn;
+                SkyReqUnpack(r.a, r.b, rv, rn);
+                if (SkyShareBad(v, n, rv, rn, shareT) == 0)
+                {
+                    float hs = (float)(r.v & 0xFFFu) / 4095.0, hb = (float)((r.v >> 12) & 0xFFFu) / 4095.0;
+                    uint cs = (r.v >> 24) & 0xFu, cb = (r.v >> 28) & 0xFu;
+                    if (hf == 0u) SkyFillFold(hs, cs, smp);
+                    else          SkyFillFold(hb, cb, smp);
+                    SkyHistW[idx].v = (uint)round(hs * 4095.0) | ((uint)round(hb * 4095.0) << 12) | (cs << 24) | (cb << 28);
+                }
+            }
+        }
+    }
+#endif
+}
+
+[numthreads(8, 8, 1)]
+void CSSkyFillTrace(uint3 tid : SV_DispatchThreadID) { SkyFillTraceBody(tid); }
+[numthreads(8, 8, 1)]
+void CSSkyFillTraceDiag(uint3 tid : SV_DispatchThreadID) { SkyFillTraceBody(tid); }
+
+// TASK 232: LOW-RES SUN's trace pass. One thread per B x B block (B = 2 << (_SunLow - 1)). It picks one record of the
+// block: on even frames the first PRIOR one (a value borrowed from neighbours: check it), else / otherwise the first with
+// a face, scanning from a slot that rotates every 2 frames and differs per block. It traces that face's ray exactly
+// (SunTraceFace) and writes the value into every record of the block with the SAME face (same voxel, normal and shell
+// flag: the same ray), flags cleared. If the face held a prior that was wrong (off by > SUN_AGREE), the block's other
+// priors on that face plane (SkyShareBad 0) are dropped, so next frame they trace inline instead of guessing.
+// Single writer: each record belongs to one block. Runs after both primary passes, so every record is this frame's.
+// No bool selects in shared expressions (task 227's Metal bug): plain ifs on uint. CPU twin SunLowReference.Pick.
+[numthreads(8, 8, 1)]
+void CSSunTrace(uint3 tid : SV_DispatchThreadID)
+{
+#ifdef VE_SUN_TRACE
+    uint width = (uint)_SunLowParams.x, height = (uint)_SunLowParams.y;
+    uint bs = (uint)clamp(_SunLow, 1, 2);
+    uint bw = 1u << bs, nPix = bw * bw;
+    uint2 o = tid.xy << bs;
+    if (o.x >= width || o.y >= height || _SunLow == 0) return;   // no barrier in this kernel
+    uint frame = (uint)_ShadowFrame;
+    uint start = ((frame >> 1) + SkyFillHash(tid.x * 0x9E3779B1u ^ tid.y)) & (nPix - 1u);
+    uint wantPrior = (frame & 1u) == 0u ? 1u : 0u;
+    SunRec rep = SunRecNone(), repP = SunRecNone();
+    [loop]
+    for (uint k = 0u; k < nPix; k++)
+    {
+        uint j = (start + k) & (nPix - 1u);
+        uint2 p = o + uint2(j & (bw - 1u), j >> bs);
+        if (p.x < width && p.y < height)
+        {
+            SunRec r = ShadowHistW[p.y * width + p.x];
+            if (r.b != SKY_REQ_NONE)
+            {
+                if (rep.b == SKY_REQ_NONE) rep = r;
+                if (repP.b == SKY_REQ_NONE && (r.v & SUN_REC_PRIOR) != 0u) repP = r;
+            }
+        }
+    }
+    if (wantPrior != 0u && repP.b != SKY_REQ_NONE) rep = repP;
+    if (rep.b == SKY_REQ_NONE) return;
+    int3 v, n;
+    SkyReqUnpack(rep.a, rep.b, v, n);
+    uint shellF = rep.v & SUN_REC_SHELL;
+    float vis = SunTraceFace(v, n, shellF);
+    uint priorBad = 0u;
+    if ((rep.v & SUN_REC_PRIOR) != 0u && abs(asfloat(rep.v & SUN_REC_VIS) - vis) > SUN_AGREE) priorBad = 1u;
+    SunRec traced = SunRecMake(vis, v, n, shellF);
+    float shareT = SunShareT(v);
+    [loop]
+    for (uint k2 = 0u; k2 < nPix; k2++)
+    {
+        uint2 p = o + uint2(k2 & (bw - 1u), k2 >> bs);
+        if (p.x < width && p.y < height)
+        {
+            uint idx = p.y * width + p.x;
+            SunRec r = ShadowHistW[idx];
+            if (r.b != SKY_REQ_NONE)
+            {
+                if (r.a == rep.a && r.b == rep.b && (r.v & SUN_REC_SHELL) == shellF) ShadowHistW[idx] = traced;
+                else if (priorBad != 0u && (r.v & SUN_REC_PRIOR) != 0u)
+                {
+                    int3 rv, rn;
+                    SkyReqUnpack(r.a, r.b, rv, rn);
+                    if (SkyShareBad(v, n, rv, rn, shareT) == 0) ShadowHistW[idx] = SunRecNone();
+                }
+            }
+        }
     }
 #endif
 }
@@ -6109,13 +7301,13 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
         rayDir.z = abs(rayDir.z) < 1e-6 ? (rayDir.z >= 0 ? 1e-6 : -1e-6) : rayDir.z;
         float3 rayStart = _CameraPos * 10.0;
         int skyY = ShellSkyY(true);
-        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, skyY);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, skyY, SUN_COARSE_NEVER);
         uint keep = shr.mat + (uint)shr.end + (uint)shr.shell + (uint)shr.iters + (shr.inside ? 1u : 0u)
                   + (uint)(shr.voxel.x ^ shr.voxel.y ^ shr.voxel.z) + (uint)(shr.normal.x + 3 * shr.normal.y + 9 * shr.normal.z);
         float outT = shr.t;
         if ((_DebugShellSkip & 64) != 0)
         {
-            ShellHit sh2 = ShellMarch(rayStart, rayDir, salt, false, rayStart, _ShellIterCap, tTier0 + salt, skyY);
+            ShellHit sh2 = ShellMarch(rayStart, rayDir, salt, false, rayStart, _ShellIterCap, tTier0 + salt, skyY, SUN_COARSE_NEVER);
             keep += sh2.mat + (uint)sh2.end + (uint)sh2.shell + (uint)sh2.iters + (sh2.inside ? 1u : 0u)
                   + (uint)(sh2.voxel.x ^ sh2.voxel.y ^ sh2.voxel.z) + (uint)(sh2.normal.x + 3 * sh2.normal.y + 9 * sh2.normal.z);
             outT = min(outT, sh2.t);
@@ -6187,7 +7379,7 @@ void ShellPrepassBody(uint3 tid)
     if ((q.e & 3u) != 2u) return;
     float3 rayDir = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
     float3 rayStart = _CameraPos * 10.0;
-    ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, asfloat(q.d), ShellSkyY(true));
+    ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, asfloat(q.d), ShellSkyY(true), SUN_COARSE_NEVER);
     q.a = asuint(shr.t); q.b = (uint)shr.voxel.x; q.c = (uint)shr.voxel.y; q.d = (uint)shr.voxel.z;
     q.e = ShellPrePack(shr);
     ShellPre[idx] = q;
@@ -6463,6 +7655,74 @@ void TaaSharpen(uint3 id : SV_DispatchThreadID)
     float3 lo = min(c, min(min(l, r), min(d, u)));
     float3 hi = max(c, max(max(l, r), max(d, u)));
     ResultTexture[id.xy] = float4(clamp(s, lo, hi), 1.0);
+}
+
+// ===========================================================================
+// TASK 226 (look, owner Q-AN): BLOOM. Three small kernels after the frame's last writer (the march, the
+// sun-defer pass or TAA) and before FSR 3, so it adds no pass at OUTPUT resolution:
+//   BloomDown  quarter-res (render w/4 x h/4): 16 loads per texel; each render pixel's bright share is
+//              smoothstep(t0, t1, its linear luma) -- thresholded per pixel BEFORE the average, so a 1-2 px torch
+//              head still blooms.
+//   BloomBlur  quarter-res, separable Gaussian (sigma _BloomParams.w texels, 2 * 3 sigma + 1 taps), run twice
+//              (x then y; BloomSrc -> BloomDst, the C# side swaps the two).
+//   BloomAdd   render res: one bilinear read of the blurred quarter image (4 loads), + strength x it, in linear.
+// The frame is LDR (the look saturates in LookToLinear), so what blooms is what is already near white: torch
+// heads, lava, the sky round the sun, bright snow / sand. GPU memory: two quarter-res half4 textures.
+// ===========================================================================
+RWTexture2D<float4> BloomSrc;
+RWTexture2D<float4> BloomDst;
+float4 _BloomParams;   // x t0, y t1 (linear luma), z strength, w blur sigma (quarter-res texels)
+int4   _BloomDims;     // x, y render size; z, w quarter size
+int2   _BloomDir;
+
+[numthreads(8, 8, 1)]
+void BloomDown(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.z || (int)id.y >= _BloomDims.w) return;
+    int2 hi = _BloomDims.xy - 1;
+    float3 s = float3(0.0, 0.0, 0.0);
+    [unroll] for (int y = 0; y < 4; y++)
+    [unroll] for (int x = 0; x < 4; x++)
+    {
+        float3 c = ResultTexture[min(int2(id.xy) * 4 + int2(x, y), hi)].rgb;
+        s += c * smoothstep(_BloomParams.x, _BloomParams.y, dot(c, float3(0.2126, 0.7152, 0.0722)));
+    }
+    BloomDst[id.xy] = float4(s * (1.0 / 16.0), 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void BloomBlur(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.z || (int)id.y >= _BloomDims.w) return;
+    int2 hi = _BloomDims.zw - 1;
+    float sig = max(_BloomParams.w, 0.5);
+    int r = min((int)ceil(3.0 * sig), 12);
+    float3 s = float3(0.0, 0.0, 0.0);
+    float wsum = 0.0;
+    for (int i = -r; i <= r; i++)
+    {
+        float w = exp(-0.5 * (i * i) / (sig * sig));
+        s += BloomSrc[clamp(int2(id.xy) + _BloomDir * i, int2(0, 0), hi)].rgb * w;
+        wsum += w;
+    }
+    BloomDst[id.xy] = float4(s / wsum, 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void BloomAdd(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _BloomDims.x || (int)id.y >= _BloomDims.y) return;
+    float2 q = (float2(id.xy) + 0.5) * 0.25 - 0.5;   // this pixel's centre in quarter-res texels
+    int2 q0 = (int2)floor(q);
+    float2 f = q - (float2)q0;
+    int2 hi = _BloomDims.zw - 1;
+    float3 b00 = BloomSrc[clamp(q0, int2(0, 0), hi)].rgb;
+    float3 b10 = BloomSrc[clamp(q0 + int2(1, 0), int2(0, 0), hi)].rgb;
+    float3 b01 = BloomSrc[clamp(q0 + int2(0, 1), int2(0, 0), hi)].rgb;
+    float3 b11 = BloomSrc[clamp(q0 + int2(1, 1), int2(0, 0), hi)].rgb;
+    float3 b = lerp(lerp(b00, b10, f.x), lerp(b01, b11, f.x), f.y);
+    float4 c = ResultTexture[id.xy];
+    ResultTexture[id.xy] = float4(c.rgb + _BloomParams.z * b, c.a);
 }
 
 // ===========================================================================

@@ -1,0 +1,34 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Task 205: white dashes in play, and the -dashfix flag</title>
+<style>body{margin:0;background:#111;color:#eee;font:15px -apple-system,Helvetica,sans-serif}
+#bar{padding:8px 12px;background:#222}#wrap{overflow:auto;height:calc(100vh - 90px)}
+img{display:block;image-rendering:pixelated}b{color:#ffcc55}#err{color:#f66}</style></head><body>
+<div id="bar"><b id="t"></b> <span id="err"></span><br><span id="c"></span><br>Keys: left/right = image, Z = zoom (fit width | 100 %)</div>
+<div id="wrap"><img id="im"></div>
+<script>
+const S=[
+{f:"205_forest_dashes_4x.png",c:"forest_breaks wall at ~165 m, box (1000,380), 4x. TOP-LEFT native: the row of white 1-px dashes along the bottom. TOP-RIGHT play (FSR 3 dyn): the dashes become a faint light line, still there. BOTTOM-LEFT -dashfix 2 native, BOTTOM-RIGHT -dashfix 2 in play: the line is gone; the dark recesses, the green specks and the white snow blocks (real) are unchanged."},
+{f:"205_snow_dashes_4x.png",c:"cliff_snow ledge at ~150 m, box (288,810), 4x. TOP-LEFT native: the white dashed band of ledge treads. TOP-RIGHT play: a soft bright streak instead (still visible). BOTTOM: -dashfix 2 native / play: the band is gone, the ledge reads as wall (a faint dotted line at native). The black cave and the dark shadowed wall are unchanged."},
+{f:"205_trees_4x.png",c:"Overhang pose, broadleaf crowns at ~60-90 m, box (48,675), 4x: the CHANGED region of the fix. TOP-LEFT native: bright tread stripes across the crowns (the same dashes, on leaves). TOP-RIGHT -dashfix 2: stripes gone, crowns a little darker and more even. BOTTOM-LEFT -dashfix 1: crowns flattened into a camouflage pattern (why mode 1 is not recommended). BOTTOM-RIGHT -dashfix 2 in play."},
+{f:"205_diff_overhang_df2.png",c:"Where -dashfix 2 changes the overhang frame (native OFF vs ON): red = brighter, blue = darker. Look at the tree crowns (blue, darker) and the far cliff top-right (treads on the far wall); the arches' undersides and the ground keep their light. 4.4 % of pixels."},
+{f:"205_diff_overhang_df1.png",c:"The same for -dashfix 1: every tree turns red (brighter, flattened) and the cliff top-right changes more. 7.4 % of pixels."},
+{f:"205_diff_forest_df2.png",c:"forest_breaks, -dashfix 2 vs OFF: only the ledge lines on the wall (blue streaks) and the pine crowns change; 0.42 % of pixels. (OFF frame from launch 3: launch 4's OFF shot caught a loading shell.)"},
+{f:"205_diff_snow_df2.png",c:"cliff_snow, -dashfix 2 vs OFF: the two ledge bands (blue streaks, left and bottom-right) change. The red patch at the far left is streaming (the distant snow layout shifts between shots), not the fix. 1.05 %."},
+{f:"205_snow_sideface_df1_4x.png",c:"A changed SIDE face under -dashfix 1 (launch 3, cliff_snow): RIGHT shows a new pale vertical stripe on the wall that is not in the native frame (LEFT). Mode 2 leaves side faces alone and has no such stripe."},
+{f:"205_cave_3x.png",c:"cave_mouth at 25 m, 3x: LEFT native, MIDDLE -dashfix 2, RIGHT -dashfix 1. The black cave opening at the bottom is unchanged in all three (sky-closed: face light kept). Trees appearing on the far ridge are streaming between shots, not the fix."},
+{f:"205_diff_cave_df2.png",c:"cave_mouth, -dashfix 2 vs OFF: 0.16 % changed, cacti tops and the far ridge only; nothing in the cave."},
+{f:"205_forest_plainwall_4x.png",c:"forest_breaks box (600,630), a wall where the bracket test already holds: native LEFT vs -dashfix 2 RIGHT look the same (no dashes before, none after)."},
+{f:"205_fixed_forest_breaks_native.png",c:"forest_breaks full frame, native (OFF). Dash lines: the upper wall right of the waterfall and the ledge lines."},
+{f:"205_fixed_forest_breaks_play.png",c:"forest_breaks full frame in play (FSR 3 dyn, OFF): the ledge lines are softer but still read as light lines."},
+{f:"205_cliff_snow_native.png",c:"cliff_snow full frame, native (OFF): the white ledge band lower-left."},
+{f:"205_cliff_snow_play.png",c:"cliff_snow in play (FSR 3 dyn, OFF): the band is a soft white streak."},
+{f:"205_fixed_overhang_native.png",c:"Overhang pose full frame, native: stone arches right, broadleaf forest; the crowns are the main dash region."},
+{f:"205_fixed_overhang_play.png",c:"Overhang pose in play (FSR 3 dyn)."},
+{f:"205_cave_mouth_native.png",c:"cave_mouth full frame, native."},
+{f:"205_cave_mouth_play.png",c:"cave_mouth in play (FSR 3 dyn)."},
+{f:"205_forest_cputop.png",c:"CPU oracle map of the forest box (1000,380): white = predicted dash (sun-lit tread where the bracket test fails, all ABOVE the column tops), cyan = treads already averaged away."}];
+let i=0,fit=true;const im=document.getElementById('im');
+im.onerror=()=>{document.getElementById('err').textContent=' MISSING FILE: '+im.getAttribute('src');};
+function show(){document.getElementById('err').textContent='';im.src=S[i].f;document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+S[i].f;
+document.getElementById('c').textContent=S[i].c;im.style.width=fit?'100%':'auto';}
+document.onkeydown=e=>{const k=e.key.toLowerCase();if(k=='arrowright')i=(i+1)%S.length;else if(k=='arrowleft')i=(i+S.length-1)%S.length;else if(k=='z')fit=!fit;show();};show();
+</script></body></html>

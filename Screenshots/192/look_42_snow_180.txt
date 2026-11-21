@@ -1,0 +1,1 @@
+seed 42 snow 180: the 12 trees nearest float2(45952f, 57472f), side view along +z

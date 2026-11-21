@@ -15,6 +15,9 @@
 //   BrickBuffer      128 uints (512 B) per dense brick, voxel (vz<<6)|(vy<<3)|vx,
 //                    the BrickDataPool body layout, so 11b's march reads a
 //                    shell brick exactly as it reads a 0.1 m one.
+//                    TASK 188: a dense brick whose voxels take <= 2 values is a
+//                    COMPACT body instead (handle bit 30; 17 uints, 7 packed in one
+//                    128-uint body; ShellBrickPack.cs). The pool's unit stays the body.
 // SHARED BUFFERS (task 80, step 11b): the raymarch binds ONE directory, ONE
 // page and ONE brick buffer for all shells -- 7 shells x 3 buffers beside the
 // kernel's ~23 would pass Metal's 31-buffer limit. Each shell owns a range of
@@ -84,6 +87,7 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
+using Unity.Jobs;
 using UnityEngine;
 using VoxelEngine.Memory;
 using VoxelEngine.WorldGen;
@@ -211,7 +215,12 @@ namespace VoxelEngine.Mirror
         private int3 _hLo, _hHi, _hCc;
         private int _hHole;
         private NativeArray<uint> _bodyStaging;   // up to 4096 bodies (2 MB), reused
-        private readonly int[] _denseIdx = new int[EngineConfig.BRICKS_PER_CHUNK];
+        private int _jobNFull, _jobNCompact;      // task 245: the staged job's full / compact split (FoliageDensity.WriteShell)
+        // Task 188 (ShellBrickPack): the job's dense bricks, full ones first then compact ones;
+        // each brick's value pair (NOT_PAIR = a full body); the classify counts.
+        private NativeArray<int> _denseIdx;
+        private NativeArray<uint> _pair;
+        private NativeArray<int> _pairCounts;
 
         // Test shadows (ShadowUploads).
         public uint[] ShadowDir, ShadowPages, ShadowBricks, ShadowMasks, ShadowColTops, ShadowHeights;
@@ -245,6 +254,9 @@ namespace VoxelEngine.Mirror
             for (int i = 0; i < PageCap; i++) _freePages[i] = PageCap - 1 - i;
             _freePageTop = PageCap;
             _bodyStaging = new NativeArray<uint>(EngineConfig.BRICKS_PER_CHUNK * BRICK_UINTS, Allocator.Persistent);
+            _denseIdx = new NativeArray<int>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
+            _pair = new NativeArray<uint>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Persistent);
+            _pairCounts = new NativeArray<int>(2, Allocator.Persistent);
 
             if (shared != null)
             {
@@ -373,18 +385,35 @@ namespace VoxelEngine.Mirror
         public long Replaced { get; private set; }
         public long ReplaceNoRoom { get; private set; }
 
-        /// Upload cost of a chunk, in bytes, before it is stored.
+        /// Upload cost of a chunk, in bytes, before it is stored. `dense` = the 512 B BODIES
+        /// it takes from the pool (task 188: full bricks + compact ones packed 7 to a body).
         public static int UploadBytes(TerrainGenChunkSource.ShellChunk sc, out int dense, out bool uniform, out byte uniformMat)
+            => UploadBytes(sc, out dense, out uniform, out uniformMat, out _, out _);
+
+        /// UploadBytes, with the chunk's full and compact dense bricks (task 188, ShellBrickPack).
+        public static int UploadBytes(TerrainGenChunkSource.ShellChunk sc, out int dense, out bool uniform, out byte uniformMat,
+                                      out int fullBricks, out int compactBricks)
         {
-            dense = 0; uniform = true; uniformMat = Materials.Air;
-            if (sc.IsUniformAir) return 4;
+            fullBricks = compactBricks = 0;
+            Uniformity(sc, out int denseBricks, out uniform, out uniformMat);
+            dense = 0;
+            if (uniform) return 4;
+            if (denseBricks > 0) ShellBrickPack.Count(sc.Mats, sc.BrickUniform, out fullBricks, out compactBricks);
+            dense = ShellBrickPack.Bodies(fullBricks, compactBricks);
+            return 4 + (PAGE_UINTS + TAIL_UINTS) * 4 + dense * BRICK_UINTS * 4;
+        }
+
+        /// The chunk's non-uniform brick count, and whether it is one material throughout.
+        private static void Uniformity(TerrainGenChunkSource.ShellChunk sc, out int denseBricks, out bool uniform, out byte uniformMat)
+        {
+            denseBricks = 0; uniform = true; uniformMat = Materials.Air;
+            if (sc.IsUniformAir) return;
             uniformMat = sc.BrickMat[0];
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
             {
-                if (!sc.BrickUniform[i]) { dense++; uniform = false; }
+                if (!sc.BrickUniform[i]) { denseBricks++; uniform = false; }
                 else if (sc.BrickMat[i] != uniformMat) uniform = false;
             }
-            return uniform ? 4 : 4 + (PAGE_UINTS + TAIL_UINTS) * 4 + dense * BRICK_UINTS * 4;
         }
 
         public enum StoreResult { Stored, InProgress, OverBudget, Busy, Refused }
@@ -480,8 +509,16 @@ namespace VoxelEngine.Mirror
         public StoreResult Store(TerrainGenChunkSource.ShellChunk sc, ref int budget, bool replace = false)
         {
             if (_job) return StoreResult.Busy;
-            UploadBytes(sc, out int dense, out bool uniform, out byte umat);
+            Uniformity(sc, out int denseBricks, out bool uniform, out byte umat);
             if (budget < (uniform ? 4 : 512)) return StoreResult.OverBudget;
+            // Task 188 (ShellBrickPack): which dense bricks hold <= 2 values; `dense` = bodies.
+            int nFull = 0, nCompact = 0;
+            if (denseBricks > 0)
+            {
+                new ShellBrickPack.ClassifyJob { mats = sc.Mats, brickUniform = sc.BrickUniform, pair = _pair, counts = _pairCounts, disabled = ShellBrickPack.Disabled }.Run();
+                nFull = _pairCounts[0]; nCompact = _pairCounts[1];
+            }
+            int dense = ShellBrickPack.Bodies(nFull, nCompact);
             int slot = Slot(sc.Coord);
             bool keepOld = replace && _tagged[slot] && _tag[slot].Equals(sc.Coord);
             int top = ChunkSolidTopY(sc, Shell);   // tasks 99, 153
@@ -528,15 +565,32 @@ namespace VoxelEngine.Mirror
             for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++)
             {
                 if (sc.BrickUniform[bi]) { _pageStaging[bi] = sc.BrickMat[bi]; continue; }
+                if (_pair[bi] != ShellBrickPack.NOT_PAIR) continue;   // compact: below
                 int body = _freeBricks[--_freeBrickTop];
                 list[n] = body; _denseIdx[n] = bi; n++;
                 _pageStaging[bi] = DENSE | (uint)body;
+            }
+            // Task 188: the compact bricks, PER_BODY to a body, in bodies after the full ones.
+            for (; n < dense; n++) list[n] = _freeBricks[--_freeBrickTop];
+            if (nCompact > 0)
+            {
+                int j = 0;
+                for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++)
+                {
+                    if (sc.BrickUniform[bi] || _pair[bi] == ShellBrickPack.NOT_PAIR) continue;
+                    int body = list[nFull + j / ShellBrickPack.PER_BODY];
+                    _denseIdx[nFull + j] = bi;
+                    _pageStaging[bi] = DENSE | ShellBrickPack.COMPACT
+                                     | (uint)(body * BRICK_UINTS + (j % ShellBrickPack.PER_BODY) * ShellBrickPack.UINTS);
+                    j++;
+                }
             }
             _pageBrickCount[page] = n;
             ulong mask = GroupMask(_pageStaging);
             _maskStaging[0] = (uint)mask; _maskStaging[1] = (uint)(mask >> 32);
             ColumnTops(_pageStaging, _colTopStaging);   // task 116
-            StageBodies(sc, n);
+            StageBodies(sc, nFull, nCompact);
+            _jobNFull = nFull; _jobNCompact = nCompact;   // task 245
             BricksUsed += n; PagesUsed++;
             PeakBricks = math.max(PeakBricks, BricksUsed); PeakPages = math.max(PeakPages, PagesUsed);
             _job = true; _jobCoord = sc.Coord; _jobSlot = slot; _jobPage = page; _jobN = n; _jobDone = 0; _jobPageUp = false;
@@ -559,6 +613,8 @@ namespace VoxelEngine.Mirror
                 end = math.min(end, _jobDone + budget / (BRICK_UINTS * 4));
                 int count = (end - _jobDone) * BRICK_UINTS;
                 Put(BrickBuffer, "shell bricks", _bodyStaging, _jobDone * BRICK_UINTS, (BrickBase + list[_jobDone]) * BRICK_UINTS, count);
+                if (FoliageDensity.Enabled)   // task 245: the side buffer, from these staged words
+                    FoliageDensity.WriteShell(_bodyStaging, _jobDone, BrickBase + list[_jobDone], end - _jobDone, _jobNFull, _jobNCompact);
                 if (ShadowUploads)
                     NativeArray<uint>.Copy(_bodyStaging, _jobDone * BRICK_UINTS, ShadowBricks, list[_jobDone] * BRICK_UINTS, count);
                 budget -= count * 4; BytesUploaded += count * 4;
@@ -605,23 +661,12 @@ namespace VoxelEngine.Mirror
         }
 
         /// Copy the dense bricks' voxels into the staging array in body order
-        /// ((vz<<6)|(vy<<3)|vx, BrickDataPool's layout).
-        private unsafe void StageBodies(TerrainGenChunkSource.ShellChunk sc, int n)
+        /// ((vz<<6)|(vy<<3)|vx, BrickDataPool's layout); task 188: then the compact bricks,
+        /// packed (ShellBrickPack.StageJob, Burst).
+        private void StageBodies(TerrainGenChunkSource.ShellChunk sc, int nFull, int nCompact)
         {
-            byte* mats = (byte*)sc.Mats.GetUnsafeReadOnlyPtr();
-            byte* dst = (byte*)_bodyStaging.GetUnsafePtr();
-            for (int i = 0; i < n; i++)
-            {
-                int bi = _denseIdx[i];
-                int bx = bi & 15, by = (bi >> 4) & 15, bz = bi >> 8;
-                byte* o = dst + i * 512;
-                for (int vz = 0; vz < 8; vz++)
-                for (int vy = 0; vy < 8; vy++)
-                {
-                    byte* row = mats + TerrainGenChunkSource.Index(bx << 3, (by << 3) + vy, (bz << 3) + vz);
-                    UnsafeUtility.MemCpy(o + ((vz << 6) | (vy << 3)), row, 8);
-                }
-            }
+            if (nFull + nCompact == 0) return;
+            new ShellBrickPack.StageJob { mats = sc.Mats, bricks = _denseIdx, pair = _pair, nFull = nFull, nCompact = nCompact, staging = _bodyStaging }.Run();
         }
 
         /// A redraw's old copy: its counters go now, its page and bodies only at the
@@ -719,6 +764,9 @@ namespace VoxelEngine.Mirror
             }
             DirectoryBuffer = null; PageBuffer = null; BrickBuffer = null;
             if (_bodyStaging.IsCreated) _bodyStaging.Dispose();
+            if (_denseIdx.IsCreated) _denseIdx.Dispose();
+            if (_pair.IsCreated) _pair.Dispose();
+            if (_pairCounts.IsCreated) _pairCounts.Dispose();
         }
     }
 }

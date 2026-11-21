@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="7" result="Passed" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:59Z" duration="11.766411">
+  <test-suite type="TestSuite" id="1000" name="Voxel Terraria 1 Byte BrickMap" fullname="Voxel Terraria 1 Byte BrickMap" runstate="Runnable" testcasecount="1185" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:59Z" duration="11.766411" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="2161" name="CoreEngine.Tests.dll" fullname="/Users/hritvikjv/Desktop/Personal Projects/Unity/Voxel Terraria 1 Byte BrickMap/Library/ScriptAssemblies/CoreEngine.Tests.dll" runstate="Runnable" testcasecount="1029" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:59Z" duration="11.753188" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="78234" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestFixture" id="1939" name="SkyFillReferenceTests" fullname="SkyFillReferenceTests" classname="SkyFillReferenceTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:59Z" duration="11.745590" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-case id="1940" name="Contract_FoldHalvesRecordAndEntryFace" fullname="SkyFillReferenceTests.Contract_FoldHalvesRecordAndEntryFace" methodname="Contract_FoldHalvesRecordAndEntryFace" classname="SkyFillReferenceTests" runstate="Runnable" seed="1453951642" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:48Z" duration="0.567723" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[entry face: 1765 hits, 0 geometric/DDA disagreements
+]]></output>
+        </test-case>
+        <test-case id="1942" name="Crack1Voxel_InA1mRoof_LightsOnlyWhereTheCrackIsInView" fullname="SkyFillReferenceTests.Crack1Voxel_InA1mRoof_LightsOnlyWhereTheCrackIsInView" methodname="Crack1Voxel_InA1mRoof_LightsOnlyWhereTheCrackIsInView" classname="SkyFillReferenceTests" runstate="Runnable" seed="833088824" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:48Z" duration="0.306431" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[floor under the crack S 0.0122 (2,048 frames), 2 m aside 0.0000 (quadrature)
+]]></output>
+        </test-case>
+        <test-case id="1945" name="DeepTrench_1mWide6mDeep_DarkensWithDepth_NeverZero" fullname="SkyFillReferenceTests.DeepTrench_1mWide6mDeep_DarkensWithDepth_NeverZero" methodname="DeepTrench_1mWide6mDeep_DarkensWithDepth_NeverZero" classname="SkyFillReferenceTests" runstate="Runnable" seed="1340066500" result="Passed" start-time="2026-11-13 16:01:48Z" end-time="2026-11-13 16:01:54Z" duration="5.867116" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[trench wall 0.9 m down: S 0.2891 B 0.0000
+trench wall 2.9 m down: S 0.0469 B 0.0000
+trench wall 4.9 m down: S 0.0156 B 0.0000
+trench wall 5.8 m down: S 0.0117 B 0.0000
+trench floor: S 0.0684
+trench wall 3 m down mode 1: truth mean 0.047, after 64 frames mean 0.044 rms 0.032 (32 cells)
+]]></output>
+        </test-case>
+        <test-case id="1946" name="LatticeCanopy_GroundTrunkAndUnderside_Graded" fullname="SkyFillReferenceTests.LatticeCanopy_GroundTrunkAndUnderside_Graded" methodname="LatticeCanopy_GroundTrunkAndUnderside_Graded" classname="SkyFillReferenceTests" runstate="Runnable" seed="1170118959" result="Passed" start-time="2026-11-13 16:01:54Z" end-time="2026-11-13 16:01:56Z" duration="1.190030" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[under the canopy: ground S 0.498; trunk S 0.521 B 0.744; crown underside B 0.541
+ground under the canopy mode 1: truth mean 0.498, after 64 frames mean 0.512 rms 0.069 (8 cells)
+]]></output>
+        </test-case>
+        <test-case id="1944" name="Ledge3m_UndersideAndWall_Graded_RunningMeanMatchesQuadrature" fullname="SkyFillReferenceTests.Ledge3m_UndersideAndWall_Graded_RunningMeanMatchesQuadrature" methodname="Ledge3m_UndersideAndWall_Graded_RunningMeanMatchesQuadrature" classname="SkyFillReferenceTests" runstate="Runnable" seed="577266719" result="Passed" start-time="2026-11-13 16:01:56Z" end-time="2026-11-13 16:01:57Z" duration="1.897896" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[ledge underside: B 0.424
+ledge underside mode 2: truth mean 0.424, after 64 frames mean 0.438 rms 0.038 (32 cells)
+wall under the ledge: S 0.555 B 0.473
+wall under the ledge mode 1: truth mean 0.555, after 64 frames mean 0.554 rms 0.061 (32 cells)
+wall under the ledge mode 2: truth mean 0.515, after 64 frames mean 0.504 rms 0.044 (32 cells)
+]]></output>
+        </test-case>
+        <test-case id="1943" name="OpenGroundAndPillarSide_ExactlyOne_BothModes" fullname="SkyFillReferenceTests.OpenGroundAndPillarSide_ExactlyOne_BothModes" methodname="OpenGroundAndPillarSide_ExactlyOne_BothModes" classname="SkyFillReferenceTests" runstate="Runnable" seed="801988749" result="Passed" start-time="2026-11-13 16:01:57Z" end-time="2026-11-13 16:01:58Z" duration="0.815074" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[pillar side +x: B 1.0000 (its own shadow falls on -x)
+]]></output>
+        </test-case>
+        <test-case id="1941" name="SealedRooms_RockAndThinShell_ExactlyZero_BothModes" fullname="SkyFillReferenceTests.SealedRooms_RockAndThinShell_ExactlyZero_BothModes" methodname="SealedRooms_RockAndThinShell_ExactlyZero_BothModes" classname="SkyFillReferenceTests" runstate="Runnable" seed="872405639" result="Passed" start-time="2026-11-13 16:01:58Z" end-time="2026-11-13 16:01:59Z" duration="1.091715" asserts="0">
+          <properties>
+            <property name="retryIteration" value="0" />
+            <property name="repeatIteration" value="0" />
+          </properties>
+          <output><![CDATA[Saving results to: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/TestResults.xml
+]]></output>
+        </test-case>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

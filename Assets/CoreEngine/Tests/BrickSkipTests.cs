@@ -131,10 +131,24 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
-    public void Chunks_SkipOnAndOff_ByteIdentical()
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Chunks_SkipOnAndOff_ByteIdentical() => RunChunks("brick_skip_identical.txt");
+
+    /// Task 180b / 186: the same proof on the OTHER paint path. The rules are the default since
+    /// task 186, so the plain test covers UniformSamples' MatRules branches; this one covers -matrules 0.
+    [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Chunks_SkipOnAndOff_ByteIdentical_MatRulesOff()
+    {
+        _src.SetMatRules(false);
+        try { RunChunks("brick_skip_identical_matrulesoff.txt"); }
+        finally { _src.SetMatRules(true); }
+    }
+
+    private static void RunChunks(string file)
     {
         var sites = Sites(_src);
-        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}: {sites.Count} sites" };
+        var lines = new List<string> { $"Task 82b byte-identical, seed 42 map v{_src.Spec.mapVersion}, matrules {_src.Spec.MatRules}, ores {_src.Spec.Ores2}: {sites.Count} sites" };
         byte[] oreEng = new byte[5];
         for (int i = 0; i < 5; i++) oreEng[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)(TerrainGen.Ores.Copper + i));
         int chunks = 0, dense = 0, deepDense = 0, oreVoxels = 0, deepAir = 0;
@@ -178,7 +192,7 @@ public class BrickSkipTests
         finally { _src.BrickSkip = true; pass.Dispose(); pa.Dispose(); pb.Dispose(); }
         lines.Add($"{chunks} chunks byte-identical; {dense} dense bricks ({deepDense} in deep layers), {oreVoxels} ore voxels, {deepAir} cave-air voxels in deep dense bricks");
         lines.Add(Share(s0, Snap(), 0) + "  (skip-on arm and off arm together; only the on arm proves)");
-        Write("brick_skip_identical.txt", lines);
+        Write(file, lines);
         Assert.Greater(chunks, 200, "a few hundred chunks");
         Assert.Greater(oreVoxels, 0, "the set must include ores");
         Assert.Greater(deepAir, 0, "the set must include caves");
@@ -186,7 +200,44 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
-    public void Shells_SkipOnAndOff_ByteIdentical()
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Shells_SkipOnAndOff_ByteIdentical() => RunShells("brick_skip_shells_identical.txt");
+
+    /// Task 180b / 186: the same proof on the OTHER paint path. The rules are the default since
+    /// task 186, so the plain test covers UniformSamples' MatRules branches; this one covers -matrules 0.
+    [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Shells_SkipOnAndOff_ByteIdentical_MatRulesOff()
+    {
+        _src.SetMatRules(false);
+        try { RunShells("brick_skip_shells_identical_matrulesoff.txt"); }
+        finally { _src.SetMatRules(true); }
+    }
+
+    /// Task 181 / 195: the same proofs on the OTHER ore path. The rule ores are the
+    /// chunk source's default since task 195, so the plain tests cover OreMay's rule
+    /// chance and VeinColumn; these cover -ores 0 (step 3's Ores.cs placement).
+    [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Chunks_SkipOnAndOff_ByteIdentical_OresOff()
+    {
+        bool was = _src.Spec.oresOn != 0;
+        _src.SetOres(false);
+        try { RunChunks("brick_skip_identical_oresoff.txt"); }
+        finally { _src.SetOres(was); }
+    }
+
+    [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
+    public void Shells_SkipOnAndOff_ByteIdentical_OresOff()
+    {
+        bool was = _src.Spec.oresOn != 0;
+        _src.SetOres(false);
+        try { RunShells("brick_skip_shells_identical_oresoff.txt"); }
+        finally { _src.SetOres(was); }
+    }
+
+    private static void RunShells(string file)
     {
         var sites = Sites(_src);
         var pick = new List<Site>();
@@ -227,7 +278,7 @@ public class BrickSkipTests
         }
         lines.Add($"{total} shell chunks byte-identical");
         lines.Add(Share(s0, Snap(), 4) + "  (both arms counted)");
-        Write("brick_skip_shells_identical.txt", lines);
+        Write(file, lines);
         Assert.Greater(total, 100);
     }
 
@@ -238,6 +289,7 @@ public class BrickSkipTests
     /// order (A = skip off). Shells 1-7: the same sites' surface band (-2..+1),
     /// ABBA too. Writes Logs/TerrainGen/brick_skip_timing.txt.
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void BrickSkip_TimingReport()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

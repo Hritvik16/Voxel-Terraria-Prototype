@@ -1,0 +1,41 @@
+Task 189 (C6) shape statistic per landform, OFF (-landsig 0) vs ON (-landsig 1). Map v4, up to 40 transects of 400 m per landform per seed,
+centred on cells with plane weight >= 0.6 (away from water, easy areas and routes), the SAME places in both arms. Column heights, texel 1, 2 m steps.
+band    = median RMS of the 20-200 m band (20 m mean minus 200 m mean) over the middle 200 m, metres
+sig     = RMS of the band's change ON - OFF (the signature itself), metres
+lee/stoss = p90 of the downwind-facing 10 m slope / p90 of the upwind-facing one, minus the transect's 200 m trend (dunes: transect ALONG the wind)
+flat / steep = share of 6 m slopes < 0.1 / > 1.0 (45 deg); slots/km = minima >= 3 m under both sides 10 m away; ridges/km = band maxima >= 5 m over +-40 m
+canyonlands and alpine transects run ACROSS the regional downslope (slots, ridges and side valleys run down it)
+
+sig l/s = lee/stoss of the signature alone (ON - OFF heights)
+
+seed   landform     arm  cells  band m  sig m  lee/stoss  sig l/s  flat  steep  slots/km  ridges/km
+42     dunes        OFF     40    8.17   0.00       1.22     0.00  26 %    6 %       1.4        4.1
+42     dunes        ON      40    9.18   1.92       1.42     1.47  23 %    6 %       1.4        4.3
+42     canyonlands  OFF     40   10.30   0.00       0.87     0.00  24 %   14 %       2.0        4.9
+42     canyonlands  ON      40   10.73   3.57       0.83     1.01  54 %   16 %       7.2        6.1
+42     alpine       OFF     40   12.49   0.00       0.98     0.00  12 %   19 %       4.4        6.6
+42     alpine       ON      40   13.16   8.48       0.94     1.07   8 %   32 %       7.8        8.3
+7      dunes        OFF     40    8.44   0.00       1.36     0.00  30 %   10 %       1.3        3.9
+7      dunes        ON      40   10.19   2.76       1.66     1.84  23 %   11 %       1.6        4.0
+7      canyonlands  OFF     40   10.04   0.00       1.04     0.00  26 %   13 %       2.3        4.8
+7      canyonlands  ON      40    8.93   3.76       1.26     0.91  57 %   15 %       6.3        5.8
+7      alpine       OFF     40   12.51   0.00       1.07     0.00  11 %   22 %       5.1        6.1
+7      alpine       ON      40   14.04   8.37       0.96     1.03  10 %   33 %       9.1        7.4
+2026   dunes        OFF     40    8.29   0.00       1.29     0.00  22 %   10 %       0.9        4.3
+2026   dunes        ON      40    9.69   2.82       1.52     1.59  17 %   12 %       1.6        4.3
+2026   canyonlands  --       0  (too few cells at weight >= 0.6 on this seed)
+2026   alpine       OFF     40   13.29   0.00       1.01     0.00  21 %   15 %       2.6        3.1
+2026   alpine       ON      40   13.98   7.89       0.93     0.88  19 %   25 %       3.7        5.8
+31337  dunes        OFF     40    9.11   0.00       1.27     0.00  26 %    7 %       0.9        4.3
+31337  dunes        ON      40   10.75   2.40       1.56     1.82  17 %    8 %       1.3        4.4
+31337  canyonlands  --       0  (too few cells at weight >= 0.6 on this seed)
+31337  alpine       OFF     40    8.07   0.00       1.01     0.00  25 %    7 %       1.1        3.3
+31337  alpine       ON      40   10.52   6.56       0.97     1.01  20 %   19 %       4.1        6.3
+
+MEAN of the seeds              band m  sig m  lee/stoss  sig l/s  flat  steep  slots/km  ridges/km
+dunes|OFF                        8.50   0.00       1.28     0.00  26 %    8 %       1.1        4.1
+dunes|ON                         9.95   2.47       1.54     1.68  20 %    9 %       1.5        4.2
+canyonlands|OFF                 10.17   0.00       0.96     0.00  25 %   14 %       2.2        4.8
+canyonlands|ON                   9.83   3.66       1.04     0.96  55 %   15 %       6.7        5.9
+alpine|OFF                      11.59   0.00       1.02     0.00  17 %   16 %       3.3        4.8
+alpine|ON                       12.93   7.82       0.95     1.00  14 %   27 %       6.2        6.9

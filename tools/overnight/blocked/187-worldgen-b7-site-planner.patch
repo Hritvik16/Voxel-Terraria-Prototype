@@ -1,0 +1,143 @@
+diff --git a/Assets/CoreEngine/Rendering/FarField.cs b/Assets/CoreEngine/Rendering/FarField.cs
+index c591808..e8f1938 100644
+--- a/Assets/CoreEngine/Rendering/FarField.cs
++++ b/Assets/CoreEngine/Rendering/FarField.cs
+@@ -316,6 +316,7 @@ namespace VoxelEngine.Rendering
+                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.RiverShapeOffArg()) { var ts = Tg2Spec; ts.riverShapeOff = 1; Tg2Spec = ts; }   // task 179
+                 if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOff = 1; Tg2Spec = ts; }   // task 180b / 186: ON unless -matrules 0
+                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOn = 1; Tg2Spec = ts; }   // task 185
++                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.SitesArg()) { var ts = Tg2Spec; ts.sitesOn = 1; Tg2Spec = ts; }   // task 187 (records only)
+                 _ownsTg2Map = sharedTg2Map == null;
+                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
+                 _tgO = TerrainGen.Offsets.For(Tg2Spec);
+diff --git a/Assets/CoreEngine/WorldGen/TerrainGenChunkSource.cs b/Assets/CoreEngine/WorldGen/TerrainGenChunkSource.cs
+index 28ac27a..5a78623 100644
+--- a/Assets/CoreEngine/WorldGen/TerrainGenChunkSource.cs
++++ b/Assets/CoreEngine/WorldGen/TerrainGenChunkSource.cs
+@@ -192,6 +192,18 @@ namespace VoxelEngine.WorldGen
+ 
+         /// -stampfit 1 (task 185): spec.stampFitOn = 1, stamps that sit in the land
+         /// (TerrainGen.Stamps "TASK 185"). Absent or 0 = as before. Last match wins.
++        /// -sites 1 (task 187): spec.sitesOn = 1, the B7 site planner fills the
++        /// world record's SiteList (TerrainGen.Sites). No terrain change. Absent or
++        /// 0 = no sites. Last match wins.
++        public static bool SitesArg()
++        {
++            string[] a = Environment.GetCommandLineArgs();
++            bool on = false;
++            for (int i = 0; i + 1 < a.Length; i++)
++                if (a[i] == "-sites" && int.TryParse(a[i + 1], out int p)) on = p != 0;
++            return on;
++        }
++
+         public static bool StampFitArg()
+         {
+             string[] a = Environment.GetCommandLineArgs();
+@@ -233,6 +245,7 @@ namespace VoxelEngine.WorldGen
+             if (OresArg()) spec.oresOn = 1;   // task 181
+             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
+             if (StampFitArg()) spec.stampFitOn = 1;   // task 185
++            if (SitesArg()) spec.sitesOn = 1;   // task 187
+             Spec = spec;
+             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
+             Map = TerrainGen.WorldMap.Build(Spec);
+@@ -248,6 +261,14 @@ namespace VoxelEngine.WorldGen
+             _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
+             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
+             BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
++            if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
++            {
++                var sw = System.Diagnostics.Stopwatch.StartNew();
++                Map.EnsureSites();
++                UnityEngine.Debug.Log($"[Sites] plan {sw.ElapsedMilliseconds} ms: {Map.Record.SiteList.Length} sites; {Map.SiteStats.Line()}");
++                foreach (var st in Map.Record.SiteList)
++                    UnityEngine.Debug.Log($"[Sites]   #{st.id} {TerrainGen.Site.KindName(st.kind)} at ({st.centre.x}, {st.centre.y}) r {st.radius} pad y {st.padLevelY} range {st.rangeVox} route {st.route} spur {st.joinDistance}");
++            }
+             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
+             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
+ 
+diff --git a/Assets/TerrainGen/TerrainSpec.cs b/Assets/TerrainGen/TerrainSpec.cs
+index 75a5a26..0c50062 100644
+--- a/Assets/TerrainGen/TerrainSpec.cs
++++ b/Assets/TerrainGen/TerrainSpec.cs
+@@ -153,6 +153,12 @@ namespace TerrainGen
+         /// default) = every byte as before. Columns only: the map and the record
+         /// ignore it. Read it through StampFit, never directly. `-stampfit 1` sets it.
+         public byte stampFitOn;
++        /// Task 187 (surface rebuild B7, flag-off): 1 = plan town / village /
++        /// outpost / frontier sites (Sites.cs) into WorldRecord.SiteList and the
++        /// record's site bytes (ids >= 16). Changes NO terrain (the flatten rule
++        /// is stored, not applied): the map, the columns and every voxel ignore
++        /// it. Read it through Sites, never directly. `-sites 1` sets it.
++        public byte sitesOn;
+ 
+         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
+         /// engine's own generator and are never touched by this assembly.
+@@ -232,6 +238,9 @@ namespace TerrainGen
+         /// Task 185's stamp fit in force (see stampFitOn): v4 only, opt-in.
+         public bool StampFit => mapVersion >= 4 && stampFitOn != 0;
+ 
++        /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
++        public bool Sites => mapVersion >= 4 && sitesOn != 0;
++
+         public const float V4_GENTLE_SHARE = 0.50f;
+ 
+         /// The gentle-class land share in force (see gentleShare); 0 below v4,
+diff --git a/Assets/TerrainGen/WorldMap.cs b/Assets/TerrainGen/WorldMap.cs
+index b48271c..410e368 100644
+--- a/Assets/TerrainGen/WorldMap.cs
++++ b/Assets/TerrainGen/WorldMap.cs
+@@ -114,6 +114,23 @@ namespace TerrainGen
+             PocketStats = st;
+             PocketPlane = f;
+         }
++        /// Task 187: the site planner's stats, once EnsureSites ran.
++        public Sites.Stats SiteStats { get; private set; }
++        private bool _sitesPlanned;
++
++        /// Task 187 (B7): plan the sites into Record.SiteList and the record's
++        /// site bytes (once; well under a second). Only while TerrainSpec.Sites
++        /// is on; changes no terrain. Never call it on a shared test map (it
++        /// writes the record): tests call Sites.Plan(Sites.FromMap(map)).
++        public void EnsureSites()
++        {
++            if (_sitesPlanned || Record == null || !Spec.Sites) return;
++            var list = TerrainGen.Sites.Plan(TerrainGen.Sites.FromMap(this), out var st);
++            TerrainGen.Sites.Mark(Record, list);
++            Record.SiteList = list;
++            SiteStats = st;
++            _sitesPlanned = true;
++        }
+         /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
+         public ushort[] ShoreField { get; private set; }
+ 
+diff --git a/Assets/TerrainGen/WorldRecord.cs b/Assets/TerrainGen/WorldRecord.cs
+index a13cb8f..9b684be 100644
+--- a/Assets/TerrainGen/WorldRecord.cs
++++ b/Assets/TerrainGen/WorldRecord.cs
+@@ -30,10 +30,12 @@
+ //              bit 2 FLAG_ROUTE (B8: inside a route's corridor, Routes.cs; may
+ //              sit on easy or feature cells); bits 3-7 zero
+ //   site       B5: on a FLAG_FEATURE cell, the feature's index in FeatureList
+-//              + 1 (ids 1-15 are features); 0 elsewhere. B7-B8 take ids >= 16.
++//              + 1 (ids 1-15 are features); 0 elsewhere. B7 (task 187,
++//              `-sites 1` only) writes its site ids >= 16 (SiteList index + 16)
++//              on the cells of each site's disc.
+ //
+ // LISTS beside the cells (each carries MapVersion): EasyAreaList (B4),
+-// FeatureList (B5), RouteList (B8).
++// FeatureList (B5), RouteList (B8), SiteList (B7, `-sites 1`).
+ using System.Runtime.InteropServices;
+ using Unity.Mathematics;
+ 
+@@ -89,6 +91,10 @@ namespace TerrainGen
+         /// it. EMPTY today: no town / village sites exist yet (B7 not built).
+         /// The record is never saved, so filling it is no save-format change.
+         public BuildingFootprint[] BuildingList = new BuildingFootprint[0];
++        /// Task 187 (B7, `-sites 1`): the planned town / village / outpost /
++        /// frontier sites (Sites.cs), ids FIRST_ID (16) + index, the same ids in
++        /// the site byte of their disc cells. EMPTY unless WorldMap.EnsureSites ran.
++        public Site[] SiteList = new Site[0];
+ 
+         public readonly int Cells;                  // per edge
+         public readonly int CellVoxels;

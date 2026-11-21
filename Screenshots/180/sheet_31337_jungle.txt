@@ -1,0 +1,1 @@
+seed 31337 jungle: 30 trees, side view along +z, rejected framed red (0)

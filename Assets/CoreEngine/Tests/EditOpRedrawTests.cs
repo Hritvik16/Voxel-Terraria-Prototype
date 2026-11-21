@@ -79,8 +79,9 @@ public class EditOpRedrawTests
             _src.GenerateShellChunk(K, cs, b, log.Snapshot);
             Assert.Greater(a.DenseBricks, 0, "the site's chunk is uniform: pick another");
             ShellStore.UploadBytes(b, out int denseB, out _, out _);
+            ShellStore.UploadBytes(a, out int denseA, out _, out _);   // task 188: the pool counts BODIES
 
-            st = new ShellStore(K, new int3(8, 8, 8), a.DenseBricks + denseB + 8, 4);
+            st = new ShellStore(K, new int3(8, 8, 8), denseA + denseB + 8, 4);
             int big = 64 << 20;
             Assert.AreEqual(ShellStore.StoreResult.Stored, st.Store(a, ref big));
             Assert.IsTrue(st.FlushDirectory(ref big));
@@ -100,7 +101,7 @@ public class EditOpRedrawTests
                 Assert.Less(++frames, 1000);
             }
             Assert.AreEqual(1, st.DeferredPages, "the old page is deferred until the directory goes up");
-            Assert.AreEqual(a.DenseBricks, st.DeferredBricks);
+            Assert.AreEqual(denseA, st.DeferredBricks);
             Assert.AreEqual(0, ShellValidator.CountPoolErrors(st, out ex), ex);
             budget = big;
             Assert.IsTrue(st.FlushDirectory(ref budget));
@@ -111,7 +112,8 @@ public class EditOpRedrawTests
             Assert.AreEqual(1, st.ChunksStored);
 
             // No room for both copies: refused as a replace, the old copy stays.
-            tight = new ShellStore(K, new int3(8, 8, 8), a.DenseBricks + 1, 4);
+            Assert.Greater(denseB, 1, "b must need more than the one spare body");
+            tight = new ShellStore(K, new int3(8, 8, 8), denseA + 1, 4);
             budget = big;
             Assert.AreEqual(ShellStore.StoreResult.Stored, tight.Store(a, ref budget));
             Assert.IsTrue(tight.FlushDirectory(ref budget));
@@ -208,6 +210,7 @@ public class EditOpRedrawTests
     }
 
     [Test, Category("Slow"), Timeout(1200000)]   // the High fill alone is ~190 s
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells1to7_OpRecordedAfterTheFill_RedrawsEveryTouchedChunk_ByteExact_StaleFree()
     {
         const int BUDGET = 3 * 1024 * 1024;
@@ -305,6 +308,7 @@ public class EditOpRedrawTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void FarBand_OpRecordedAfterTheFill_PatchedTexels_EqualAFreshBuildWithTheOp()
     {
         var spec = _src.Spec;

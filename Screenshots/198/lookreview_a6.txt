@@ -1,0 +1,124 @@
+UPSCALER CLIPS -- 2026-11-14_030924
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 30 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 30 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  39 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1430/734/6  s3 11/1982/8  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3611, missing 4322, pending 0; requested 4382, generated 4368 (138 ms each on a worker), dropped stale 16, over-budget frames 0 (of 1286)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 53756/53756/150016 395/395/1540 r0  s2 37867/37867/119296 196/196/1392 r0  s3 1412/1412/102400 5/5/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 143,579 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 126,027 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2481.5 MB, peak 2547.6 MB of the 3,000 MB cap
+  [frame] cliff_snow native: settle frames mean 172.5 ms, p50 172.4 ms, max 184.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 88,198 of 254,400 | box chunks int3(288, 37, 446)..int3(303, 52, 461) | shell 1 cam chunk int3(148, 22, 227) hole +-1 (25.6 m chunks: tier-0 x/z 294..299 / 452..457) [native]
+  [dash] cliff_snow dash px (325,1074): sub-rays on a real top face 4/4 (sun-lit 4, of them slope test FAILS 0); centre ray: hit 1 132.8 m shell 1 cell int3(19449, 2681, 28713) normal int3(0, 1, 0) mat 182 above 0 inside 0
+  [dash] cliff_snow dash px (341,1072): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 131.3 m shell 1 cell int3(19439, 2684, 28711) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] cliff_snow dash px (316,1070): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 133.5 m shell 1 cell int3(19454, 2683, 28712) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] cliff_snow dash px (314,1069): sub-rays on a real top face 1/4 (sun-lit 1, of them slope test FAILS 0); centre ray: hit 1 136.3 m shell 1 cell int3(19467, 2679, 28706) normal int3(-1, 0, 0) mat 182 above 182 inside 0
+  [dash] cliff_snow dash px (338,1069): sub-rays on a real top face 4/4 (sun-lit 4, of them slope test FAILS 4); centre ray: hit 1 131.8 m shell 1 cell int3(19443, 2684, 28712) normal int3(0, 1, 0) mat 182 above 0 inside 0
+  [dash] cliff_snow dash px (306,1068): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 136.8 m shell 1 cell int3(19470, 2680, 28706) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] cliff_snow dash px (330,1068): sub-rays on a real top face 4/4 (sun-lit 4, of them slope test FAILS 0); centre ray: hit 1 134.4 m shell 1 cell int3(19454, 2681, 28706) normal int3(0, 1, 0) mat 182 above 0 inside 0
+  [dash] cliff_snow dash px (334,1068): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 132.2 m shell 1 cell int3(19445, 2685, 28711) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] cliff_snow: frame 1920x1080, DASH pixels (>= x1.2 brighter than the pixels above and below) 1122 (0.05 %)
+  [dash] cliff_snow ORACLE: dash pixels probed 300: CPU centre ray hits 298, pixel holds a REAL TOP FACE (any of 4 sub-rays) 154 (51 %), a SUN-LIT real top face 154 (51 %), a sun-lit top where the SLOPE TEST FAILS (predicted dash) 50 (17 %), inside-start 0; centre hits by shell s1:187 s2:94 s3:17, mean 154 m; mats 182:221 141:46 150:18 145:2 186:1 194:2 193:8
+  [dash] cliff_snow CONTROL: random hit pixels 300: hold a real top face 22 (7 %), a sun-lit one 22 (7 %), predicted dash 1 (0 %), flagged dash 0
+  [dash] cliff_snow WINDOW x 288-479, y 810-917 (top-left rows): dash pixels 153, CPU top-face pixels 2866, both 126 (dash pixels holding a top face 82 %); SUN-LIT top-face pixels 1922, of them dash 125; dash pixels with a sun-lit top 82 %; PREDICTED DASH pixels 1296, of them dash 122 (dash pixels predicted 80 %, predicted pixels that are dashes 9 %) -> ws_cliff_snow_cputop.png; 416 generator chunks, 84 s
+WSPOSE cliff_snow|3792.1,582.2,5820.0|3828.0,594.1,5716.0|Sheer cell (478,714), 164 m drop over 48 m, from 110 m out
+  cliff_snow: yaw 161 pitch 6 deg, distance 111 m, 186 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1676/492/2  s3 798/1191/12  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4644, missing 3289, pending 0; requested 9041, generated 9027 (149 ms each on a worker), dropped stale 21, over-budget frames 0 (of 2339)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 55931/55931/150016 361/395/1540 r0  s2 42049/57261/119296 196/273/1392 r0  s3 23100/23100/102400 92/92/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 291,070 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 208,353 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2438.5 MB, peak 3992.4 MB of the 3,000 MB cap
+  [frame] fixed_cliff native: settle frames mean 125.4 ms, p50 125.9 ms, max 141.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 208,353 of 254,400 | box chunks int3(258, 37, 441)..int3(273, 52, 456) | shell 1 cam chunk int3(133, 23, 224) hole +-1 (25.6 m chunks: tier-0 x/z 264..269 / 446..451) [native]
+  [dash] fixed_cliff dash px (39,1075): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 92.3 m shell 1 cell int3(17360, 3059, 28420) normal int3(0, 0, 1) mat 182 above 0 inside 0
+  [dash] fixed_cliff dash px (38,1073): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 92.3 m shell 1 cell int3(17360, 3059, 28420) normal int3(0, 0, 1) mat 182 above 0 inside 0
+  [dash] fixed_cliff dash px (159,1072): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 88.6 m shell 1 cell int3(17325, 3060, 28415) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff dash px (25,1068): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 93.3 m shell 1 cell int3(17366, 3061, 28419) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff dash px (143,1065): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 89.4 m shell 1 cell int3(17331, 3062, 28415) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff dash px (18,1054): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 93.9 m shell 1 cell int3(17371, 3065, 28419) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff dash px (550,1053): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 69.3 m shell 1 cell int3(17184, 3063, 28447) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff dash px (12,1051): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 93.9 m shell 1 cell int3(17372, 3065, 28420) normal int3(0, 0, 1) mat 182 above 182 inside 0
+  [dash] fixed_cliff: frame 1920x1080, DASH pixels (>= x1.2 brighter than the pixels above and below) 379 (0.02 %)
+  [dash] fixed_cliff ORACLE: dash pixels probed 300: CPU centre ray hits 295, pixel holds a REAL TOP FACE (any of 4 sub-rays) 0 (0 %), a SUN-LIT real top face 0 (0 %), a sun-lit top where the SLOPE TEST FAILS (predicted dash) 0 (0 %), inside-start 0; centre hits by shell s0:82 s1:206 s2:7, mean 93 m; mats 182:257 194:8 193:16 145:9 150:3 161:2
+  [dash] fixed_cliff CONTROL: random hit pixels 300: hold a real top face 0 (0 %), a sun-lit one 0 (0 %), predicted dash 0 (0 %), flagged dash 0
+  [dash] fixed_cliff WINDOW x 0-191, y 324-431 (top-left rows): dash pixels 36, CPU top-face pixels 0, both 0 (dash pixels holding a top face 0 %); SUN-LIT top-face pixels 0, of them dash 0; dash pixels with a sun-lit top 0 %; PREDICTED DASH pixels 0, of them dash 0 (dash pixels predicted 0 %, predicted pixels that are dashes 0 %) -> ws_fixed_cliff_cputop.png; 417 generator chunks, 72 s
+WSPOSE fixed_cliff|3411.9,607.3,5754.0|3412.0,653.7,5684.0|fixed pose cliff (-wsfixed)
+  fixed_cliff: yaw 180 pitch 34 deg, distance 84 m, 167 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1866/123/12  s4 300/685/2  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 6506, missing 1427, pending 0; requested 12948, generated 12934 (149 ms each on a worker), dropped stale 22, over-budget frames 0 (of 3120)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 59088/59088/150016 319/395/1540 r0  s2 56539/57261/119296 289/289/1392 r0  s3 60834/60834/102400 252/252/320 r0  s4 17769/17769/102400 57/57/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 291,070 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 208,353 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2443.3 MB, peak 3992.4 MB of the 3,000 MB cap
+  [frame] fixed_forest_breaks native: settle frames mean 142.7 ms, p50 142.5 ms, max 144.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 6,292 of 254,400 | box chunks int3(263, 39, 454)..int3(278, 54, 469) | shell 1 cam chunk int3(135, 23, 231) hole +-1 (25.6 m chunks: tier-0 x/z 268..273 / 460..465) [native]
+  [dash] fixed_forest_breaks dash px (106,1078): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 124.8 m shell 1 cell int3(17767, 2699, 29252) normal int3(0, 0, 1) mat 145 above 0 inside 0
+  [dash] fixed_forest_breaks dash px (1863,1077): sub-rays on a real top face 1/4 (sun-lit 1, of them slope test FAILS 1); centre ray: hit 1 133.3 m shell 1 cell int3(16952, 2684, 29235) normal int3(1, 0, 0) mat 186 above 0 inside 0
+  [dash] fixed_forest_breaks dash px (1887,1076): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 134.9 m shell 1 cell int3(16940, 2684, 29234) normal int3(0, 0, 1) mat 186 above 0 inside 0
+  [dash] fixed_forest_breaks dash px (1854,1073): sub-rays on a real top face 2/4 (sun-lit 2, of them slope test FAILS 2); centre ray: hit 1 133.4 m shell 1 cell int3(16954, 2683, 29233) normal int3(0, 1, 0) mat 186 above 0 inside 0
+  [dash] fixed_forest_breaks dash px (1842,1071): sub-rays on a real top face 2/4 (sun-lit 2, of them slope test FAILS 0); centre ray: hit 1 142.7 m shell 2 cell int3(8464, 1329, 14601) normal int3(0, 1, 0) mat 141 above 0 inside 0
+  [dash] fixed_forest_breaks dash px (1864,1069): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 133.1 m shell 1 cell int3(16951, 2688, 29234) normal int3(1, 0, 0) mat 186 above 186 inside 0
+  [dash] fixed_forest_breaks dash px (371,1066): sub-rays on a real top face 0/4 (sun-lit 0, of them slope test FAILS 0); centre ray: hit 1 107.1 m shell 1 cell int3(17638, 2715, 29264) normal int3(-1, 0, 0) mat 186 above 186 inside 0
+  [dash] fixed_forest_breaks dash px (357,1064): sub-rays on a real top face 2/4 (sun-lit 2, of them slope test FAILS 0); centre ray: hit 1 118.0 m shell 1 cell int3(17669, 2686, 29229) normal int3(0, 0, 1) mat 182 above 0 inside 0
+  [dash] fixed_forest_breaks: frame 1920x1080, DASH pixels (>= x1.2 brighter than the pixels above and below) 5293 (0.26 %)
+  [dash] fixed_forest_breaks ORACLE: dash pixels probed 300: CPU centre ray hits 300, pixel holds a REAL TOP FACE (any of 4 sub-rays) 144 (48 %), a SUN-LIT real top face 129 (43 %), a sun-lit top where the SLOPE TEST FAILS (predicted dash) 80 (27 %), inside-start 0; centre hits by shell s1:102 s2:194 s3:4, mean 163 m; mats 145:12 186:169 141:20 182:84 150:5 207:3 138:1 161:3 185:3
+  [dash] fixed_forest_breaks CONTROL: random hit pixels 300: hold a real top face 79 (26 %), a sun-lit one 78 (26 %), predicted dash 3 (1 %), flagged dash 1
+  [dash] fixed_forest_breaks WINDOW x 600-791, y 630-737 (top-left rows): dash pixels 0, CPU top-face pixels 3786, both 0 (dash pixels holding a top face 0 %); SUN-LIT top-face pixels 3786, of them dash 0; dash pixels with a sun-lit top 0 %; PREDICTED DASH pixels 0, of them dash 0 (dash pixels predicted 0 %, predicted pixels that are dashes 0 %) -> ws_fixed_forest_breaks_cputop.png; 495 generator chunks, 108 s
+  [dash] fixed_forest_breaks WINDOW x 520-711, y 330-437 (top-left rows): dash pixels 6, CPU top-face pixels 1186, both 0 (dash pixels holding a top face 0 %); SUN-LIT top-face pixels 1186, of them dash 0; dash pixels with a sun-lit top 0 %; PREDICTED DASH pixels 0, of them dash 0 (dash pixels predicted 0 %, predicted pixels that are dashes 0 %) -> ws_fixed_forest_breaks_cputop1.png; 496 generator chunks, 124 s
+  [dash] fixed_forest_breaks WINDOW x 1000-1191, y 380-487 (top-left rows): dash pixels 123, CPU top-face pixels 1108, both 66 (dash pixels holding a top face 54 %); SUN-LIT top-face pixels 1049, of them dash 66; dash pixels with a sun-lit top 54 %; PREDICTED DASH pixels 374, of them dash 66 (dash pixels predicted 54 %, predicted pixels that are dashes 18 %) -> ws_fixed_forest_breaks_cputop2.png; 496 generator chunks, 139 s
+WSPOSE fixed_forest_breaks|3476.0,604.3,5924.0|3476.0,572.3,5764.0|fixed pose forest_breaks (-wsfixed)
+  fixed_forest_breaks: yaw 180 pitch -11 deg, distance 163 m, 220 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-14_030924_high

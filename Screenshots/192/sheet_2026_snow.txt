@@ -1,0 +1,1 @@
+seed 2026 snow: 30 trees, side view along +z, rejected framed red (0)

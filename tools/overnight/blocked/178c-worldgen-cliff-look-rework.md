@@ -27,3 +27,10 @@ bold shapes with a realistic twist).
 
 ## End
 STOP_FOR_OWNER: "keep the reworked cliffs?" with the pictures.
+
+
+## Supervisor note (2026-11-06 11:45)
+The first run (10:27-10:57) died after 81 turns with "Failed to authenticate: this login reached its time limit", NOT a task problem.
+Its uncommitted edits are saved in tools/overnight/blocked/178c-worldgen-cliff-look-rework.patch (DetailField.cs, ShapeField.cs,
+CliffTests.cs, PlaygroundCapture.WorldSurvey.cs, ...) -- `git apply` it, check it, and carry on from there (drop any Playground.unity change:
+that is a scene-builder side effect). Do not start over.

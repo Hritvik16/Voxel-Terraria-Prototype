@@ -79,6 +79,9 @@ namespace TerrainGen
             /// x1 on map v4 and 0 (no ore) below; a generator holding the world record
             /// overwrites it from OreTable.DensityPlane.
             public byte oreMul;
+            /// Task 181 (-ores 1): the column's OreRules cell (OreRulePlane.CellPlane),
+            /// set by a generator holding the record; 0 = no rule ore (PrepareColumn).
+            public uint oreCell;
         }
 
         /// Amplitudes of the wavy layer-boundary offsets (PrepareGeology).
@@ -490,10 +493,11 @@ namespace TerrainGen
             if (y > h)
             {
                 if (y <= spec.seaLevelY) return GenMat.Water;
-                if (y <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                if (y <= c.water) return FluidPockets.FluidOf(c.waterKind);
                 return GenMat.Air;
             }
             if (y <= spec.worldBottomY) return GenMat.Bedrock;
+            if (c.pkLining != 0 && y >= c.pkLineLo && y <= c.pkLineHi) return c.pkLining;   // task 183: a pocket's bed / berm
             if (c.lipLo != 0 && y >= c.lipLo) return GenMat.RiverLip;   // task 76
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
@@ -502,7 +506,7 @@ namespace TerrainGen
             // holds that water -- a hoop or arch standing in a lake has water
             // under it, not an air pocket the lake drains into.
             if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi))
-                return spec.mapVersion >= 4 && y <= c.water ? (c.waterKind == 1 ? GenMat.Lava : GenMat.Water) : GenMat.Air;
+                return spec.mapVersion >= 4 && y <= c.water ? FluidPockets.FluidOf(c.waterKind) : GenMat.Air;
             if (c.stamp3D)
             {
                 byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
@@ -523,8 +527,14 @@ namespace TerrainGen
                 bool inShell = false;
                 if (!cull.noPocket)
                 {
-                    byte pocket = Pocket(in spec, in o, x, y, z, out inShell);
+                    byte pocket = c.pkCtx != 0 ? FluidPockets.DeepPocket(in spec, in o, c.pkCtx, x, y, z, out inShell)   // task 183: rule fluid + lining
+                                               : Pocket(in spec, in o, x, y, z, out inShell);
                     if (pocket != 255) return pocket;
+                    if (inShell && spec.MatRules)   // task 180b: the fluid's own lining
+                    {
+                        byte lf = PocketLiningFluid(in spec, in o, x, y, z);
+                        if (lf != 0) return GroundRules.PocketLining(lf, c.surfBiome);
+                    }
                 }
                 if (!inShell)
                 {
@@ -560,16 +570,46 @@ namespace TerrainGen
                     var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2, spec.Cliffs);
                     gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset; gLayer = bd.layerOffset;
                 }
+                if (spec.MatRules)
+                {
+                    // Task 182: an exposed coarse shell voxel (GroundRules SHELL EXPOSURE)
+                    // can lie this deep; at LOD 0 mrSub < 20 m, so this never fires there.
+                    int b = GroundRules.Band(in c, stepAtTop, depth);
+                    if (b <= 2 && y >= spec.CavernTopY) return GroundRules.NearMaterial(in c, stepAtTop, b);
+                }
                 // Ores (gameplay step 3, map v4): the host layer is the brick's own.
-                if (cd.oreMul != 0 && spec.mapVersion >= 4)
+                if (spec.Ores2)   // task 181: the rules; a latent ore becomes its host's twin
+                {
+                    byte ore = OreRules.At(in spec, in c, cd.oreMul, cd.oreCell, stepAtTop, depth,
+                                           Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
+                    if (ore != 0)
+                    {
+                        if (!OreRules.IsLatentOre(ore)) return ore;
+                        byte host = spec.MatRules
+                            ? GroundRules.RockAt(in spec, in c, gy, gDeep, gCavern, gUnder)
+                            : LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
+                        byte tw = OreRules.Twin(ore, host);
+                        return tw != 0 ? tw : host;
+                    }
+                }
+                else if (cd.oreMul != 0 && spec.mapVersion >= 4)
                 {
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
                 }
-                return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder, gLayer);
+                if (spec.MatRules)   // task 180b / 182: the rock by the brick's height and offsets
+                    return GroundRules.RockAt(in spec, in c, gy, gDeep, gCavern, gUnder);
+                return LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
             }
 
-            if (spec.CoverSlots)
+            int mrBand = 0;
+            if (spec.MatRules)
+            {
+                // Task 180b: skin / soil / subsoil by depth below the generated top.
+                mrBand = GroundRules.Band(in c, stepAtTop, depth);
+                if (mrBand <= 2 && y >= spec.CavernTopY) return GroundRules.NearMaterial(in c, stepAtTop, mrBand);
+            }
+            else if (spec.CoverSlots)
             {
                 // Task 177: the slot's palette material as a SURFACE_THICKNESS skin
                 // (none where it is BARE or the voxel's step is sheer), soil under
@@ -587,12 +627,27 @@ namespace TerrainGen
                 if (depth < cd.soilDepth) return Soil(c.surfBiome);
             }
             // Ores (gameplay step 3, map v4): only in rock deeper than 6 m (no cliff faces).
-            if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
+            if (spec.Ores2)   // task 181: deposits (> 6 m), wall veins (any depth), twins
+            {
+                byte ore = OreRules.At(in spec, in c, cd.oreMul, cd.oreCell, stepAtTop, depth,
+                                       Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
+                if (ore != 0)
+                {
+                    if (!OreRules.IsLatentOre(ore)) return ore;
+                    byte host = spec.MatRules
+                        ? GroundRules.RockAt(in spec, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset)
+                        : LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
+                    byte tw = OreRules.Twin(ore, host);
+                    return tw != 0 ? tw : host;
+                }
+            }
+            else if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
             {
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
             }
-            return LayerRock(in spec, c.surfBiome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
+            if (spec.MatRules) return GroundRules.RockAt(in spec, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);   // task 180b / 182
+            return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
         }
 
         // ------------------------------------------------------------------
@@ -630,11 +685,13 @@ namespace TerrainGen
             {
                 if (yLo > spec.seaLevelY && yLo > c.water) return GenMat.Air;
                 if (yHi <= spec.seaLevelY) return GenMat.Water;
-                if (yLo > spec.seaLevelY && yHi <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                if (yLo > spec.seaLevelY && yHi <= c.water) return FluidPockets.FluidOf(c.waterKind);
                 return 255;
             }
             if (yHi > h) return 255;
             if (yLo <= spec.worldBottomY) return yHi <= spec.worldBottomY ? GenMat.Bedrock : (byte)255;
+            if (c.pkLining != 0 && yHi >= c.pkLineLo && yLo <= c.pkLineHi)   // task 183
+                return yLo >= c.pkLineLo && yHi <= c.pkLineHi ? c.pkLining : (byte)255;
             if (c.lipLo != 0 && yHi >= c.lipLo) return 255;
             if (Meets(c.open1Lo, c.open1Hi, yLo, yHi) || Meets(c.open2Lo, c.open2Hi, yLo, yHi) || Meets(c.open3Lo, c.open3Hi, yLo, yHi))
                 return 255;
@@ -660,9 +717,9 @@ namespace TerrainGen
             int bgd = spec.brickGeologyDepth;
             if (bgd > 0 && hg - yLo > bgd)
             {
-                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
+                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, stepAtTop, hg, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 int nGeo = (hg - bgd - 1 - yLo) / yStep + 1;   // the samples with y < hg - bgd
-                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
+                byte deep = GeologyRock(in spec, in c, in cd, stepAtTop, hg, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 if (deep == 255) return 255;
                 return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo + nGeo * yStep, yStep, count - nGeo, hg) == deep ? deep : (byte)255;
             }
@@ -671,7 +728,7 @@ namespace TerrainGen
 
         /// UniformSamples' tail where every sample is deeper than brickGeologyDepth:
         /// ore, then LayerRock at the sample's fine-brick centre height.
-        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, int x, int z,
+        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop, int hg, int x, int z,
                                         int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder, float geoLayer)
         {
             int yHi = yLo + yStep * (count - 1);
@@ -684,14 +741,31 @@ namespace TerrainGen
             else
             {
                 dHi = GEO_DEEP_AMP * GEO_OFFSET_MARGIN; cHi = GEO_CAVERN_AMP * GEO_OFFSET_MARGIN; uHi = GEO_UNDER_AMP * GEO_OFFSET_MARGIN;
-                lHi = spec.Cliffs ? LAYER_WAVE_BOUND * GEO_OFFSET_MARGIN : 0f;
-                dLo = -dHi; cLo = -cHi; uLo = -uHi; lLo = -lHi;
+                dLo = -dHi; cLo = -cHi; uLo = -uHi;
+                // 178c: the fine brick's layer offset is LayerWave at its centre, within
+                // 4 sqrt 2 voxels of this column: the column's own offset +- Lipschitz x that.
+                float lr = spec.Cliffs ? LAYER_WAVE_LIP * 5.66f + 0.5f : 0f;
+                lLo = cd.layerOffset - lr; lHi = cd.layerOffset + lr;
             }
             int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
-            if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
+            if (spec.MatRules)   // task 180b / 182: Material's brick zone (Band is monotone in depth)
+            {
+                int bLo = GroundRules.Band(in c, stepAtTop, hg - yHi), bHi = GroundRules.Band(in c, stepAtTop, hg - yLo);
+                if (bLo != bHi) return 255;
+                if (bLo <= 2 && yHi >= spec.CavernTopY)   // an exposed coarse shell voxel (task 182)
+                    return yLo >= spec.CavernTopY ? GroundRules.NearMaterial(in c, stepAtTop, bLo) : (byte)255;
+            }
+            if (spec.Ores2)   // task 181: rule deposits (removals only past the chance: safe) and veins
+            {
+                if (OreRules.VeinColumn(cd.oreCell, stepAtTop, hg - yHi, yHi)) return 255;
+                if (OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, cd.oreCell))
+                    return 255;
+            }
+            else if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
-            return LayerRockRange(in spec, c.surfBiome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi);
+            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
+            return LayerRockRange(in spec, RockA(in c), RockB(in c), gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi, x, z, yLo, yStep, count);
         }
 
         /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
@@ -701,7 +775,21 @@ namespace TerrainGen
         {
             int yHi = yLo + yStep * (count - 1);
             int depthLo = hg - yHi, depthHi = hg - yLo;
-            if (spec.CoverSlots)
+            int mrBand = 0;
+            if (spec.MatRules)
+            {
+                // Task 180b: Material's branch. Band is non-decreasing in depth, so equal
+                // ends prove every sample; the CavernTopY guard must hold for all or none.
+                int bLo = GroundRules.Band(in c, stepAtTop, depthLo), bHi = GroundRules.Band(in c, stepAtTop, depthHi);
+                if (bLo != bHi) return 255;
+                mrBand = bLo;
+                if (mrBand <= 2 && yHi >= spec.CavernTopY)
+                {
+                    if (yLo < spec.CavernTopY) return 255;
+                    return GroundRules.NearMaterial(in c, stepAtTop, mrBand);
+                }
+            }
+            else if (spec.CoverSlots)
             {
                 byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // Material's task 177 branch
                 if (cm != Cover.BARE && !(stepAtTop > SHEER_STEP) && yHi >= spec.CavernTopY)
@@ -718,10 +806,18 @@ namespace TerrainGen
                 if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.surfBiome) : (byte)255;
             }
             float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset, l = cd.layerOffset;
-            if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
+            if (spec.Ores2)   // task 181 (VeinColumn is monotone: the shallowest sample is the loosest)
+            {
+                if (OreRules.VeinColumn(cd.oreCell, stepAtTop, depthLo, yHi)) return 255;
+                if (depthHi > Ores.MIN_DEPTH &&
+                    OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u, cd.oreCell))
+                    return 255;
+            }
+            else if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
-            return LayerRockRange(in spec, c.surfBiome, yLo, yHi, d, d, cv, cv, u, u, l, l);
+            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, yLo, yHi, d, d, cv, cv, u, u);   // task 180b / 182
+            return LayerRockRange(in spec, RockA(in c), RockB(in c), yLo, yHi, d, d, cv, cv, u, u, l, l, x, z, yLo, yStep, count);
         }
 
         /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
@@ -739,7 +835,7 @@ namespace TerrainGen
         /// layer over [lyLo, lyHi] and the offset ranges, or a sample's brick
         /// passes Ores' cell and deposit tests.
         private static bool OreMay(in TerrainSpec spec, byte biome, int oreMul, int x, int z, int yLo, int yStep, int count,
-                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, uint oreCell = 0u)
         {
             float lo = lyLo, hi = lyHi;
             int layer;
@@ -756,7 +852,7 @@ namespace TerrainGen
             }
             else if (!(lo + dLo >= s500)) return true;
             else layer = 0;
-            int chance = Ores.CellChance(layer, biome, oreMul);
+            int chance = spec.Ores2 ? OreRules.CellChance(layer, biome, oreMul, oreCell) : Ores.CellChance(layer, biome, oreMul);
             if (chance <= 0) return false;
             for (int j = 0; j < count; j++)
             {
@@ -769,8 +865,10 @@ namespace TerrainGen
 
         /// LayerRock for every y in [yLo, yHi] and every offset in its range, or
         /// 255 when that is not one material.
-        private static byte LayerRockRange(in TerrainSpec spec, byte biome, int yLo, int yHi,
-                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, float lLo, float lHi)
+        /// 178c: (x, z, sLo, sStep, sCount) are the samples, for the per-brick mix.
+        private static byte LayerRockRange(in TerrainSpec spec, byte biome, byte biomeB, int yLo, int yHi,
+                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, float lLo, float lHi,
+                                           int x, int z, int sLo, int sStep, int sCount)
         {
             float lo = yLo, hi = yHi;
             float gLo = lo + uLo, gHi = hi + uHi;
@@ -793,8 +891,14 @@ namespace TerrainGen
                 // sample's layer lies in [kLo, kHi]; one rock across them proves it.
                 int kLo = LayerIndex(spec.seed, lo + lLo), kHi = LayerIndex(spec.seed, hi + lHi);
                 if (kHi - kLo > 4) return 255;
-                byte m0 = LayerMaterial(spec.seed, biome, kLo);
-                for (int k = kLo + 1; k <= kHi; k++) if (LayerMaterial(spec.seed, biome, k) != m0) return 255;
+                // 178c: every sample's brick mixed, or none (else 255); then one rock
+                // across the layers, each with its own side's biome.
+                int ms = spec.RockMix ? MixState(spec.seed, x, z, sLo, sStep, sCount) : 0;
+                if (ms == 2) return 255;
+                bool mixed = ms == 1;
+                byte m0 = LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, kLo), kLo, mixed);
+                for (int k = kLo + 1; k <= kHi; k++)
+                    if (LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, k), k, mixed) != m0) return 255;
                 return m0;
             }
             return BiomeRock(biome, 0);   // 177b: badlands too (its 3.2 m bands are gone with -cliffs 0 as well)
@@ -822,16 +926,18 @@ namespace TerrainGen
         public static byte TopMaterial(in TerrainSpec spec, in ColumnSample c, float stepAtTop, in Offsets o, int x, int z)
         {
             if (c.height < spec.seaLevelY) return GenMat.Water;
-            if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+            if (c.water > c.height) return FluidPockets.FluidOf(c.waterKind);
+            if (c.pkLining != 0 && c.height >= c.pkLineLo && c.height <= c.pkLineHi) return c.pkLining;   // task 183
             if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
+            if (spec.MatRules) return GroundRules.Top(in c, stepAtTop);   // task 180b (Material at depth 0)
             if (spec.CoverSlots)
             {
                 byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // task 177 (Material at depth 0)
-                if (cm == Cover.BARE || stepAtTop > SHEER_STEP) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
+                if (cm == Cover.BARE || stepAtTop > SHEER_STEP) return Strata(in spec, in o, in c, x, c.height, z);
                 return Cover.Settle(cm, stepAtTop);
             }
-            if (stepAtTop > 1.5f) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
+            if (stepAtTop > 1.5f) return Strata(in spec, in o, in c, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);
         }
 
@@ -883,16 +989,33 @@ namespace TerrainGen
         public static byte Strata(in TerrainSpec spec, in Offsets o, byte biome, int x, int y, int z)
         {
             var cd = PrepareGeology(in o, x, z, spec.Cliffs);
-            return LayerRock(in spec, biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
+            return LayerRock(in spec, biome, biome, x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, false);
         }
 
-        private static byte LayerRock(in TerrainSpec spec, byte biome, float y, float deepOff, float cavernOff, float underOff,
-                                      float layerOff)
+        /// Task 178c: the column's layer rock at y (its rockA / rockB), WITHOUT the
+        /// per-brick mix -- the far band's top colour, band-limited like the cover.
+        public static byte Strata(in TerrainSpec spec, in Offsets o, in ColumnSample c, int x, int y, int z)
+        {
+            var cd = PrepareGeology(in o, x, z, spec.Cliffs);
+            return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, false);
+        }
+
+        /// Task 178c: the biomes of the column's rock (ColumnSample.rockA / rockB, else surfBiome).
+        public static byte RockA(in ColumnSample c) => c.rockA != 0 ? (byte)(c.rockA - 1) : c.surfBiome;
+        public static byte RockB(in ColumnSample c) => c.rockB != 0 ? (byte)(c.rockB - 1) : c.surfBiome;
+
+        private static byte LayerRock(in TerrainSpec spec, byte biome, byte biomeB, int x, float y, int z, float deepOff, float cavernOff,
+                                      float underOff, float layerOff, bool mix)
         {
             if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
-            if (spec.Cliffs) return LayerMaterial(spec.seed, biome, LayerIndex(spec.seed, y + layerOff));
+            if (spec.Cliffs)
+            {
+                int k = LayerIndex(spec.seed, y + layerOff);
+                return LayerMaterial(spec.seed, LayerBiome(spec.seed, biome, biomeB, k), k,
+                                     mix && MixBrick(spec.seed, x, (int)math.floor(y), z));
+            }
             return BiomeRock(biome, 0);   // 177b: no thin badlands stripes even with -cliffs 0 (owner, 2026-11-06)
         }
 
@@ -916,27 +1039,43 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         public const float LAYER_THICK = 240f;        // voxels: 24 m nominal
         public const float LAYER_JITTER = 0.3f;       // each boundary moves +-30 % (layers 9.6-38.4 m)
-        public const float LAYER_WAVE_AMP = 40f, LAYER_WAVE = 900f, LAYER_RIPPLE_AMP = 15f, LAYER_RIPPLE = 260f;
+        // TASK 178c (owner 2026-11-06: 178's faces were flat colour fields with
+        // drips and hooks, the steps between layers far too strong). Layers are
+        // now MOSTLY HORIZONTAL: the wave is +-1.2 m / 90 m and +-0.2 m / 26 m
+        // (was +-4 / +-1.5 m; the 26 m ripple set most of the local tilt), plus a DIP -- a +-25 m offset over ~4 km, i.e.
+        // strata tilted ~1-3 deg, one way over a whole hillside. The rows of
+        // LAYER_ROCKS are now each biome's CLOSE tones (CIE dE 7-24 between
+        // roles, was 22-63; tools/cliff178c.py prints them), and every layer
+        // mixes in its partner rock per 0.8 m BRICK in lens-shaped patches
+        // (MixBrick), so no layer is a flat field.
+        public const float LAYER_WAVE_AMP = 12f, LAYER_WAVE = 900f, LAYER_RIPPLE_AMP = 2f, LAYER_RIPPLE = 260f;
+        public const float LAYER_DIP_AMP = 250f, LAYER_DIP = 40000f;
         /// |LayerWave| <= this (|snoise| <= 1).
-        public const float LAYER_WAVE_BOUND = LAYER_WAVE_AMP + LAYER_RIPPLE_AMP;
+        public const float LAYER_WAVE_BOUND = LAYER_WAVE_AMP + LAYER_RIPPLE_AMP + LAYER_DIP_AMP;
+        /// |LayerWave(p) - LayerWave(q)| <= LAYER_WAVE_LIP * |p - q| (|grad snoise| <= ShapeField.SNOISE_GRAD_BOUND).
+        public const float LAYER_WAVE_LIP = (LAYER_WAVE_AMP / LAYER_WAVE + LAYER_RIPPLE_AMP / LAYER_RIPPLE + LAYER_DIP_AMP / LAYER_DIP)
+                                            * ShapeField.SNOISE_GRAD_BOUND;
 
         /// Rock per (biome, role): main, light accent, dark accent. Row order = GenBiome ids.
+        /// 178c: close tones per biome (178's rows put cream on orange, blue slate on schist,
+        /// moss green on karst: the "painted map"). CIE dE main-light / main-dark in palette D.
         private static readonly byte[] LAYER_ROCKS = {
-            GenMat.Granite, GenMat.Limestone, GenMat.Slate,                       // forest
-            GenMat.OrangeSandstone, GenMat.CreamSandstone, GenMat.RedSandstone,   // desert
-            GenMat.SilverSchist, GenMat.Marble, GenMat.BlueSlate,                 // snow
-            GenMat.KarstLimestone, GenMat.Laterite, GenMat.MossRock,              // jungle
-            GenMat.KopjeGranite, GenMat.Gneiss, GenMat.Ironstone,                 // savanna
-            GenMat.RedBand, GenMat.CreamBand, GenMat.OchreBand,                   // badlands
+            GenMat.Granite, GenMat.KopjeGranite, GenMat.Gneiss,                    // forest    13 / 14
+            GenMat.OrangeSandstone, GenMat.OchreBand, GenMat.Laterite,             // desert    17 / 19
+            GenMat.SilverSchist, GenMat.Marble, GenMat.Granite,                    // snow      22 / 18
+            GenMat.KarstLimestone, GenMat.CreamSandstone, GenMat.KopjeGranite,     // jungle    13 / 17
+            GenMat.KopjeGranite, GenMat.Limestone, GenMat.PinkSiltstone,           // savanna   15 / 14
+            GenMat.RedBand, GenMat.OrangeSandstone, GenMat.RedSandstone,           // badlands  21 /  7
         };
 
         /// The wavy offset added to y before the layer lookup (voxels).
         public static float LayerWave(in Offsets o, float2 p)
             => LAYER_WAVE_AMP * noise.snoise(p / LAYER_WAVE + o.strata + new float2(29.3f, -77.1f))
-             + LAYER_RIPPLE_AMP * noise.snoise(p / LAYER_RIPPLE + o.strata + new float2(-51.9f, 13.7f));
+             + LAYER_RIPPLE_AMP * noise.snoise(p / LAYER_RIPPLE + o.strata + new float2(-51.9f, 13.7f))
+             + LAYER_DIP_AMP * noise.snoise(p / LAYER_DIP + o.strata + new float2(7.9f, 41.3f));
 
         /// Boundary k's height: layer k is [LayerBoundary(k), LayerBoundary(k + 1)).
-        private static float LayerBoundary(uint seed, int k)
+        public static float LayerBoundary(uint seed, int k)
             => (k + LAYER_JITTER * (2f * Noise.Hash01(k, 0, 0, seed + 1781u) - 1f)) * LAYER_THICK;
 
         /// The layer holding height g (= y + layerOffset). Monotone in g.
@@ -957,6 +1096,77 @@ namespace TerrainGen
 
         public static byte LayerMaterial(uint seed, byte biome, int k)
             => LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k)];
+
+        /// Task 178c: layer k's rock in a MIXED brick: its role's PARTNER, the nearest-tone
+        /// rock in the palette (CIE dE in palette D, `python3 -I tools/cliff178c.py tones`).
+        /// The first try mixed main <-> light (dE 13-22): snow's schist / marble read as
+        /// digital camouflage. Row order and roles = LAYER_ROCKS.
+        private static readonly byte[] LAYER_PARTNERS = {
+            GenMat.KopjeGranite, GenMat.Granite, GenMat.Granite,                   // forest    13 / 13 / 14
+            GenMat.OchreBand, GenMat.OchreClay, GenMat.RedSandstone,               // desert    17 /  5 /  5
+            GenMat.Granite, GenMat.CreamBand, GenMat.SilverSchist,                 // snow      18 / 17 / 18
+            GenMat.Limestone, GenMat.CreamBand, GenMat.Granite,                    // jungle     6 /  7 / 13
+            GenMat.PinkSiltstone, GenMat.CreamBand, GenMat.KopjeGranite,           // savanna   14 /  6 / 14
+            GenMat.Laterite, GenMat.OchreBand, GenMat.Laterite,                    // badlands   6 / 17 /  5
+        };
+
+        public static byte LayerMaterial(uint seed, byte biome, int k, bool mixed)
+        {
+            int i = (biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k);
+            return mixed ? LAYER_PARTNERS[i] : LAYER_ROCKS[i];
+        }
+
+        /// Task 178c: layer k takes the column's rockB (else rockA): interfingering at a border.
+        public static bool LayerSideB(uint seed, int k) => Noise.Hash01(k, 2, 0, seed + 1789u) < 0.5f;
+
+        /// The biome of layer k's rock in a column whose rock biomes are (bA, bB).
+        public static byte LayerBiome(uint seed, byte bA, byte bB, int k) => bA == bB ? bA : (LayerSideB(seed, k) ? bB : bA);
+
+        // TASK 178c: WITHIN-LAYER VARIATION. One decision per 8^3 BRICK (so a brick
+        // stays uniform and the whole-brick proofs still hold): a value noise on a
+        // MIX_CELL_XZ x MIX_CELL_Y x MIX_CELL_XZ lattice (12 m x 1.6 m: long flat
+        // lenses, like beds of a slightly different stone; the first try's 4 m cells
+        // made square blobs = camouflage), sampled at the brick centre; above
+        // MIX_THRESHOLD the brick wears its rock's partner (28 % of bricks, seed 42).
+        // A function of the brick's coordinates and the seed only.
+        public const int MIX_CELL_XZ = 120, MIX_CELL_Y = 16;
+        public const float MIX_THRESHOLD = 0.62f;
+
+        public static float MixValue(uint seed, int bx, int by, int bz)
+        {
+            float fx = (bx * BRICK + BRICK / 2) / (float)MIX_CELL_XZ, fy = (by * BRICK + BRICK / 2) / (float)MIX_CELL_Y,
+                  fz = (bz * BRICK + BRICK / 2) / (float)MIX_CELL_XZ;
+            int ix = (int)math.floor(fx), iy = (int)math.floor(fy), iz = (int)math.floor(fz);
+            float tx = fx - ix, ty = fy - iy, tz = fz - iz;
+            tx = tx * tx * (3f - 2f * tx); ty = ty * ty * (3f - 2f * ty); tz = tz * tz * (3f - 2f * tz);
+            uint sd = seed + 1787u;
+            float c00 = math.lerp(Noise.Hash01(ix, iy, iz, sd), Noise.Hash01(ix + 1, iy, iz, sd), tx);
+            float c10 = math.lerp(Noise.Hash01(ix, iy + 1, iz, sd), Noise.Hash01(ix + 1, iy + 1, iz, sd), tx);
+            float c01 = math.lerp(Noise.Hash01(ix, iy, iz + 1, sd), Noise.Hash01(ix + 1, iy, iz + 1, sd), tx);
+            float c11 = math.lerp(Noise.Hash01(ix, iy + 1, iz + 1, sd), Noise.Hash01(ix + 1, iy + 1, iz + 1, sd), tx);
+            return math.lerp(math.lerp(c00, c10, ty), math.lerp(c01, c11, ty), tz);
+        }
+
+        /// The brick holding voxel (x, y, z) wears its layer's partner rock.
+        public static bool MixBrick(uint seed, int x, int y, int z)
+            => MixValue(seed, x >> BRICK_SHIFT_MIX, y >> BRICK_SHIFT_MIX, z >> BRICK_SHIFT_MIX) > MIX_THRESHOLD;
+        private const int BRICK_SHIFT_MIX = 3;   // BRICK = 8
+
+        /// MixBrick over the samples y = yLo + j * yStep (j < count) of column (x, z):
+        /// 0 none mixed, 1 all mixed, 2 some.
+        private static int MixState(uint seed, int x, int z, int yLo, int yStep, int count)
+        {
+            int any = 0, all = 1, last = int.MinValue;
+            for (int j = 0; j < count; j++)
+            {
+                int by = (yLo + j * yStep) >> BRICK_SHIFT_MIX;
+                if (by == last) continue;
+                last = by;
+                if (MixValue(seed, x >> BRICK_SHIFT_MIX, by, z >> BRICK_SHIFT_MIX) > MIX_THRESHOLD) any = 1; else all = 0;
+                if (any == 1 && all == 0) return 2;
+            }
+            return any == 0 ? 0 : 1;
+        }
 
         // Task 177b (owner, 2026-11-06, "Badlands: no stripes"): BadlandsBand (B10's
         // 3.2 m red/cream/ochre bands by y >> 5) is removed. With cliffs on (178)
@@ -982,6 +1192,9 @@ namespace TerrainGen
 
         /// The shared underworld (every biome): ash in its top 30 m, magma crust
         /// in the 20 m above the lava sea, obsidian between.
+        /// Task 180b: the shared underworld rock for GroundRules (the same function).
+        internal static byte UnderworldRockAt(in TerrainSpec spec, float g) => UnderworldRock(in spec, g);
+
         private static byte UnderworldRock(in TerrainSpec spec, float g)
         {
             if (g < spec.worldBottomY + LAVA_ABOVE_FLOOR + 200) return GenMat.MagmaCrust;
@@ -1038,6 +1251,17 @@ namespace TerrainGen
         }
 
         /// Returns 255 outside every pocket; inShell = inside the no-carve shell.
+        /// Task 180b (MatRules): the fluid of the pocket whose inner wall lining
+        /// (d^2 in [1, GroundRules.POCKET_LINING)) holds (x, y, z), else 0.
+        public static byte PocketLiningFluid(in TerrainSpec spec, in Offsets o, int x, int y, int z)
+        {
+            int cx = x >> POCKET_CELL_SHIFT, cy = y >> POCKET_CELL_SHIFT, cz = z >> POCKET_CELL_SHIFT;
+            if (!TryGetPocket(in spec, in o, cx, cy, cz, out PocketInfo pk)) return 0;
+            float3 q = (new float3(x, y, z) + 0.5f - pk.centre) / pk.radii;
+            float d2 = q.x * q.x + q.y * q.y + q.z * q.z;
+            return d2 >= 1f && d2 < GroundRules.POCKET_LINING ? pk.fluid : (byte)0;
+        }
+
         public static byte Pocket(in TerrainSpec spec, in Offsets o, int x, int y, int z, out bool inShell)
         {
             inShell = false;

@@ -43,6 +43,29 @@ namespace TerrainGen
         /// 0 elsewhere (WorldMap.RouteMask). OPTIONAL: null = no routes, so the
         /// cliff relief (ShapeField.FaceRelief) does not skip them.
         public byte* route;
+        /// Task 180: the tree density plane (TreeTable.DensityPlane, one byte per
+        /// cell). OPTIONAL: null = no trees, whatever TerrainSpec.Trees says.
+        public byte* trees;
+        /// Task 180b: the baked shore field (GroundRules.BakeShore, one ushort
+        /// per cell). OPTIONAL: null = GroundRules scans the cells itself (same answer).
+        public ushort* shore;
+        /// Task 181: the ore cell plane (OreRulePlane.CellPlane, one uint per cell).
+        /// OPTIONAL: null = no rule ore, whatever TerrainSpec.Ores2 says.
+        public uint* oreCell;
+        /// Task 183: the fluid-pocket site plane (FluidPockets.BuildPlane,
+        /// FluidPockets.STRIDE ints per 51.2 m cell). OPTIONAL: null = no
+        /// pockets, whatever TerrainSpec.Pockets says.
+        public int* pocket;
+        /// Task 189: the landform-signature weight plane (LandSig.BuildPlane, LandSig.PLANE_BYTES
+        /// per cell). OPTIONAL: null = no signatures, whatever TerrainSpec.LandSig says.
+        public byte* landSig;
+        /// Task 190: the town plane (Towns.Build: site discs to flatten + the
+        /// buildings). OPTIONAL: null = no towns, whatever TerrainSpec.Towns says.
+        public int* town;
+        /// Task 209b: the pond streams (PocketStreams; a section appended to the pocket
+        /// plane, PocketStreams.Section). OPTIONAL: null = no streams (-pocketstreams 0).
+        /// Read only while `pocket` is set too.
+        public int* stream;
         public int cells;
         public float cellVoxels;
     }
@@ -85,7 +108,92 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk, _hLs, _hTn;
+        /// Task 189: LandSig's weight plane, once EnsureLandSigPlane ran (else null).
+        public byte[] LandSigPlane { get; private set; }
+        /// Task 190b: how long EnsureLandSigPlane took (ms; 0 until it ran).
+        public double LandSigBuildMs { get; private set; }
+
+        /// Task 189: build the landform-signature weight plane (once; about a second).
+        /// Read only through MapView.landSig, which Sample uses only while
+        /// TerrainSpec.LandSig is on: building it never changes an OFF world.
+        public void EnsureLandSigPlane()
+        {
+            if (LandSigPlane != null || RegionLayout == null) return;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var f = LandSig.BuildPlane(this);
+            LandSigBuildMs = sw.Elapsed.TotalMilliseconds;
+            _hLs = GCHandle.Alloc(f, GCHandleType.Pinned);
+            LandSigPlane = f;
+        }
+        /// Task 183: FluidPockets' site plane, once EnsurePocketPlane ran (else null).
+        public int[] PocketPlane { get; private set; }
+        public FluidPockets.PlaneStats PocketStats { get; private set; }
+
+        /// Task 183: build the fluid-pocket site plane (once; a few seconds at most).
+        /// Read only through MapView.pocket, which Sample uses only while
+        /// TerrainSpec.Pockets is on: building it never changes an OFF world.
+        public void EnsurePocketPlane()
+        {
+            if (PocketPlane != null) return;
+            var f = FluidPockets.BuildPlane(this, out var st);
+            _hPk = GCHandle.Alloc(f, GCHandleType.Pinned);
+            PocketStats = st;
+            PocketPlane = f;
+        }
+        /// Task 187: the site planner's stats, once EnsureSites ran.
+        public Sites.Stats SiteStats { get; private set; }
+        private bool _sitesPlanned;
+
+        /// Task 187 (B7): plan the sites into Record.SiteList and the record's
+        /// site bytes (once; well under a second). Only while TerrainSpec.Sites
+        /// is on; changes no terrain. Never call it on a shared test map (it
+        /// writes the record): tests call Sites.Plan(Sites.FromMap(map)).
+        public void EnsureSites(bool force = false)
+        {
+            if (_sitesPlanned || Record == null || (!Spec.Sites && !force)) return;
+            var list = TerrainGen.Sites.Plan(TerrainGen.Sites.FromMap(this), out var st);
+            TerrainGen.Sites.Mark(Record, list);
+            Record.SiteList = list;
+            SiteStats = st;
+            _sitesPlanned = true;
+        }
+        /// Task 190: the town plane (Towns.Build), once EnsureTowns ran (else null).
+        public int[] TownPlane { get; private set; }
+        /// Task 190: every placed building (the plane's order) and its stats.
+        public Building[] Buildings { get; private set; }
+        public Towns.Stats TownStats { get; private set; }
+
+        /// Task 190: plan the sites (EnsureSites), lay the kit out on them and
+        /// build + pin the town plane; fills Record.BuildingList. Only while
+        /// TerrainSpec.Towns is on (once). Read only through MapView.town, which
+        /// Sample uses only while Towns is on. The layout reads the NATURAL ground
+        /// (the plane is pinned after it). Never call it on a shared test map.
+        public void EnsureTowns(bool force = false)
+        {
+            if (TownPlane != null || Record == null || (!Spec.Towns && !force)) return;
+            EnsureSites(force);
+            var inp = TerrainGen.Sites.FromMap(this);
+            var plane = TerrainGen.Towns.Build(inp, Record.SiteList, out var st, out var all, out var prints);
+            Record.BuildingList = prints;
+            Buildings = all;
+            TownStats = st;
+            _hTn = GCHandle.Alloc(plane, GCHandleType.Pinned);
+            TownPlane = plane;
+        }
+        /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
+        public ushort[] ShoreField { get; private set; }
+
+        /// Task 180b: bake the shore field (one pass; ~a second) if it is not yet.
+        /// Derived from Water only: adding it never changes any other output.
+        public void EnsureShoreField()
+        {
+            if (ShoreField != null) return;
+            var v = View;
+            var f = GroundRules.BakeShore(in v);
+            _hSh = GCHandle.Alloc(f, GCHandleType.Pinned);
+            ShoreField = f;
+        }
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -111,6 +219,11 @@ namespace TerrainGen
             waterClass = (byte*)_hC.AddrOfPinnedObject(),
             flowDir = _hF.IsAllocated ? (ushort*)_hF.AddrOfPinnedObject() : null,
             route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
+            shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
+            pocket = _hPk.IsAllocated ? (int*)_hPk.AddrOfPinnedObject() : null,
+            stream = _hPk.IsAllocated ? PocketStreams.Section((int*)_hPk.AddrOfPinnedObject(), PocketPlane.Length, Spec.mapCells, Spec.mapCellVoxels) : null,   // task 209b
+            landSig = _hLs.IsAllocated ? (byte*)_hLs.AddrOfPinnedObject() : null,
+            town = _hTn.IsAllocated ? (int*)_hTn.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -150,6 +263,10 @@ namespace TerrainGen
             if (_hC.IsAllocated) _hC.Free();
             if (_hF.IsAllocated) _hF.Free();
             if (_hRt.IsAllocated) _hRt.Free();
+            if (_hSh.IsAllocated) _hSh.Free();
+            if (_hPk.IsAllocated) _hPk.Free();
+            if (_hLs.IsAllocated) _hLs.Free();
+            if (_hTn.IsAllocated) _hTn.Free();
         }
 
         /// Task 178b: set once by the build (FromCore) with the record; derives
@@ -183,7 +300,16 @@ namespace TerrainGen
         /// ENGINE PLAN STEP 1 (owner Q26 (a)): the map is built by ONE compiled
         /// path, a Burst job (MapJob.cs), in the Editor and in the IL2CPP player
         /// alike; it throws rather than fall back to managed code.
-        public static WorldMap Build(TerrainSpec spec) => MapJobs.BuildMap(spec);
+        /// Task 190b: with landform signatures in force (the default) the map also
+        /// carries LandSig's weight plane, so every map a default spec builds --
+        /// engine, rigs, tests -- samples the ON path; without the plane Sample
+        /// would quietly take the OFF path.
+        public static WorldMap Build(TerrainSpec spec)
+        {
+            var map = MapJobs.BuildMap(spec);
+            if (spec.LandSig) map.EnsureLandSigPlane();
+            return map;
+        }
 
         /// The Burst build: fills `map` (its spec set by the caller).
         internal static unsafe void BuildCore(MapArena* A, Diag* dg, in Danger.TiersB tiers, ref MapData map)
@@ -237,7 +363,7 @@ namespace TerrainGen
             // flow direction ShapeField's river channels and the renderer read.
             map.flowDir = A->Root<ushort>(N);
             int mk = A->Mark();
-            Rivers.Profile(map.n, map.height, map.water, map.flow, map.waterClass, map.drainParent, map.drainOrder, map.flowDir, A->Alloc<float>(N), ref map.hydro);
+            Rivers.Profile(map.n, map.height, map.water, map.flow, map.waterClass, map.drainParent, map.drainOrder, map.flowDir, A->Alloc<float>(N), map.spec.RiverShape, ref map.hydro);   // task 179: incised when shaped
             A->Release(mk);
         }
 
@@ -550,13 +676,20 @@ namespace TerrainGen
             return y * amp;
         }
 
+        /// The coast rule's numbers (task 209 names them so FluidPockets' pond shore can take
+        /// the SAME rule): two fBm bands (wavelength in voxels, octaves, amplitude in island
+        /// radii) added to the envelope 1 - d and thresholded at 0. Constants, so Coast /
+        /// Macro compile to the same code as the literals they replace.
+        public const float COAST_WAVE1 = 9000f, COAST_AMP1 = 0.45f, COAST_WAVE2 = 2600f, COAST_AMP2 = 0.12f;
+        public const int COAST_OCT1 = 5, COAST_OCT2 = 3;
+
         /// The island envelope (§2.5): the coast value at p, > 0 on land.
         public static float Coast(in TerrainSpec spec, in Offsets o, float2 p)
         {
             float c = spec.worldSizeVoxels * 0.5f;
             float2 q = p - new float2(c, c);
             float d = math.sqrt(q.x * q.x + q.y * q.y) / spec.islandRadius;
-            return (1f - d) + Noise.Fbm(p / 9000f + o.coastA, 5) * 0.45f + Noise.Fbm(p / 2600f + o.coastB, 3) * 0.12f;
+            return (1f - d) + Noise.Fbm(p / COAST_WAVE1 + o.coastA, COAST_OCT1) * COAST_AMP1 + Noise.Fbm(p / COAST_WAVE2 + o.coastB, COAST_OCT2) * COAST_AMP2;
         }
 
         public static float OceanFloor(in TerrainSpec spec, float coast)
@@ -989,8 +1122,8 @@ namespace TerrainGen
             // Organic coast WITHOUT domain warping (owner, §2.5): the envelope
             // plus noise, thresholded at zero. Bays, headlands and islets are
             // where the noise beats the envelope, not where coordinates bend.
-            float coast = (1f - d) + Noise.Fbm(p / 9000f + o.coastA, 5) * 0.45f
-                                   + Noise.Fbm(p / 2600f + o.coastB, 3) * 0.12f;
+            float coast = (1f - d) + Noise.Fbm(p / COAST_WAVE1 + o.coastA, COAST_OCT1) * COAST_AMP1
+                                   + Noise.Fbm(p / COAST_WAVE2 + o.coastB, COAST_OCT2) * COAST_AMP2;
 
             if (coast <= 0f)
             {

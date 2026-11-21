@@ -658,6 +658,14 @@ public partial class PlaygroundCapture
         finally { Destroy(t); }
     }
 
+    /// Task 197: CaptureTo without its WaitForEndOfFrame (the caller is already at the end of the frame).
+    private void CaptureNow(string name)
+    {
+        Texture2D t = ScreenCapture.CaptureScreenshotAsTexture();
+        try { File.WriteAllBytes(Path.Combine(_folder, name + ".png"), t.EncodeToPNG()); }
+        finally { Destroy(t); }
+    }
+
     /// Top of the generated column in METRES (first air above it), or sea level.
     private static float GroundMetres(in ColumnSampler.State st, float xM, float zM)
     {

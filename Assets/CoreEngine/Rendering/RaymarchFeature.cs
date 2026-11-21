@@ -39,6 +39,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         ShellHeat = 13,
         // Task 129 (diagnostic, CSMainFarShade only): hit tier + distance codes for -lodref.
         HitInfo = 14,
+        // Task 225 (diagnostic, CSMainFarShade / Diag only, capture only): SHADE TERMS, 6-bit codes
+        // (Raymarch.compute ShadeProbeColor): class + skyVis + sunVis, sky-fill halves + VAO,
+        // albedo / direct / ambient lumas, skyOpen / lit / final lumas.
+        ShadeClass = 15,
+        ShadeSkyHalves = 16,
+        ShadeLight = 17,
+        ShadeFinal = 18,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -69,6 +76,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
     public static bool UsePackedMips = true;
     public static float MaxRayDistance = 1280f;
+    /// Task 201a (capture only): >= 0 = the river animation time is held there (identity stills).
+    public static float DebugRiverTimeHold = -1f;
     public static bool UseLODCascade = true;
 
     /// Amendment 8.14 step 11b (task 80): draw the coarse shells when a
@@ -196,6 +205,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Primary raymarch dispatches executed so far (task 47's smoke checks
     /// that every path really traces a new image every frame).
     public static int PrimaryDispatchCount;
+    /// Task 206: frames whose primary / pre-pass / sun-defer kernel did not load (VoxelEngine.Rendering.KernelHealth):
+    /// they are painted magenta and logged once per kernel. KernelFailedLastFrame names the kernel (null = it loaded);
+    /// PrimaryKernelLastFrame names the primary kernel the last frame dispatched.
+    public static int KernelFailFrames;
+    public static string KernelFailedLastFrame;
+    public static string PrimaryKernelLastFrame;
+    private static readonly float[] s_debugNaN = { float.NaN, float.NaN, float.NaN };
 
     /// Stage F's branch-engagement counters. Off by default: the per-pixel
     /// InterlockedAdd that fills them is expensive and would contaminate any
@@ -330,10 +346,36 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// (task 134's rule: faster at both poses, raw stills 0 px): warm ABBA p50 69.0 -> 62.1 ms walk_near, 41.8 -> 36.3 ms
     /// walk_open (Logs/costsplit_2026-10-24_141618.txt).
     public static bool ShellKernelDiet = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-shelldiet");
+    // ---- Task 194b: kernels a PLAYER build left out (Assets/Editor/DevKernelStrip.cs, build time only) ----
+    private static string[] _strippedKernels;
+    private static readonly System.Collections.Generic.HashSet<string> _strippedWarned = new System.Collections.Generic.HashSet<string>();
+    /// Did this player build leave `kernel` out of Raymarch.compute? Read once from the build stamp's `kernels` line.
+    /// Always false in the Editor (Editor play and the EditMode suite have every kernel; the stamp file there is stale).
+    public static bool KernelStripped(string kernel)
+    {
+        if (_strippedKernels == null)
+        {
+            TextAsset ta = Application.isEditor ? null : Resources.Load<TextAsset>("BuildStamp");
+            _strippedKernels = VoxelEngine.Rendering.KernelStripStamp.Parse(ta != null ? ta.text : null);
+            Debug.Log(_strippedKernels.Length == 0 ? "[kernels] this build has every Raymarch kernel"
+                : $"[kernels] this player build left out {string.Join(", ", _strippedKernels)} (task 194b; play never uses them; build with VE_ALL_KERNELS=1 to keep them)");
+        }
+        return System.Array.IndexOf(_strippedKernels, kernel) >= 0;
+    }
+    /// KernelStripped, plus ONE warning per kernel the first time a run asks for a missing one.
+    public static bool KernelStrippedWarn(string kernel)
+    {
+        if (!KernelStripped(kernel)) return false;
+        if (_strippedWarned.Add(kernel))
+            Debug.LogWarning($"[kernels] {kernel} was asked for, but this player build left it out (task 194b): drawing with play's kernel" +
+                (kernel == "CSMainFarShadeDiag" ? "; shadow/shell counters read 0 and debug views 12-14 draw as play" : "") +
+                ". Rebuild with VE_ALL_KERNELS=1 to have it.");
+        return true;
+    }
     /// Task 134: does this frame need the far-shading *Diag kernels? A counter window, a debug view, a
     /// _DebugShellSkip arm, the OFF-by-default experiments (-shellmask 1, -shellcolleap 1), or the diet off.
     public static bool ShellDiagKernels(int debugMode) =>
-        !ShellKernelDiet || CollectShadowStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
+        !ShellKernelDiet || CollectShadowStats || CollectRayStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
     /// Task 161 (PERF_EXACT_CUTS B, KERNEL DIET 2): the far-shading pass runs CSMainFarShadeLean / CSShellPrepassLean
     /// (Raymarch.compute VE_DIET2: the settings that are OFF in play folded to constants) whenever KernelDiet2Rule.Settings and the frame allow;
     /// otherwise the lean kernels of task 134 (unchanged) run. Exact by construction (raw stills 0 px, task 161).
@@ -343,6 +385,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool KernelDiet2 = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-diet2");
     /// Task 161: the far-shading kernels last frame were the diet-2 kernels (log / capture only).
     public static bool Diet2DrawnLastFrame { get; private set; }
+    /// Task 229: with the torch flood Ready, draw its kernel twin only while FloodTwinRule.Needed (a lit flood chunk
+    /// or an active light's range reaches the tier-0 window); otherwise the plain kernel (and so diet 2), the same
+    /// picture by construction. `-floodnear 1|0` (last match; default ON). 0 = the twin whenever Ready (before 229).
+    public static bool FloodNearOnly = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-floodnear");
+    /// Task 229: last frame drew a flood twin (log / capture only).
+    public static bool FloodTwinDrawnLastFrame { get; private set; }
+    /// Task 229: last frame the flood was Ready but FloodTwinRule kept the plain kernel (log / capture only).
+    public static bool FloodTwinSkippedLastFrame { get; private set; }
     /// Task 168: the diet-2 kernel drawn last frame was CSMainFarShadeLeanRoof (roof skip folded ON).
     public static bool Diet2RoofDrawnLastFrame { get; private set; }
     /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
@@ -396,6 +446,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CellHash = CubeLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cellhash");
     public static float CubeBounceStrength = 0.25f;
     public static float CubeFilterStartM = 20f, CubeFilterFullM = 50f;
+    /// Task 205 (task 198's option 1): the white 1-px dashes on steep walls
+    /// are sun-lit treads (top faces) lit by their own face where FarSlopeNormal's bracket test fails. There, for sky-open
+    /// voxel / shell hits (x the hit's sky visibility; caves keep their face light), `-dashfix 1` gives every face but
+    /// undersides the filtered cube light with the column slope (kills the dashes; trees and cacti lose their cube look),
+    /// `-dashfix 2` only TOP faces (kills the dashes; side faces keep their own light, so crowns keep their look).
+    /// Needs CubeFilter. 0 = unchanged (the old call, byte for byte).
+    /// Task 215 (owner Q-AH (a), 2026-11-15): DEFAULT 2 in play, rigs and capture; `-dashfix 0` = old.
+    public static int DashFix = ValidDashFix(ParseArgInt(System.Environment.GetCommandLineArgs(), "-dashfix", 2));
+    public static int ValidDashFix(int v) => v == 1 || v == 2 ? v : 0;
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face
     /// sees), haze range and scale height (metres), and the share of the haze that
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
@@ -507,6 +566,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// `-farrockslope 0|1` (last match wins); ON unless the last value is "0".
     public static bool ParseFarRockSlope(string[] a) => ParseFlagOn(a, "-farrockslope");
 
+    /// `<flag> N`, last match wins; `def` when absent or not an integer (task 205).
+    public static int ParseArgInt(string[] a, string flag, int def)
+    {
+        int v = def;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag) v = int.TryParse(a[i + 1], out int n) ? n : def;
+        return v;
+    }
+
     /// `<flag> 0|1`, last match wins; ON unless the last value is "0".
     public static bool ParseFlagOn(string[] a, string flag)
     {
@@ -548,6 +616,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         _heightMipGen++;   // task 168: a new buffer starts with a full build
     }
     private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
+    private static Vector4 V4f(Unity.Mathematics.float4 v) => new Vector4(v.x, v.y, v.z, v.w);   // task 233
 
     /// TEMPORAL SHADOW REUSE (Raymarch.compute's header note). Off unless
     /// `-tshadow 1` (last match wins) until measured.
@@ -558,8 +627,110 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static int ShadowReusePeriod = ValidReusePeriod(ReadIntArg("-shadowreuse", 4));
     public static int ValidReusePeriod(int n) => n == 1 || n == 2 || n == 4 || n == 8 || n == 16 ? n : 4;
     private static GraphicsBuffer _tsA, _tsB, _tsDummyR, _tsDummyW;
+
+    /// TASK 193 (look, owner 2026-11-12; SOFT_SKY_PLAN S2 + a ground-bounce half): SKY FILL, `-skyfill 1|2`,
+    /// OFF (0 = the vertical sky probe). 1: the ambient's sky visibility is the open share of the face's sky
+    /// half (one cosine-weighted ray per pixel per frame, a per-pixel running mean); 2: also the share of its
+    /// ground half that lands on sunlit ground (a second, sun ray from there). Raymarch.compute SKY FILL;
+    /// CPU twin SkyFillReference. Costs a 2 x W x H x 12 B history while on (task 227: 12 B, was 8; 21.1 MB at 1280x720,
+    /// 8.0 MB at play's 768x432).
+    public static int SkyFill = ValidSkyFill(ReadIntArg("-skyfill", 0));
+    public static int ValidSkyFill(int v) => v == 1 || v == 2 ? v : 0;
+
+    /// TASK 227 (performance, owner Q-AN 2026-11-16): LOW-RES SKY FILL, `-skyfillres 1|2|4` (default 4). 2 / 4: the sky-fill
+    /// rays are traced by CSSkyFillTrace, one per 2x2 / 4x4 pixel block, and shared with the block's pixels on the same face
+    /// plane (Raymarch.compute LOW-RES SKY FILL); the primary kernel shades with the face's history. 1 = task 193's path
+    /// (one ray per pixel, inline), kept for A/B. Only with a far-shading primary kernel (play's and the capture runs');
+    /// any other kernel traces inline as before. CPU twin SkyFillReference (ReqPack, ShareOk, ShareT).
+    /// Default 4x4 (task 227's warm A/B at walk_near: 1 ray / px 106.8 ms p50, 2x2 78.0, 4x4 72.3, sky fill off 66.3; no
+    /// visible bleed, Logs/overnight/227/costsplit_day.txt, Screenshots/227/sheets/).
+    public static int SkyFillRes = ValidSkyFillRes(ReadIntArg("-skyfillres", 4));
+    public static int ValidSkyFillRes(int v) => v == 1 || v == 2 ? v : 4;
+
+    /// TASK 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"): COARSE FAR SUN SHADOWS, `-sunfar <metres>`
+    /// (default 0 = off, every sun ray exact as before). > 0: a sun ray whose receiver is at least this far from the camera
+    /// counts a DENSE brick as solid once it has climbed two bricks above its origin (Raymarch.compute _SunFarVoxels /
+    /// SunCoarseY; tier 0, the task-133 continuation and the shell-hit sun ray). Near receivers: the old path byte for
+    /// byte. Only adds occlusion, at most one brick wider. No memory. CPU twin ShadowRayReference.Trace(coarseY).
+    public static float SunFarM = ValidSunFar(ReadFloatArg("-sunfar", 0f));
+    public static float ValidSunFar(float m) => m > 0f && m < 100000f ? m : 0f;
+    /// The trace pass drawn last frame (capture lines): 0 = inline, 2 / 4 = the block size.
+    public static int SkyFillResDrawnLastFrame;
+
+    /// TASK 232 (performance, owner Q-AN 2026-11-16; supervisor's (a) 2026-11-17): LOW-RES SUN, `-sunres 1|2|4` (last match;
+    /// default 1 = today's path, one exact sun ray per pixel inline). 2 / 4: the primary kernel shades with the face's sun
+    /// record (its own, at most a few frames old, or an agreeing same-plane neighbour's: a "prior") and traces inline only
+    /// where neighbours disagree (a shadow edge, its penumbra) or none fits; CSSunTrace re-traces one face per 2x2 / 4x4 block
+    /// per frame, exactly, into every record of that face (Raymarch.compute LOW-RES SUN). Only with a far-shading primary
+    /// kernel that is not the sun-defer one. Uses the temporal-shadow history (2 x W x H x 12 B; +8.0 MB at 768x432).
+    /// CPU twin SunLowReference (SunLowReferenceTests).
+    public static int SunRes = ValidSunRes(ReadIntArg("-sunres", 1));
+    public static int ValidSunRes(int v) => v == 2 || v == 4 ? v : 1;
+    /// The sun trace pass drawn last frame (capture lines): 0 = inline (today's path), 2 / 4 = the block size.
+    public static int SunResDrawnLastFrame;
+
+    /// TASK 225 (look, owner Q-AN "why are the tree trunks pitch black"): two exact fixes to the look's
+    /// display<->linear handling, both ON by default (Raymarch.compute _LookFix, LookToLinear / LookSkyOpen).
+    /// `-lookexact 0`: LookToLinear back to pow 2.2 (not the inverse of URP's sRGB encode: crushed display < ~0.1).
+    /// `-skylinear 0`: the sky-fill share back in display space (a 25 % open face got 4.7 % of the sky light).
+    /// No storage, no pass: one select + pow per pixel.
+    public static bool LookExactSrgb = ReadIntArg("-lookexact", 1) != 0;
+    public static bool SkyShareLinear = ReadIntArg("-skylinear", 1) != 0;
+    public static int LookFixBits => (LookExactSrgb ? 1 : 0) | (SkyShareLinear ? 2 : 0);
+
+    /// TASK 226 (look, owner Q-AN 2026-11-16: "cheap look polish ... closer to Lay of the Land"): four pieces, each its
+    /// own switch (Raymarch.compute _LotlLook / LotlVoxelVary / the BLOOM kernels). `-voxvary 0`: no per-voxel
+    /// brightness / warm-cool swing. `-crevice 0`: FaceAO back on the ambient only. `-aerial 0`: the haze range
+    /// SkyHazeRangeM (1800 m) and desaturation 0.5 again. `-bloom 0`: no bloom. None adds storage except bloom's two
+    /// quarter-res half4 textures (render-graph transients; 0.2-0.5 MB). Off = the pre-226 image.
+    public static bool VoxelVary = ReadIntArg("-voxvary", 1) != 0;
+    public static bool Crevice = ReadIntArg("-crevice", 1) != 0;
+    public static bool AerialHaze = ReadIntArg("-aerial", 1) != 0;
+    public static bool Bloom = ReadIntArg("-bloom", 1) != 0;
+    /// Task 226: bytes of bloom's two quarter-res textures this frame (0 = off); the HANDOFF's GPU-bytes line.
+    public static long LastBloomBytes;
+    public static int LotlLookBits => (VoxelVary ? 1 : 0) | (Crevice ? 2 : 0) | (AerialHaze ? 4 : 0);
+
+    /// TASK 233 (owner Q-AP (a), 2026-11-17: task 231's three cheap look pieces, each its own switch; the third,
+    /// `-startsun`, is SunCycle.StartSunDegrees, default 0 = noon: over budget). Both below default ON. Constants and per-pixel ALU only, 0 GPU bytes, no new pass.
+    /// `-skypale 0|1`: the pale hazy sky + 2-octave procedural clouds on sky pixels (Raymarch.compute LookAtmosphere /
+    /// SkyClouds, _SkyLook bit 8; needs the task 121 sky look); lighting takes its hue at the old luma (SunCycle.DayZenith).
+    /// (`-skylook` is task 121's switch, hence the new name.) `-grade 0|1`: the light colour grade in CSMain's last
+    /// colour step before the ResultTexture write (render rows, before FSR; Grade233). Both scale with the day factor:
+    /// night is bit-identical either way.
+    public static bool SkyPale = ReadIntArg("-skypale", 1) != 0;
+    public static bool ColourGrade = ReadIntArg("-grade", 1) != 0;
+    /// The grade's constants (offline-tuned on 226 / 231 stills, Logs/overnight/233/grade_tune.py: mean luma within
+    /// -0.2 .. +4.5 %): x green desaturation, y all desaturation, z olive (red into greens), w S-curve strength;
+    /// second: x S-curve pivot, y toe lift, z vignette, w unused. The warm-midtone tint is GradeWarm.
+    public static readonly Vector4 GradeA = new Vector4(0.22f, 0.05f, 0.06f, 0.18f);
+    public static readonly Vector4 GradeB = new Vector4(0.40f, 0.012f, 0.10f, 0f);
+    public static readonly Vector4 GradeWarm = new Vector4(0.025f, 0.010f, -0.022f, 0f);
+    /// Their constants. Vary: +-12 % brightness on the darkest look albedo, +-6 % on white (a light material would
+    /// clip), +-3 % warm/cool. Crevice: the direct light takes half of FaceAO's depth. Aerial: haze range and the
+    /// desaturation share (task 121's 0.5 -> 0.75). Bloom: bright share smoothstep(0.55, 1.0) of linear luma, strength,
+    /// blur sigma in quarter-res texels.
+    public const float VaryAmplitude = 0.12f, VaryHue = 0.03f, CreviceDirectShare = 0.5f, AerialDesaturation = 0.75f;
+    public static float AerialHazeRangeM = ReadFloatArg("-aerialrange", 1100f);
+    public const float BloomT0 = 0.55f, BloomT1 = 1.0f, BloomSigma = 2.5f;
+    public static float BloomStrength = ReadFloatArg("-bloomk", 0.6f);
+    public static Vector4 LotlParams => new Vector4(VaryAmplitude, VaryHue, CreviceDirectShare, AerialDesaturation);
+
+    /// TASK 194 (bug fix, default ON): the REFUSED-CHUNK HAND-OVER (Raymarch.compute, the block of that name):
+    /// while the near GPU body pool holds refused chunks, a tier-0 hit past the ray's entry into a
+    /// non-resident column goes to the shells, which draw the refused chunk. `-refusedhandover 0` = the old
+    /// behaviour (a refused surface chunk shows as a 12.8 m box pit), for before/after pictures only.
+    public static bool RefusedHandOver = ReadIntArg("-refusedhandover", 1) != 0;
+    private static GraphicsBuffer _sfA, _sfB, _sfDummyR, _sfDummyW;
+    private const int SKY_REC_STRIDE = 12;   // task 227: Raymarch.compute SkyRec {v, a, b}
+    private static int _sfW, _sfH, _sfMode;
+    private static bool _sfValid;
+    private static uint _sfFrame;
+    private static Matrix4x4 _sfPrevVP;
     private static int _tsW, _tsH;
     private static bool _tsValid;
+    private const int SHADOW_REC_STRIDE = 12;   // task 232: Raymarch.compute SunRec {v, a, b} (was uint2)
+    private static int _tsMode = -1;            // task 232: what last frame's history holds: -1 none, 0 task 56's keys, 1 / 2 low-res sun
     private static uint _tsFrame;
     private static Matrix4x4 _tsPrevVP;
 
@@ -636,6 +807,48 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// rig's frame times measured an empty frame (found 2026-09-25).
     private static GraphicsBuffer _lightDummy;
 
+    /// TASK 244 (capture only, PERF_SLICE_BUDGETS sec. 4 / P5): the ray-work counters (Raymarch.compute RayStats: primary /
+    /// sun / sky rays and their steps by camera-distance band, with a steps-per-ray histogram). While on, the far-shading
+    /// pass draws its *Diag kernels (exact twins of play's, as for CollectShadowStats) and the low-res sky fill draws
+    /// CSSkyFillTraceDiag. The buffer (RAYSTATS_LEN x 4 B = 9.6 KB) is allocated the first time this is on; play and the
+    /// rigs never turn it on. Read it with RequestRayStats (AsyncGPUReadback: no stall, KNOWN_ISSUES' HUD readback bug).
+    public static bool CollectRayStats = false;
+    /// TASK 245 (lever F4, PERF_SLICE_BUDGETS sec. 6): the FOLIAGE LIGHT EARLY-OUT (Raymarch.compute, header at FoliageDens):
+    /// sun rays and sky-fill visibility legs carry a leaf transmittance through dense bricks and stop as blocked once it is
+    /// below FoliageEps. Needs the side buffer (`-foliageout 1` at launch: VoxelEngine.Memory.FoliageDensity.Enabled); this
+    /// switch is the shader's (capture arm `foliage_off`). DEFAULT OFF (a look change). Far-shading kernels only.
+    public static bool FoliageOut = VoxelEngine.Memory.FoliageDensity.Enabled;
+    /// The transmittance floor (`-foliageeps x`), from FoliageDensityTests.Report_Calibration (Logs/TerrainGen/trees245).
+    public static float FoliageEps = FoliageEpsArg(FOLIAGE_EPS_DEFAULT);
+    public const float FOLIAGE_EPS_DEFAULT = 1f / 8f;   // no floor meets the calibration rule (see the report); 1/8 = its middle row
+    private static float FoliageEpsArg(float def)
+    {
+        var a = System.Environment.GetCommandLineArgs();
+        for (int i = a.Length - 2; i >= 0; i--)
+            if (a[i] == "-foliageeps" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float v)) return v;
+        return def;
+    }
+    /// Task 244 (capture only): the temporal sun / sky-fill frame counters stop advancing, so a still pose converges to ONE
+    /// image (the same rays every frame) and two frames can be compared byte for byte (the -raystats identity stills).
+    public static bool DebugFreezeTemporal = false;
+    public const int RAYSTATS_LEN = VoxelEngine.Rendering.RayStatsReport.LEN;   // 8 + 12 x 200
+    public static GraphicsBuffer RayStatsBuffer { get; private set; }
+    private static readonly uint[] _rayStatsZero = new uint[RAYSTATS_LEN];
+    /// Allocates (first call) and zeroes the counters; the next frames accumulate until RequestRayStats.
+    public static void ResetRayStats()
+    {
+        if (RayStatsBuffer == null)
+            RayStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, RAYSTATS_LEN, sizeof(uint));
+        RayStatsBuffer.SetData(_rayStatsZero);
+    }
+    /// Asks for the counters without waiting (poll .done; .hasError on failure). Null while never reset.
+    public static AsyncGPUReadbackRequest? RequestRayStats() =>
+        RayStatsBuffer == null ? (AsyncGPUReadbackRequest?)null : AsyncGPUReadback.Request(RayStatsBuffer);
+    /// Bytes the counters hold now (0 until the first ResetRayStats).
+    public static long RayStatsBytes => RayStatsBuffer == null ? 0L : (long)RAYSTATS_LEN * sizeof(uint);
+    /// The sky-fill trace pass drew CSSkyFillTraceDiag last frame (capture line).
+    public static bool SkyTraceDiagDrawnLastFrame { get; private set; }
+
     /// Zeroes the counters, so a read measures ONE frame rather than an
     /// unbounded accumulation.
     public static void ResetShadowStats()
@@ -647,6 +860,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
     public static uint[] ReadShadowStats()
     {
+        KernelStrippedWarn("CSMainFarShadeDiag");   // task 194b: the counters live only in the *Diag kernels
         var d = new uint[STATS_LEN];
         ShadowStatsBuffer?.GetData(d);
         return d;
@@ -676,9 +890,23 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         class ComputePassData
         {
             public int temporalShadows, tsValid, tsReuseMask;
+            public int sunLow, kSunTrace = -1;           // task 232: block shift (0 = today's path) and CSSunTrace, or -1
+            public Vector4 sunLowParams;                 // task 232: width, height, pixel angle
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
+            public int skyFill, sfValid;                 // task 193
+            public int sfLow, kSkyTrace = -1;            // task 227: block shift (0 = inline) and CSSkyFillTrace, or -1
+            public Vector4 sfLowParams;                  // task 227: width, height, pixel angle
+            public int lookFix;                          // task 225
+            public int lotlLook;                         // task 226
+            public Vector4 lotlParams;                   // task 226
+            public int kBloomDown = -1, kBloomBlur = -1, kBloomAdd = -1;   // task 226 (-1 = bloom off this frame)
+            public TextureHandle bloomA, bloomB;         // task 226: quarter-res ping-pong
+            public Vector4 bloomParams;
+            public uint sfFrame;
+            public GraphicsBuffer sfRead, sfWrite;
+            public Matrix4x4 sfPrevVP;
             public int taa, taaHistValid, taaDirtyCount, taaChecker, taaCheckerParity;
             public Vector2 taaJitter;
             public Matrix4x4 taaPrevVP;
@@ -704,6 +932,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer debugBuffer;
             public GraphicsBuffer shadowStats;
             public int collectShadowStats;
+            public GraphicsBuffer rayStats;   // task 244: RayStatsBuffer, or the 1-element dummy while off
+            public GraphicsBuffer foliage;    // task 245: FoliageDensity.Buffer, or the 1-element dummy while off
+            public int foliageOn, foliageShellBase;
+            public int collectRayStats;
             public Vector3Int windowDimsBricks;
             public Vector3Int windowDimsChunks;
             public Vector3Int windowOriginBricks;
@@ -712,6 +944,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int uniformFaceHue;
             public Vector2Int debugPixel;
             public int debugMode;
+            public bool debugNaN;   // task 206: DebugOut[0..2] = NaN before the dispatch (a kernel that did not run reads NaN)
             public int traversalMode;
             public int useDevColors;
             public int shadeAO, shadeHemi, shadeFog;
@@ -753,6 +986,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public Vector4 lookSkyRimShape;   // task 126
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
+            public Vector4 skyPaleZenith, skyPaleHorizon;   // task 233
+            public float grade233;                          // task 233: the grade's amount (day factor; 0 = off)
             public int emissiveBleed;
             public int underwaterView;
             public int seeThroughLiquids;
@@ -785,6 +1020,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int kSunDefer;                   // task 168c: CSSunDeferLean, or -1 (not this frame)
             public TextureHandle sunDeferB;         // task 168c: the blocked outcome's colour
             public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
+            public int tier0Refused;                // task 194
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -820,7 +1056,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int useLODCascade;
         }
 
-        class BlitPassData { public TextureHandle source; }
+        class BlitPassData { public TextureHandle source; public bool kernelFailed; }
+        private bool _kernelFailedThisFrame;   // task 206: set while recording the compute pass, read by the blit pass
+        private ComputeShader _hbShader; private int _hbKernel = -1;   // task 206: the last record's heartbeat dispatch
+
+        /// Task 206: the previous record's heartbeat, read back now (ComputeCommandBuffer has no async readback; that
+        /// frame's commands were submitted by now, as CollectRoofVerify does).
+        private void CollectHeartbeat()
+        {
+            if (_hbShader == null || DebugBuffer == null) return;
+            ComputeShader cs = _hbShader; int k = _hbKernel;
+            _hbShader = null; _hbKernel = -1;
+            AsyncGPUReadback.Request(DebugBuffer, sizeof(float), 0, r =>
+            {
+                if (!r.hasError) VoxelEngine.Rendering.KernelHealth.Report(cs, k, r.GetData<float>()[0]);
+            });
+        }
 
         public RaymarchPass(ComputeShader compute, ComputeShader computeStripped, ComputeShader computeMemoryProbe)
         {
@@ -838,6 +1089,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
+            _kernelFailedThisFrame = false;   // task 206
+            CollectHeartbeat();
             bool useMemoryProbe = RaymarchFeature.UseMemoryProbeKernel && _computeMemoryProbe != null;
             bool useStripped = !useMemoryProbe && RaymarchFeature.UseStrippedKernel && _computeStripped != null;
             ComputeShader activeCompute = useMemoryProbe ? _computeMemoryProbe : (useStripped ? _computeStripped : _compute);
@@ -887,6 +1140,22 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 ? UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTaaCur", false)
                 : TextureHandle.nullHandle;
 
+            // Task 226: bloom's two quarter-res textures (render-graph transients; used only if the pass below keeps bloom on).
+            bool bloomWant = Bloom && !useStripped && !useMemoryProbe && _debugMode == 0 && taaCam.cameraType == CameraType.Game
+                          && activeCompute.HasKernel("BloomAdd");
+            TextureHandle bloomA = TextureHandle.nullHandle, bloomB = TextureHandle.nullHandle;
+            if (bloomWant)
+            {
+                var bd = desc;
+                bd.width = Mathf.Max(1, (dispatchW + 3) >> 2);
+                bd.height = Mathf.Max(1, (dispatchH + 3) >> 2);
+                bd.graphicsFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat;
+                bloomA = UniversalRenderer.CreateRenderGraphTexture(renderGraph, bd, "_RaymarchBloomA", false);
+                bloomB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, bd, "_RaymarchBloomB", false);
+                LastBloomBytes = 2L * bd.width * bd.height * 8L;
+            }
+            else LastBloomBytes = 0L;
+
             using (var builder = renderGraph.AddComputePass<ComputePassData>("VoxelRaymarch_Compute", out var passData))
             {
                 var clip = TerrainClipmap.Active;
@@ -905,27 +1174,28 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Temporal shadow reuse: ping-pong history, previous camera.
                 if (_tsDummyR == null)
                 {
-                    _tsDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
-                    _tsDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                    _tsDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SHADOW_REC_STRIDE);
+                    _tsDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SHADOW_REC_STRIDE);
                 }
                 passData.temporalShadows = TemporalShadows ? 1 : 0;
-                if (TemporalShadows)
+                // Task 232: the low-res sun keeps its records in the same history (12 B each).
+                if (TemporalShadows || ValidSunRes(SunRes) > 1)
                 {
                     if (_tsA == null || _tsW != dispatchW || _tsH != dispatchH)
                     {
                         _tsA?.Release(); _tsB?.Release();
-                        _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
-                        // (sunVis, origin key) per pixel. A slot never written (the
-                        // checkerboard's other half) must never match a key: 0xFFFFFFFF.
-                        var fill = new uint[dispatchW * dispatchH * 2];
-                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SHADOW_REC_STRIDE);
+                        _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SHADOW_REC_STRIDE);
+                        // (sunVis, origin key, -) per pixel (task 56), or a low-res sun record (task 232). A slot never
+                        // written (the checkerboard's other half) must never match a key, nor hold a face: all 0xFFFFFFFF.
+                        var fill = new uint[dispatchW * dispatchH * 3];
+                        for (int i = 0; i < fill.Length; i++) fill[i] = 0xFFFFFFFFu;
                         _tsA.SetData(fill); _tsB.SetData(fill);
                         _tsW = dispatchW; _tsH = dispatchH; _tsValid = false;
                     }
                     passData.tsRead = _tsA; passData.tsWrite = _tsB;
                     passData.tsValid = _tsValid ? 1 : 0;
-                    passData.tsFrame = _tsFrame++;
+                    passData.tsFrame = DebugFreezeTemporal ? _tsFrame : _tsFrame++;   // task 244: capture-only freeze
                     passData.tsReuseMask = ValidReusePeriod(ShadowReusePeriod) - 1;
                     passData.tsPrevVP = _tsPrevVP;
                     var tc = cameraData.camera;
@@ -934,6 +1204,49 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     _tsValid = true;
                 }
                 else { passData.tsRead = _tsDummyR; passData.tsWrite = _tsDummyW; }
+
+                // Task 193: sky-fill history, the same ping-pong pattern. A mode change drops it (a mode-1
+                // record holds no ground half).
+                if (_sfDummyR == null)
+                {
+                    _sfDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SKY_REC_STRIDE);
+                    _sfDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SKY_REC_STRIDE);
+                }
+                int sfMode = ValidSkyFill(SkyFill);
+                passData.skyFill = sfMode;
+                passData.lookFix = LookFixBits;   // task 225
+                passData.lotlLook = LotlLookBits;   // task 226
+                passData.lotlParams = LotlParams;
+                passData.kBloomDown = passData.kBloomBlur = passData.kBloomAdd = -1;
+                passData.bloomA = bloomA; passData.bloomB = bloomB;
+                passData.bloomParams = new Vector4(BloomT0, BloomT1, BloomStrength, BloomSigma);
+                if (sfMode != 0)
+                {
+                    if (_sfA == null || _sfW != dispatchW || _sfH != dispatchH)
+                    {
+                        _sfA?.Release(); _sfB?.Release();
+                        _sfA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SKY_REC_STRIDE);
+                        _sfB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, SKY_REC_STRIDE);
+                        var fill = new uint[dispatchW * dispatchH * 3];   // task 227: {v, a, b}, b = none
+                        for (int i = 2; i < fill.Length; i += 3) fill[i] = 0xFFFFFFFFu;
+                        _sfA.SetData(fill); _sfB.SetData(fill);
+                        _sfW = dispatchW; _sfH = dispatchH; _sfValid = false;
+                    }
+                    if (_sfMode != sfMode) { _sfValid = false; _sfMode = sfMode; }
+                    passData.sfRead = _sfA; passData.sfWrite = _sfB;
+                    passData.sfValid = _sfValid ? 1 : 0;
+                    passData.sfFrame = DebugFreezeTemporal ? _sfFrame : _sfFrame++;   // task 244
+                    passData.sfPrevVP = _sfPrevVP;
+                    var sfCam = cameraData.camera;
+                    _sfPrevVP = sfCam.projectionMatrix * sfCam.worldToCameraMatrix;
+                    (_sfA, _sfB) = (_sfB, _sfA);
+                    _sfValid = true;
+                }
+                else
+                {
+                    passData.sfRead = _sfDummyR; passData.sfWrite = _sfDummyW;
+                    if (_sfA != null) { _sfA.Release(); _sfB.Release(); _sfA = _sfB = null; _sfMode = 0; }   // OFF holds no memory
+                }
 
                 // TAA: ping-pong colour + "same surface?" history, previous
                 // unjittered camera, this frame's jitter.
@@ -994,10 +1307,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     // jitter per frame a pixel traced on alternate frames would see
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
-                    passData.taaChecker = TaaChecker && !upsIn ? 1 : 0;
-                    if (TaaChecker && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
+                    // Task 194b: a player build without CSMainChecker (DevKernelStrip) runs -checker 1 as plain TAA.
+                    bool checkerK = TaaChecker && !KernelStrippedWarn("CSMainChecker");
+                    passData.taaChecker = checkerK && !upsIn ? 1 : 0;
+                    if (checkerK && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
-                    int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
+                    int hi = (int)((checkerK ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
                     LastTaaJitter = upsIn ? UpsJitter(_taaFrame, dispatchW, dispatchH, cameraData)
                                           : new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     _taaFrame++;
@@ -1033,6 +1348,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.debugBuffer = DebugBuffer;
                 passData.shadowStats = ShadowStatsBuffer;
                 passData.collectShadowStats = CollectShadowStats ? 1 : 0;
+                passData.collectRayStats = CollectRayStats && RayStatsBuffer != null ? 1 : 0;   // task 244
+                passData.rayStats = passData.collectRayStats != 0 ? RayStatsBuffer : _farDummy;
+                // Task 245: the foliage side buffer's dirty blocks go up here, once a frame, after this frame's body writes.
+                if (VoxelEngine.Memory.FoliageDensity.Enabled) VoxelEngine.Memory.FoliageDensity.Flush();
+                passData.foliage = VoxelEngine.Memory.FoliageDensity.Buffer ?? _farDummy;
+                passData.foliageOn = FoliageOut && VoxelEngine.Memory.FoliageDensity.Buffer != null ? 1 : 0;
+                passData.foliageShellBase = VoxelEngine.Memory.FoliageDensity.ShellBaseUint;
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
@@ -1092,6 +1414,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // LightingConfig.look -- see the LOOK 1 block in Raymarch.compute.
                 passData.look = LookOverride >= 0 ? LookOverride : cfg.look;
                 float hrs = SunCycle.Hours;
+                SunCycle.PaleSky = SkyPale && SkyLook;   // task 233: before any Look*At below
+                passData.skyPaleZenith = SkyPale && SkyLook ? V4f(SunCycle.PaleSkyZenithAt(hrs)) : Vector4.zero;
+                passData.skyPaleHorizon = SkyPale && SkyLook ? V4f(SunCycle.PaleSkyHorizonAt(hrs)) : Vector4.zero;
+                passData.grade233 = ColourGrade ? SunCycle.LookDayFactorAt(hrs) : 0f;
                 passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
                 passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
                 passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
@@ -1108,14 +1434,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
                 passData.riverLook = RiverLook ? 1 : 0;
-                passData.farShadeParams = new Vector4(FarShadeSkyStrength, (SkyHaze ? SkyHazeRangeM : FarShadeHazeRangeM) * 10f,
+                passData.farShadeParams = new Vector4(FarShadeSkyStrength, (SkyHaze ? (AerialHaze ? AerialHazeRangeM : SkyHazeRangeM) : FarShadeHazeRangeM) * 10f,
                                                       FarShadeHazeScaleHeightM * 10f, FarShadeLightHaze);
                 {
                     var farR = VoxelEngine.Rendering.FarField.Active;
                     bool hasFlow = farR != null && farR.RiverFlow != null;
                     passData.riverFlow = hasFlow ? farR.RiverFlow : _farDummy;
                     passData.riverMap = hasFlow ? farR.RiverMapParams : Vector4.zero;
-                    passData.riverTime = Time.time;
+                    passData.riverTime = DebugRiverTimeHold >= 0f ? DebugRiverTimeHold : Time.time;   // task 201a: held for identity stills
                 }
                 passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
                                                        0, LightingConfig.MaxTorchShadowRays);
@@ -1157,13 +1483,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
                 // CSMainChecker are the pre-task code, so OFF and a still camera are
                 // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
-                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
+                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0 && !KernelStrippedWarn("CSMainDetail"))
                     passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
                 // Task 85b: far shading is its own kernel (VE_FAR_SHADE), so OFF runs the
                 // pre-task CSMain byte for byte. The checkerboard and the -detailspeed
                 // square keep their kernels (no far shading while they hold the frame).
                 // Task 134: the lean play kernel, or its *Diag twin (ShellDiagKernels).
-                bool shellDiag = ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag");
+                // Task 194b: a player build without the *Diag twins (DevKernelStrip) draws with the play kernels.
+                // Task 244: the *Diag twins fold the tier cascade off (Raymarch.compute, as task 206's flood twins: 33 -> 29 Metal
+                // buffer slots, cap 31), so they draw only while it is off -- always while the shells draw (shellsOn below).
+                bool diagCascade = UseLODCascade && LODCascadeManager.Active != null
+                                   && !(DrawShells && ShellStreamer.Active != null && !useStripped && !useMemoryProbe);
+                bool shellDiag = !diagCascade && ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag")
+                                 && !KernelStrippedWarn("CSMainFarShadeDiag");
                 string farShadeKernel = shellDiag ? "CSMainFarShadeDiag" : "CSMainFarShade";
                 if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel(farShadeKernel))
                     passData.kPrimary = activeCompute.FindKernel(farShadeKernel);
@@ -1248,6 +1580,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 bool shellsOn = DrawShells && shells != null && !useStripped && !useMemoryProbe;
                 ShellsDrawnLastFrame = shellsOn;
                 passData.shellCount = shellsOn ? shells.Layout.ShellCount : 0;
+                // Task 194: the residency bitmap carries the refused columns only when the far band runs
+                // (Phase4Bootstrapper -> FarField.UpdateResidency), so the hand-over needs both.
+                // Task 197: the bits are every column tier 0 lacks (refused, retried but still queued, first
+                // upload queued), so the block runs while ANY is set -- not only while chunks are refused
+                // (194b's pits: refused 0 right after a retry, the retried chunks still air in tier 0).
+                var farH = VoxelEngine.Rendering.FarField.Active;
+                passData.tier0Refused = RefusedHandOver && shellsOn && passData.farEnabled != 0
+                                        && farH != null && farH.HandOverColumns > 0 ? 1 : 0;
                 passData.shellIterCap = Mathf.Max(16, ShellIterCap);
                 passData.shellTint = shellsOn && ShellTint ? 1 : 0;
                 passData.shellPixelAngle = LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH);
@@ -1270,7 +1610,16 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // (same code plus the flood on tier-0 hits). Checker, detail and *Diag keep theirs.
                 passData.floodOn = false;
                 bool floodFarTwin = false;
-                if (VoxelEngine.Rendering.TorchFloodPool.Ready && !useStripped && !useMemoryProbe)
+                // Task 206: the flood twins fold the tier cascade off (Raymarch.compute: 33 -> 29 Metal buffer slots, cap 31),
+                // so they draw only while it is off -- always while the shells draw (play). Cascade on: analytic torches.
+                bool cascadeThisFrame = UseLODCascade && LODCascadeManager.Active != null && !shellsOn;
+                // Task 229: the twin only while it can change a pixel (FloodTwinRule's header: exact).
+                bool floodReady = VoxelEngine.Rendering.TorchFloodPool.Ready;
+                bool floodNeeded = floodReady && (!FloodNearOnly || VoxelEngine.Rendering.FloodTwinRule.Needed(
+                    VoxelEngine.Rendering.TorchFloodPool.Instance, lights?.ActiveLights, lights != null ? lights.ActiveCount : 0,
+                    originB, clip.WindowDimsBricks));
+                FloodTwinSkippedLastFrame = floodReady && !floodNeeded;
+                if (floodNeeded && !useStripped && !useMemoryProbe && !cascadeThisFrame)
                 {
                     string twin = null;
                     if (passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFlood")) twin = "CSMainFlood";
@@ -1289,7 +1638,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 ShellDiagDrawnLastFrame = passData.primaryFarShade && shellDiag;
                 passData.kShellProbe = -1;
                 passData.shellProbeIO = _shellProbeDummy;
-                if (passData.primaryFarShade && (DebugShellSkip & 32) != 0 && passData.shellCount > 1 && activeCompute.HasKernel("CSShellProbe"))
+                if (passData.primaryFarShade && (DebugShellSkip & 32) != 0 && passData.shellCount > 1 && activeCompute.HasKernel("CSShellProbe")
+                    && !KernelStrippedWarn("CSShellProbe"))
                 {
                     int n = passData.dispatchWidth * passData.dispatchHeight;
                     if (_shellProbeIO == null || _shellProbeIO.count < n)
@@ -1345,7 +1695,63 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         passData.sunDeferB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchSunDeferB", false);
                     }
                 }
+                // Task 227: the low-res sky fill's trace pass, with a far-shading primary kernel (play's, the capture runs').
+                passData.sfLow = 0; passData.kSkyTrace = -1; SkyTraceDiagDrawnLastFrame = false;
+                if (sfMode != 0 && SkyFillRes > 1 && (passData.primaryFarShade || diet2) && activeCompute.HasKernel("CSSkyFillTrace"))
+                {
+                    passData.sfLow = SkyFillRes == 4 ? 2 : 1;
+                    // Task 244: the counters' twin while CollectRayStats (the primary kernel is then the *Diag one too).
+                    bool skyDiag = passData.collectRayStats != 0 && shellDiag && activeCompute.HasKernel("CSSkyFillTraceDiag");
+                    passData.kSkyTrace = activeCompute.FindKernel(skyDiag ? "CSSkyFillTraceDiag" : "CSSkyFillTrace");
+                    SkyTraceDiagDrawnLastFrame = skyDiag;
+                    passData.sfLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
+                }
+                SkyFillResDrawnLastFrame = passData.sfLow == 0 ? 0 : 1 << passData.sfLow;
+                // Task 232: the low-res sun's trace pass, with a far-shading primary kernel that is not the sun-defer one.
+                passData.sunLow = 0; passData.kSunTrace = -1;
+                if (ValidSunRes(SunRes) > 1 && passData.primaryFarShade && !diet2Sun && passData.tsRead != _tsDummyR
+                    && activeCompute.HasKernel("CSSunTrace"))
+                {
+                    passData.sunLow = SunRes == 4 ? 2 : 1;
+                    passData.kSunTrace = activeCompute.FindKernel("CSSunTrace");
+                    passData.sunLowParams = new Vector4(dispatchW, dispatchH, LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH), 0f);
+                }
+                {
+                    // A history written by the other mode holds the other record kind: drop it for one frame.
+                    int tsMode = passData.sunLow != 0 ? passData.sunLow : (TemporalShadows ? 0 : -1);
+                    if (tsMode != _tsMode) passData.tsValid = 0;
+                    _tsMode = tsMode;
+                }
+                SunResDrawnLastFrame = passData.sunLow == 0 ? 0 : 1 << passData.sunLow;
+                // Task 206: a kernel that did not load at run time is LOUD (KernelHealth): one error per kernel,
+                // the frame painted magenta by the blit pass, DebugBuffer's ray slots NaN.
+                {
+                    string failed = null;
+                    if (VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kPrimary))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary) ?? "#" + passData.kPrimary;
+                    else if (passData.kShellPrepass >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kShellPrepass))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kShellPrepass) ?? "#" + passData.kShellPrepass;
+                    else if (passData.kSunDefer >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSunDefer))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunDefer) ?? "#" + passData.kSunDefer;
+                    else if (passData.kSkyTrace >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSkyTrace))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSkyTrace) ?? "#" + passData.kSkyTrace;
+                    else if (passData.kSunTrace >= 0 && VoxelEngine.Rendering.KernelHealth.Failed(activeCompute, passData.kSunTrace))
+                        failed = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kSunTrace) ?? "#" + passData.kSunTrace;
+                    KernelFailedLastFrame = failed;
+                    PrimaryKernelLastFrame = VoxelEngine.Rendering.KernelHealth.NameOf(activeCompute, passData.kPrimary);
+                    _kernelFailedThisFrame = failed != null;
+                    if (failed != null) KernelFailFrames++;
+                    // The heartbeat (KernelHealth): a kernel that writes DebugOut (everything outside diet 2) and is not yet
+                    // verified gets DebugOut[0..2] = NaN before its dispatch; the next record reads slot 0 back.
+                    bool writesDebug = !diet2 && !useStripped && !useMemoryProbe && !passData.primaryChecker;
+                    bool heartbeat = writesDebug && failed == null
+                        && VoxelEngine.Rendering.KernelHealth.NeedsHeartbeat(activeCompute, passData.kPrimary)
+                        && VoxelEngine.Rendering.KernelHealth.PixelInside(DebugPixel, dispatchW, dispatchH);
+                    passData.debugNaN = writesDebug && (DebugPixelRequested || heartbeat);
+                    if (heartbeat) { _hbShader = activeCompute; _hbKernel = passData.kPrimary; }
+                }
                 Diet2DrawnLastFrame = diet2;
+                FloodTwinDrawnLastFrame = passData.floodOn;   // task 229
                 Diet2RoofDrawnLastFrame = diet2 && diet2Roof;
                 SunDeferDrawnLastFrame = diet2Sun;
                 SunDeferBytes = diet2Sun ? (long)dispatchW * dispatchH * (long)UnityEngine.Experimental.Rendering.GraphicsFormatUtility.GetBlockSize(desc.graphicsFormat) : 0L;
@@ -1402,6 +1808,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.maxRayDistance = MaxRayDistance;
                 }
 
+                // Task 226: bloom only on the look-1 image (the look this was tuned on).
+                if (bloomWant && passData.look == 1)
+                {
+                    passData.kBloomDown = activeCompute.FindKernel("BloomDown");
+                    passData.kBloomBlur = activeCompute.FindKernel("BloomBlur");
+                    passData.kBloomAdd = activeCompute.FindKernel("BloomAdd");
+                    builder.UseTexture(bloomA, AccessFlags.ReadWrite);
+                    builder.UseTexture(bloomB, AccessFlags.ReadWrite);
+                }
                 builder.UseTexture(target, AccessFlags.Write);
                 if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
                 if (passData.kSunDefer >= 0) builder.UseTexture(passData.sunDeferB, AccessFlags.ReadWrite);   // task 168c
@@ -1472,6 +1887,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     if (!data.useStripped && !data.useMemoryProbe)
                     {
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "DebugOut", data.debugBuffer);
+                        if (data.debugNaN) cmd.SetBufferData(data.debugBuffer, s_debugNaN, 0, 0, 3);   // task 206
                         cmd.SetComputeIntParams(data.compute, "_DebugPixel",
                             new int[] { data.debugPixel.x, data.debugPixel.y });
                         cmd.SetComputeIntParams(data.compute, "_DebugModePacked",
@@ -1516,6 +1932,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
                         cmd.SetComputeIntParam(data.compute, "_SkyProbeTilt", data.skyProbeTilt);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFill", data.skyFill);              // task 193
+                        cmd.SetComputeIntParam(data.compute, "_LookFix", data.lookFix);              // task 225
+                        cmd.SetComputeIntParam(data.compute, "_LotlLook", data.lotlLook);            // task 226
+                        cmd.SetComputeVectorParam(data.compute, "_LotlParams", data.lotlParams);
+                        cmd.SetComputeIntParam(data.compute, "_SkyHistValid", data.sfValid);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFrame", (int)data.sfFrame);
+                        cmd.SetComputeMatrixParam(data.compute, "_SkyPrevViewProj", data.sfPrevVP);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistR", data.sfRead);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "SkyHistW", data.sfWrite);
+                        cmd.SetComputeIntParam(data.compute, "_SkyFillLow", data.sfLow);              // task 227
+                        cmd.SetComputeVectorParam(data.compute, "_SkyLowParams", data.sfLowParams);
+                        cmd.SetComputeIntParam(data.compute, "_SunLow", data.sunLow);                 // task 232
+                        cmd.SetComputeVectorParam(data.compute, "_SunLowParams", data.sunLowParams);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
 
@@ -1525,9 +1954,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         if (data.shadowStats != null)
                             cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowStats", data.shadowStats);
                         cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
+                        // Task 244: bound unconditionally too (the dummy while off); written only by the *Diag kernels.
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RayStats", data.rayStats);
+                        cmd.SetComputeIntParam(data.compute, "_RayStats", data.collectRayStats);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowTravelLOD", data.shadowTravelLod);
+                        cmd.SetComputeFloatParam(data.compute, "_SunFarVoxels", SunFarM * 10f);   // task 228
                         cmd.SetComputeIntParam(data.compute, "_MaterialVariation", data.materialVariation);
                         cmd.SetComputeFloatParam(data.compute, "_MaterialVariationAmount", data.materialVariationAmount);
                         cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);
@@ -1539,7 +1972,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRimShape", data.lookSkyRimShape);   // task 126
-                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0));
+                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0) | (SkyLook && SkyPale ? 8 : 0));
+                        cmd.SetComputeVectorParam(data.compute, "_SkyPaleZenith", data.skyPaleZenith);     // task 233
+                        cmd.SetComputeVectorParam(data.compute, "_SkyPaleHorizon", data.skyPaleHorizon);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233", new Vector4(data.grade233, 0f, 0f, 0f));
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233A", GradeA);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233B", GradeB);
+                        cmd.SetComputeVectorParam(data.compute, "_Grade233Warm", GradeWarm);
                         cmd.SetComputeIntParam(data.compute, "_BiomeTint", BiomeTint ? 1 : 0);   // task 122
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
                         cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
@@ -1567,6 +2006,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);
+                        // Task 206: every kernel outside diet 2 reads the pyramid through the read-only alias (8 UAVs, Metal's cap).
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMipRO", data.heightMip);
                         if (data.roofSkip != 0 && data.roofPlan.mode == 2)   // task 168: only the dirty ring columns
                         {
                             cmd.BeginSample("VE.Raymarch.HeightMip");
@@ -1605,6 +2046,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_CubeBounce", CubeBounce ? CubeBounceStrength : 0f);   // task 120
                         cmd.SetComputeIntParam(data.compute, "_CubeFilter", CubeFilter ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_CellHash", CellHash ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_DashFix", DashFix);   // task 205
                         cmd.SetComputeVectorParam(data.compute, "_CubeFilterRange", new Vector4(CubeFilterStartM * 10f, CubeFilterFullM * 10f, 0f, 0f));
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
@@ -1615,6 +2057,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
                         // 8.14 shells (task 80). Always bound (dummies when off).
                         cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
+                        cmd.SetComputeIntParam(data.compute, "_Tier0Refused", data.tier0Refused);   // task 194
                         cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
                         cmd.SetComputeIntParam(data.compute, "_NearShadowShells", NearShadowShells && data.shellCount > 1 && data.primaryFarShade ? 1 : 0);   // task 133
                         cmd.SetComputeIntParam(data.compute, "_ShellMaskBase", data.shellMaskBase);   // task 93b5
@@ -1637,6 +2080,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellBricks", data.shellBricks);
+                        // Task 245: the foliage early-out (dummy + off unless -foliageout 1). Bound wherever the sun / sky rays run.
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FoliageDens", data.foliage);
+                        cmd.SetComputeIntParam(data.compute, "_FoliageOut", data.foliageOn);
+                        cmd.SetComputeFloatParam(data.compute, "_FoliageEps", FoliageEps);
+                        cmd.SetComputeIntParam(data.compute, "_FoliageShellBase", data.foliageShellBase);
                         if (data.primaryFarShade)   // task 130 (diagnostic): always bound to the far-shading kernel
                         {
                             cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellProbeIO", data.shellProbeIO);
@@ -1726,6 +2174,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPre", data.shellPre);
                         cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShadowStats", data.shadowStats ?? _farDummy);
@@ -1745,6 +2194,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPre", data.shellPre);
                         cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShadowHistW", data.tsWrite);
@@ -1754,6 +2204,64 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.DispatchCompute(data.compute, data.kSunDefer, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
                         cmd.EndSample("VE.Raymarch.SunDefer");
                     }
+                    if (data.kSkyTrace >= 0)
+                    {
+                        // Task 227: LOW-RES SKY FILL -- one sky-fill ray per 2x2 / 4x4 block, folded into this frame's records
+                        // (Raymarch.compute CSSkyFillTrace). Binds what TraceShadowRay reads, as the primary kernel has it.
+                        int kSky = data.kSkyTrace;
+                        cmd.BeginSample("VE.Raymarch.SkyFillTrace");
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBuffer", data.clipmapBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBuffer", data.brickDataBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip1", data.airMip1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip2", data.airMip2);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip3", data.airMip3);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "AirMip4", data.airMip4);
+                        if (data.airMipPacked != null) cmd.SetComputeBufferParam(data.compute, kSky, "AirMipPacked", data.airMipPacked);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBufferTier1", data.clipmapTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBufferTier1", data.brickDataTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "ClipmapBufferTier2", data.clipmapTier2);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "BrickDataBufferTier2", data.brickDataTier2);
+                        if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSky, "HeightMipRO", data.heightMip);
+                        if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSky, "DebugOut", data.debugBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "SkyHistW", data.sfWrite);
+                        cmd.SetComputeBufferParam(data.compute, kSky, "FoliageDens", data.foliage);   // task 245
+                        cmd.SetComputeBufferParam(data.compute, kSky, "RayStats", data.rayStats);   // task 244 (read by the Diag twin only)
+                        int sfBs = data.sfLow;
+                        int bx = (data.dispatchWidth + (1 << sfBs) - 1) >> sfBs, by = (data.dispatchHeight + (1 << sfBs) - 1) >> sfBs;
+                        cmd.DispatchCompute(data.compute, kSky, (bx + 7) / 8, (by + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.SkyFillTrace");
+                    }
+                    if (data.kSunTrace >= 0)
+                    {
+                        // Task 232: LOW-RES SUN -- one exact sun ray per 2x2 / 4x4 block, written into this frame's records of
+                        // that face (Raymarch.compute CSSunTrace). Binds what TraceShadowRay and ShellMarch read.
+                        int kSun = data.kSunTrace;
+                        cmd.BeginSample("VE.Raymarch.SunTrace");
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBuffer", data.clipmapBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBuffer", data.brickDataBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip1", data.airMip1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip2", data.airMip2);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip3", data.airMip3);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "AirMip4", data.airMip4);
+                        if (data.airMipPacked != null) cmd.SetComputeBufferParam(data.compute, kSun, "AirMipPacked", data.airMipPacked);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBufferTier1", data.clipmapTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBufferTier1", data.brickDataTier1);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ClipmapBufferTier2", data.clipmapTier2);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "BrickDataBufferTier2", data.brickDataTier2);
+                        if (data.heightMip != null) cmd.SetComputeBufferParam(data.compute, kSun, "HeightMipRO", data.heightMip);
+                        if (data.debugBuffer != null) cmd.SetComputeBufferParam(data.compute, kSun, "DebugOut", data.debugBuffer);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "FoliageDens", data.foliage);   // task 245
+                        cmd.SetComputeBufferParam(data.compute, kSun, "FarResident", data.farResident);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShadowStats", data.shadowStats ?? _farDummy);
+                        cmd.SetComputeBufferParam(data.compute, kSun, "ShadowHistW", data.tsWrite);
+                        int snBs = data.sunLow;
+                        int sbx = (data.dispatchWidth + (1 << snBs) - 1) >> snBs, sby = (data.dispatchHeight + (1 << snBs) - 1) >> snBs;
+                        cmd.DispatchCompute(data.compute, kSun, (sbx + 7) / 8, (sby + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.SunTrace");
+                    }
                     if (data.kShellProbe >= 0)
                     {
                         // Task 130 (DIAGNOSTIC, shellsplit arms): the shell march alone, for the pixels the
@@ -1762,6 +2270,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellDir", data.shellDir);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellPages", data.shellPages);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "FoliageDens", data.foliage);   // task 245
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "FarResident", data.farResident);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShellProbeIO", data.shellProbeIO);
                         cmd.SetComputeBufferParam(data.compute, data.kShellProbe, "ShadowStats", data.shadowStats ?? _farDummy);
@@ -1785,6 +2294,30 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.DispatchCompute(data.compute, data.kTaaSharpen, threadGroupsX, threadGroupsY, 1);
                         cmd.EndSample("VE.Raymarch.Taa");
                     }
+                    // Task 226: BLOOM, after the frame's last writer, before FSR 3 (a later render-graph pass).
+                    if (data.kBloomDown >= 0)
+                    {
+                        cmd.BeginSample("VE.Raymarch.Bloom");
+                        int qw = (data.dispatchWidth + 3) >> 2, qh = (data.dispatchHeight + 3) >> 2;
+                        cmd.SetComputeVectorParam(data.compute, "_BloomParams", data.bloomParams);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDims", data.dispatchWidth, data.dispatchHeight, qw, qh);
+                        int qgx = (qw + 7) / 8, qgy = (qh + 7) / 8;
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomDown, "ResultTexture", data.target);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomDown, "BloomDst", data.bloomA);
+                        cmd.DispatchCompute(data.compute, data.kBloomDown, qgx, qgy, 1);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDir", 1, 0);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomSrc", data.bloomA);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomDst", data.bloomB);
+                        cmd.DispatchCompute(data.compute, data.kBloomBlur, qgx, qgy, 1);
+                        cmd.SetComputeIntParams(data.compute, "_BloomDir", 0, 1);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomSrc", data.bloomB);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomBlur, "BloomDst", data.bloomA);
+                        cmd.DispatchCompute(data.compute, data.kBloomBlur, qgx, qgy, 1);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomAdd, "BloomSrc", data.bloomA);
+                        cmd.SetComputeTextureParam(data.compute, data.kBloomAdd, "ResultTexture", data.target);
+                        cmd.DispatchCompute(data.compute, data.kBloomAdd, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.Bloom");
+                    }
                 });
             }
 
@@ -1796,6 +2329,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
             {
                 blitData.source = blitSource;
+                blitData.kernelFailed = _kernelFailedThisFrame;
                 builder.UseTexture(blitSource, AccessFlags.Read);
                 builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
                 builder.AllowPassCulling(false);
@@ -1805,7 +2339,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     // 1.125x scale, and point sampling doubles every 8th row
                     // and column -- a fixed grid that beats against the
                     // terrain's own patterns (moire). Bilinear spreads it out.
-                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, true);
+                    // Task 206: a frame whose kernel did not load is MAGENTA, never the stale last image.
+                    if (data.kernelFailed) context.cmd.ClearRenderTarget(false, true, Color.magenta);
+                    else Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, true);
                 });
             }
         }
@@ -1854,12 +2390,16 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         DebugBuffer = null;
         ShadowStatsBuffer?.Release();
         ShadowStatsBuffer = null;
+        RayStatsBuffer?.Release();
+        RayStatsBuffer = null;
         _farDummy?.Release();
         _shellProbeIO?.Release(); _shellProbeIO = null;
         _shellProbeDummy?.Release(); _shellProbeDummy = null;
         _shellPre?.Release(); _shellPre = null;
         _shellPreDummy?.Release(); _shellPreDummy = null;
         _lightDummy?.Release(); _lightDummy = null;
+        _sfA?.Release(); _sfB?.Release(); _sfDummyR?.Release(); _sfDummyW?.Release();   // task 193
+        _sfA = _sfB = _sfDummyR = _sfDummyW = null;
         _farDummy = null;
         _taaColA?.Release(); _taaColB?.Release(); _taaMetaA?.Release(); _taaMetaB?.Release(); _taaCur?.Release();
         _taaDummy4?.Release(); _taaDummy2?.Release();

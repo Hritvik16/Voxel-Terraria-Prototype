@@ -85,13 +85,14 @@ public partial class PlaygroundCapture
     /// Task 162: "native,720,540" -> native, fsr3_720, fsr3_540 (ApplyCompareArm names).
     /// Task 166: "432_s0" -> fsr3_432_s0 (a variant, Fsr3ArmVariant); "none432" -> none_432 (the raw
     /// internal image, bilinear to the output).
+    /// Task 193: "native_sf2" stays as given (WorldSurvey's sky-fill arm suffix).
     private static string[] LadderArms(string list)
     {
         var parts = list.Split(',');
         for (int i = 0; i < parts.Length; i++)
         {
             string t = parts[i].Trim();
-            parts[i] = t == "native" ? "native" : t.StartsWith("none") ? $"none_{int.Parse(t.Substring(4))}" : $"fsr3_{t}";
+            parts[i] = t == "native" || t.StartsWith("native_") ? t : t.StartsWith("none") ? $"none_{int.Parse(t.Substring(4))}" : $"fsr3_{t}";
         }
         return parts;
     }

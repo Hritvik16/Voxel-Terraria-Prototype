@@ -1,0 +1,20 @@
+
+== forest_eye sun 16: per frame totals; t0 = steps taken in the tier-0 window (0.1 m bricks: where leaves are marched)
+arm      prim M   t0 M  sun M   t0 M sun/ray  sky M  all M all t0 M leaf px% far px% | p95 prim 10-40 / sun 10-40 / sky all
+off       24.38  11.70   8.80   3.78    46.2   0.93  34.11    16.42     0.0%   58.1% | 192-207 / 128-143 / 80-95
+today     18.05  13.72   5.48   3.72    48.6   1.35  24.88    18.79    25.0%   16.1% | 144-159 / 128-143 / 128-143
+        vs OFF: primary -26 %, sun -38 %, sky +45 %, tier-0 steps +14 %; light (sun+sky) steps per 1 % of screen in leaves: -116.1 k/frame; tier-0 steps per 1 %: +95 k/frame
+sparse    24.34  14.36   9.08   4.36    59.5   1.63  35.05    20.35    16.0%   34.6% | 176-191 / 128-143 / 128-143
+        vs OFF: primary -0 %, sun +3 %, sky +75 %, tier-0 steps +24 %; light (sun+sky) steps per 1 % of screen in leaves: +61.3 k/frame; tier-0 steps per 1 %: +246 k/frame
+dense     22.06  16.11   8.87   4.88    57.5   2.00  32.94    22.99    28.0%   22.9% | 160-175 / 128-143 / 128-143
+        vs OFF: primary -9 %, sun +1 %, sky +115 %, tier-0 steps +40 %; light (sun+sky) steps per 1 % of screen in leaves: +40.9 k/frame; tier-0 steps per 1 %: +235 k/frame
+
+== forest_eye sun noon: per frame totals; t0 = steps taken in the tier-0 window (0.1 m bricks: where leaves are marched)
+arm      prim M   t0 M  sun M   t0 M sun/ray  sky M  all M all t0 M leaf px% far px% | p95 prim 10-40 / sun 10-40 / sky all
+off       26.14  11.76   3.48   1.11    18.2   0.85  30.46    13.72     0.0%   58.1% | 192-207 / 28 / 64-79
+today     18.07  13.55   2.84   2.05    25.2   1.20  22.11    16.80    25.0%   16.1% | 144-159 / 53 / 96-111
+        vs OFF: primary -31 %, sun -18 %, sky +42 %, tier-0 steps +22 %; light (sun+sky) steps per 1 % of screen in leaves: -11.5 k/frame; tier-0 steps per 1 %: +123 k/frame
+sparse    24.21  14.29   4.59   2.25    30.0   1.46  30.27    18.00    16.0%   34.6% | 176-191 / 59 / 96-111
+        vs OFF: primary -7 %, sun +32 %, sky +73 %, tier-0 steps +31 %; light (sun+sky) steps per 1 % of screen in leaves: +108.1 k/frame; tier-0 steps per 1 %: +267 k/frame
+dense     22.30  16.06   4.36   2.23    28.3   1.74  28.41    20.03    28.0%   22.9% | 160-175 / 64-79 / 96-111
+        vs OFF: primary -15 %, sun +25 %, sky +106 %, tier-0 steps +46 %; light (sun+sky) steps per 1 % of screen in leaves: +63.6 k/frame; tier-0 steps per 1 %: +225 k/frame

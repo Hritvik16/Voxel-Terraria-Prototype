@@ -1,0 +1,7 @@
+{
+ "fixed_cliff": "cliff, the 167 m face from 84 m. BEFORE: plain faces with vertical biome 'drips'. 178: flat orange/red/blue fields, drips and the red hook (right). REWORK: look at the whole face: grey schist and brown granite in long horizontal lenses, no drips or hooks. NO MIX: the same layers as flat grey and brown fields again.",
+ "fixed_coast_cliff": "coast_cliff from 223 m (far LOD). Look at the face above the lake: REWORK has three gentle horizontal layers (grey, brown, cream) in close tones. The fine vertical hatching at the top is in BEFORE too (far-LOD steep face), not the cliffs. NO MIX: the same three layers, each one flat tone.",
+ "fixed_forest_breaks": "forest_breaks canyon wall from 163 m. REWORK: horizontal bedding plus one cream marble layer at mid-height; the dark crescents are the benches at the layer bases. Compare with 178's flat colour fields. NO MIX: the same bedding with no lenses inside each layer.",
+ "cliff_desert": "desert, a 113 m face from 110 m. 178: a cream band and a red band, each a flat colour field. REWORK: red and orange layers with ochre lenses inside, the boundaries nearly level. The grey on the left is the next biome's rock (a border). NO MIX: the red and orange layers as flat fields.",
+ "cliff_snow": "snow, a 164 m face from 110 m. 178: strong blue-slate and cream bands. REWORK: grey schist with brown granite lenses and one cream marble layer. The black hole is a cave mouth, also in BEFORE. NO MIX: a flat brown band and a flat cream band on grey: close to 178's look, only in closer tones."
+}

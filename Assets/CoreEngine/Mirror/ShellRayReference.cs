@@ -71,6 +71,10 @@ namespace VoxelEngine.Mirror
             uint Dir(int k, int3 chunk);                // the entry of an in-box chunk
             uint Page(int k, int page, int localBrick);  // brick handle
             byte Voxel(int k, int body, int vIdx);       // (vz << 6) | (vy << 3) | vx
+            /// Task 188: the voxel of dense handle h (ShellBrickPack: bit 30 = COMPACT). Views of a
+            /// real ShellStore's shadows override it (ShellBrickPack.ShadowVoxel); synthetic views,
+            /// which hand out plain body handles, keep this default.
+            byte VoxelOf(int k, uint h, int vIdx) => Voxel(k, (int)(h & 0x3FFFFFFFu), vIdx);
             /// Tier 0 should hold this voxel but does not (a non-resident column of its window, inside its band).
             bool Tier0Missing(int3 voxel);
             /// Tier 0 holds this voxel (a resident column of its window, inside its band).
@@ -196,7 +200,7 @@ namespace VoxelEngine.Mirror
             if ((h & ShellStore.DENSE) == 0) { spanShift = k + 3; return (byte)(h & 0xFFu); }
             int3 s = (voxel >> k) & 7;
             spanShift = k;
-            return v.Voxel(k, (int)(h & 0x3FFFFFFFu), (s.z << 6) | (s.y << 3) | s.x);
+            return v.VoxelOf(k, h, (s.z << 6) | (s.y << 3) | s.x);
         }
 
         /// Lookup with the brick handle `h` of a paged chunk already read (task 93b4).
@@ -205,7 +209,7 @@ namespace VoxelEngine.Mirror
             if ((h & ShellStore.DENSE) == 0) { spanShift = k + 3; return (byte)(h & 0xFFu); }
             int3 s = (voxel >> k) & 7;
             spanShift = k;
-            return v.Voxel(k, (int)(h & 0x3FFFFFFFu), (s.z << 6) | (s.y << 3) | s.x);
+            return v.VoxelOf(k, h, (s.z << 6) | (s.y << 3) | s.x);
         }
 
         /// Did the last step enter a new cell of shell k (through the face `normal`)?
@@ -653,6 +657,7 @@ namespace VoxelEngine.Mirror
             public uint Dir(int k, int3 c) => _stores[k].DirectoryEntry(_stores[k].Slot(c));
             public uint Page(int k, int page, int lb) => _stores[k].ShadowPages[page * EngineConfig.BRICKS_PER_CHUNK + lb];
             public byte Voxel(int k, int body, int vIdx) => (byte)(_stores[k].ShadowBricks[body * 128 + (vIdx >> 2)] >> ((vIdx & 3) * 8));
+            public byte VoxelOf(int k, uint h, int vIdx) => ShellBrickPack.ShadowVoxel(_stores[k].ShadowBricks, h, vIdx);   // task 188
             public bool Tier0Missing(int3 voxel) => false;
             public bool Tier0Holds(int3 voxel) => false;
             public ulong GroupMask(int k, int page) =>

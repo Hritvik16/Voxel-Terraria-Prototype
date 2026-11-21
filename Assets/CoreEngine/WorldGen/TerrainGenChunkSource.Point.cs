@@ -16,6 +16,7 @@
 // THREADING: a pure function of its arguments; the map arrays are this
 // source's, shared read-only exactly as the stream workers share them.
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 
 namespace VoxelEngine.WorldGen
@@ -31,6 +32,26 @@ namespace VoxelEngine.WorldGen
             internal TerrainGen.ColumnSample c;
             internal float st;
             internal TerrainGen.DetailField.ColumnDetail cd;
+            // task 180: the trees touching this column (gathered on the first air voxel); task 218: the trees of
+            // the CHUNK COLUMN (treeTileX, treeTileZ), kept across the voxel columns inside it
+            internal bool treesValid;
+            internal int treeTileX, treeTileZ;
+            internal int treePrimCount;
+            internal int treeCount;   // task 210: 192's trees + the library trees in treeList
+            // Task 218: UnsafeUtility.Malloc(Allocator.Persistent) -- a job may not create a Persistent NativeArray,
+            // and its Allocator.Temp is given back only when the whole job ends. Call Dispose.
+            internal unsafe TerrainGen.Tree* treeList;
+            internal unsafe TerrainGen.TreePrim* treePrims;
+            internal int treeListCap, treePrimsCap;
+
+            /// Task 218: frees the tree lists (the job calls this at the end of its batch).
+            internal unsafe void Dispose()
+            {
+                if (treeList != null) UnsafeUtility.Free(treeList, Allocator.Persistent);
+                if (treePrims != null) UnsafeUtility.Free(treePrims, Allocator.Persistent);
+                treeList = null; treePrims = null; treeListCap = treePrimsCap = 0;
+                treesValid = false;
+            }
         }
 
         // The read-only arrays a point job holds (valid while this source lives).
@@ -40,12 +61,16 @@ namespace VoxelEngine.WorldGen
         internal NativeArray<byte> PointWaterClass => _cls;
         internal NativeArray<ushort> PointFlow => _flow;
         internal NativeArray<byte> PointRoute => _route;   // task 178b
+        internal NativeArray<ushort> PointShore => _shore;   // task 180b
+        internal NativeArray<byte> PointLandSig => _landSig;   // task 189
         internal NativeArray<byte> PointOre => _ore;
+        internal NativeArray<uint> PointOreCell => _oreCell;   // task 181
+        internal NativeArray<int> PointPocket => _pocket;   // task 183
         internal NativeArray<byte> PointToEngine => _toEngine;
 
         /// The engine material Generate gives voxel `v` (world voxel coordinates).
         /// Call from a Burst job compiled FloatMode.Strict / FloatPrecision.High.
-        internal static byte PointVoxel(in TerrainGen.TerrainSpec spec, in TerrainGen.Offsets o, in TerrainGen.MapView map,
+        internal static unsafe byte PointVoxel(in TerrainGen.TerrainSpec spec, in TerrainGen.Offsets o, in TerrainGen.MapView map,
                                         NativeArray<byte> ore, NativeArray<byte> toEngine, int3 v,
                                         ref PointColumn col, ref TerrainGen.DetailField.NodeCache nodes)
         {
@@ -62,12 +87,18 @@ namespace VoxelEngine.WorldGen
                                  math.max(math.abs(hn - ch), math.abs(hs - ch)));
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                 if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                 col.c = c; col.st = m / 1f; col.cd = cd;
                 col.x = x; col.z = z; col.valid = true;
+                // task 218: the tree list belongs to the chunk column (PointTree checks it), not this voxel column
             }
+            // Task 190: a building part wins (OverlayBuildings runs last in the chunk pass).
+            if (spec.Towns && map.town != null && TerrainGen.Towns.VoxelAt(map.town, v, out byte bg)) return toEngine[bg];
             // The brick's origin: (v >> 3) << 3 by mask, negatives included.
             var cr = TerrainGen.DetailField.CullBrick(in spec, in o, v.x & ~7, v.y & ~7, v.z & ~7);
             byte g = TerrainGen.DetailField.Material(in spec, in o, in col.c, in col.cd, col.st, v.x, v.y, v.z, in cr);
+            if (g == TerrainGen.GenMat.Air && spec.Trees && map.trees != null)   // task 180: OverlayTrees' rule
+                g = PointTree(in spec, in map, in o, v, ref col);
             return toEngine[g];
         }
     }

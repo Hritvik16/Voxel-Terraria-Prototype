@@ -108,9 +108,8 @@ namespace VoxelEngine.Mirror
                     uint h = st.ShadowPages[page * 4096 + ((z >> 3) << 8 | (y >> 3) << 4 | (x >> 3))];
                     if ((h & ShellStore.DENSE) != 0)
                     {
-                        int body = (int)(h & 0x3FFFFFFFu);
                         int v = ((z & 7) << 6) | ((y & 7) << 3) | (x & 7);
-                        got = (byte)(st.ShadowBricks[body * 128 + (v >> 2)] >> ((v & 3) * 8));
+                        got = ShellBrickPack.ShadowVoxel(st.ShadowBricks, h, v);   // task 188: full or compact
                     }
                     else got = (byte)h;
                 }

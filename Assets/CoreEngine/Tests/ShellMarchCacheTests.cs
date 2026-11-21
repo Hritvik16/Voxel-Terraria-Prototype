@@ -200,6 +200,7 @@ public class ShellMarchCacheTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void CachesChangeNoPrimaryOrShadowResult()
     {
         var v = new TerrainView(ShellLayout.From(QualityPreset.High));
@@ -247,6 +248,7 @@ public class ShellMarchCacheTests
     /// primary rays, the shell-hit sun rays and task 133's near sun rays (a tier-0 sun ray that
     /// left the window: start near the camera, t > 0, distance from the camera).
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void BandCacheChangesNoResult()
     {
         var v = new TerrainView(ShellLayout.From(QualityPreset.High));

@@ -136,3 +136,34 @@ PALETTES["D"][2].update(hexes({8: "2f7fb8"}))
 NAMES[8] = "river lip"
 
 ROUND2 = ["A", "C", "D"]
+
+# Task 180 (generated trees, agent's pick, owner may change): one wood + one leaf per
+# biome family. Leaves = the biome's flat cover colour in shade (forest grass x 0.75,
+# jungle grass x 0.7, savanna = savanna grass half-way to forest grass, x 0.75); the
+# snow row has no green cell, so its needles are a dark blue-green. Cactus is the
+# desert's trunk-class "tree".
+PALETTES["D"][2].update(hexes({55: "47762b", 56: "2c7a34", 57: "6f792e", 58: "2f5a3c",
+                               76: "6b4a30", 77: "5a3a2a", 78: "7a6656", 79: "5e3a26", 93: "4f8a3c"}))
+NAMES.update({55: "forest leaves", 56: "jungle leaves", 57: "savanna leaves", 58: "pine needles",
+              76: "forest wood", 77: "jungle wood", 78: "acacia wood", 79: "pine wood", 93: "cactus"})
+BIOMES.append(("Trees", [55, 56, 57, 58, 76, 77, 78, 79, 93]))
+# Task 210 (-trees2 1, owner Q-AD2 (a): "birch bark: a real pale-bark GenMat"): GenMat.BirchBark = 19,
+# a free code after gravel. Pale cream-grey with a faint warm cast (real silver-birch bark, lit, ~ #d0c9b8).
+PALETTES["D"][2].update(hexes({19: "d0c9b8"}))
+NAMES.update({19: "birch bark"})
+BIOMES[-1][1].append(19)
+# Task 250 (-fringe 1, DEFAULT OFF; WORLD_FILL_BUDGET sec. 5 E3): voxel grass fringe stubs, the last two free
+# codes below 96. A step lighter and warmer than the grass they stand on (lit blade tips), so they read on it:
+# 18 = on forest / jungle grass (grass 5f9e3a -> 7bb447), 9 = on savanna grass (c9a640 -> dcbc5c).
+PALETTES["D"][2].update(hexes({18: "7bb447", 9: "dcbc5c"}))
+NAMES.update({18: "grass fringe", 9: "savanna fringe"})
+
+# Task 181 (latent ores, owner R2 (a)): cobalt and emberstone are generated as a
+# TWIN per host rock (TerrainGen.OreRules.TWINS). A twin wears its HOST's colour
+# exactly (it must look as the rock around it until the world stage unlocks it;
+# the shader's LatentResolve and ContentModules' LatentOres swap in the ore then).
+LATENT_TWINS = {26: (68, 34), 27: (68, 43), 28: (68, 52), 29: (68, 61), 38: (68, 37), 39: (68, 49),
+                94: (69, 72), 95: (69, 73), 59: (69, 74)}
+for _t, (_ore, _host) in LATENT_TWINS.items():
+    PALETTES["D"][2][_t] = PALETTES["D"][2][_host]
+    NAMES[_t] = f"latent {NAMES[_ore]} in {NAMES[_host]}"

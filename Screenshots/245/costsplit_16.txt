@@ -1,0 +1,343 @@
+UPSCALER CLIPS -- 2026-11-20_073350
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+COST SPLIT (task 57): 7.09 h, sun elevation 16 deg; FULL = fsr3 432 rows pinned, HUD + minimap on, fluid on; roof skip OFF; shadow res full; shadow rung 0, torch rays override -1 (config 4), temporal shadows ON (1 in 4), far shadows ON, cascade True
+order: F, then per arm X X F; each run 3 s settle + 20 s timed, real time, no capture
+walk_open: arc start candidates (angle on the circle: median free distance): 23:4m 45:1500m 68:4m 90:4m 113:160m 135:28m 158:4m 180:68m 203:8m -> 45 deg
+
+== walk_near: MODE=walk circle centre (4016, 860, 4000) r 150 m, arc from 103 deg, 5 m/s, heading yaw 257 -> 242 (sun yaw 77)  (sun 16 deg at 7.09 h)
+  streaming pinned at the middle pose (3962.9, 868.5, 4140.1): resident 3402, deficit 0
+  [shells] fill wait 60 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 1413/756/1  s3 26/1630/7  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 3609, missing 4060, pending 0; requested 3758, generated 3750 (73 ms each on a worker), dropped stale 6, over-budget frames 0 (of 1792)
+  [shells] complete at (s; - = not within the wait):  s1 42  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 83,363, steps/frame 1,436,796 (17.2/ray)
+    [far full] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell full] pixels/frame 331,776; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell full] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1065.6 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 83,362/frame (100% of traced), shell iters 833,623 (10.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] walk_near (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 78 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       331,776  100.0%    1,617,424     4.9          5          9     100%     100%      0%    0.0%
+    primary 10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary all          331,776  100.0%    1,617,424     4.9          5          9     100%     100%      0%    0.0%
+    sun     0-10 m        83,392   25.1%    2,271,200    27.2         27         31      63%       0%      0%    0.0%
+    sun     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     all           83,392   25.1%    2,271,200    27.2         27         31      63%       0%      0%    0.0%
+    sky     0-10 m        20,876    6.3%      598,069    28.6         23      64-79     100%      14%      0%    0.0%
+    sky     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     all           20,876    6.3%      598,069    28.6         23      64-79     100%      14%      0%    0.0%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 179,902 tier-0 / 51,278 shell bodies; uploads 1,019 calls, 11,636,160 B; shader early-out ON eps 0.125
+   1 full      pass 1  frames    1  p50  60.1  p95   60.1  p99   60.1 ms  >33ms 100.0%  cpu main p50  33.0 (present wait   0.0)  render thr   1.5  gpu* 191.7  deficit frames 0  far busy 0  resident 3402  kernel diet2  skyfill 2 res 4x4  sunfar 0 m  sunres inline  flood skip
+    [sun foliage_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 83,327, steps/frame 1,435,989 (17.2/ray)
+    [far foliage_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell foliage_off] pixels/frame 331,776; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell foliage_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell foliage_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_off] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1065.6 m, far max h 1099.3 m
+    [shell foliage_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_off] ON: near sun rays handed on to the shells 83,327/frame (100% of traced), shell iters 833,267 (10.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh foliage_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] walk_near [foliage_off] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 107 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       331,776  100.0%    1,617,378     4.9          5          9     100%     100%      0%    0.0%
+    primary 10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary all          331,776  100.0%    1,617,378     4.9          5          9     100%     100%      0%    0.0%
+    sun     0-10 m        83,382   25.1%    2,270,899    27.2         27         31      63%       0%      0%    0.0%
+    sun     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     all           83,382   25.1%    2,270,899    27.2         27         31      63%       0%      0%    0.0%
+    sky     0-10 m        20,865    6.3%      591,938    28.4         23      64-79     100%      14%      0%    0.0%
+    sky     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     all           20,865    6.3%      591,938    28.4         23      64-79     100%      14%      0%    0.0%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 179,902 tier-0 / 53,833 shell bodies; uploads 1,037 calls, 11,730,368 B; shader early-out OFF
+     still arm foliage_off: sun 16 deg, skypale ON, grade ON
+    [sun foliage_e2] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 83,366, steps/frame 1,436,645 (17.2/ray)
+    [far foliage_e2] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell foliage_e2] pixels/frame 331,776; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell foliage_e2] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell foliage_e2] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_e2] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1065.6 m, far max h 1099.3 m
+    [shell foliage_e2] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_e2] ON: near sun rays handed on to the shells 83,365/frame (100% of traced), shell iters 917,016 (11.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh foliage_e2] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] walk_near [foliage_e2] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 82 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       331,776  100.0%    1,617,511     4.9          5          9     100%     100%      0%    0.0%
+    primary 10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary all          331,776  100.0%    1,617,511     4.9          5          9     100%     100%      0%    0.0%
+    sun     0-10 m        83,402   25.1%    2,354,856    28.2         28         32      61%       0%      0%    0.0%
+    sun     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     all           83,402   25.1%    2,354,856    28.2         28         32      61%       0%      0%    0.0%
+    sky     0-10 m        20,873    6.3%      598,221    28.7         23      64-79     100%      13%      0%    0.0%
+    sky     10-40 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+              0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     all           20,873    6.3%      598,221    28.7         23      64-79     100%      13%      0%    0.0%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 179,902 tier-0 / 55,754 shell bodies; uploads 1,049 calls, 11,795,904 B; shader early-out ON eps 0.5
+     still arm foliage_e2: sun 16 deg, skypale ON, grade ON
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 180,401 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 93,302 refused 0 (124.2 MB), in use 92,643, sealed 12,864 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2307.8 MB, peak 2418.1 MB of the 3,000 MB cap
+
+== forest_eye: still pose (-costfixed), eye (3366.4, 532.5, 4950.0) looking at (3366.4, 529.7, 4928.0), yaw 180, pitch -7 up  (sun 16 deg at 7.09 h)
+  streaming pinned at the middle pose (3366.4, 532.5, 4950.0): resident 2499, deficit 588
+  [shells] fill wait 60 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 2078/88/4  s3 700/1297/4  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4948, missing 3050, pending 0; requested 8935, generated 8927 (120 ms each on a worker), dropped stale 12, over-budget frames 0 (of 5455)
+  [shells] complete at (s; - = not within the wait):  s1 0  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 151,634, steps/frame 4,547,957 (30.0/ray)
+    [far full] far rays/frame 24,119 (from shells: past-last 0, absent 24,111, cap / sky exit 8; FarStartT 0), far hits/frame 1,904; PRIMARY steps/frame 248,108 (10.3/ray); SHADOW rays/frame 1,904, steps/frame 22,723 (11.9/ray); mean far start 1138 m
+    [shell full] pixels/frame 331,776; PRIMARY hit rays 33,246 (10.0%) iters 4,117,645 (123.9/ray); PRIMARY no-hit rays 24,119 (7.3%) iters 1,856,221 (77.0/ray); tier-0 leaps 490,565 (8% of primary iters); SHADOW rays 33,246 iters 1,909,205 (57.4/ray); all shell iters/pixel 23.76
+    [shell full] primary iters by step: tier-0 leap 8%, air chunk 8%, air brick 63%, cell / end 21%; reads per primary iter: directory 0.13, page 0.66
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 22,215/frame (6.7% of pixels), shell iters 1,533,725 (69.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1068.8 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 42,568/frame (28% of traced), shell iters 2,067,906 (48.6/ray), blocked by the shells 4,354 (10.2%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] forest_eye (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 464 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m        78,080   23.5%    2,735,166    35.0         33         55     100%     100%      0%    0.0%
+    primary 10-40 m      144,616   43.6%    7,904,782    54.7         39    160-175     100%     100%     53%    0.0%
+    primary 40-82 m       32,971    9.9%    3,627,993   110.0      80-95    256-271     100%     100%     34%    0.0%
+    primary 82 m+         76,109   22.9%    8,035,367   105.6      80-95    208-223      23%      69%      8%    0.0%
+    primary all          331,776  100.0%   22,303,307    67.2         46    176-191      72%      93%     28%    0.0%
+    sun     0-10 m        21,083    6.4%    1,322,726    62.7         21    144-159      81%      59%      0%    0.0%
+    sun     10-40 m       56,624   17.1%    2,521,621    44.5         24    128-143      75%      70%     34%   14.8%
+    sun     40-82 m       24,599    7.4%    1,896,762    77.1      64-79    160-175      50%      53%     17%   12.8%
+    sun     82 m+         52,631   15.9%    2,883,772    54.8         44    160-175      24%      72%      3%    3.8%
+    sun     all          154,938   46.7%    8,624,880    55.7         37    144-159      53%      67%     16%    8.8%
+    sky     0-10 m         5,411    1.6%      187,885    34.7         28      80-95     100%      32%     11%    6.8%
+    sky     10-40 m       18,693    5.6%      848,522    45.4         33    128-143     100%      69%     39%   16.1%
+    sky     40-82 m        9,137    2.8%      377,573    41.3         30    112-127     100%      59%     27%   14.9%
+    sky     82 m+         11,155    3.4%      443,955    39.8         25    128-143     100%      43%      6%    4.5%
+    sky     all           44,396   13.4%    1,857,935    41.8         29    112-127     100%      56%     25%   11.8%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 425,606 tier-0 / 281,666 shell bodies; uploads 2,513 calls, 24,079,808 B; shader early-out ON eps 0.125
+   1 full      pass 1  frames    1  p50 158.6  p95  158.6  p99  158.6 ms  >33ms 100.0%  cpu main p50 138.1 (present wait   0.0)  render thr   0.8  gpu* 312.0  deficit frames 1  far busy 0  resident 2499  kernel diet2  skyfill 2 res 4x4  sunfar 0 m  sunres inline  flood skip
+    [sun foliage_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 152,736, steps/frame 4,865,419 (31.9/ray)
+    [far foliage_off] far rays/frame 22,189 (from shells: past-last 0, absent 1,222, cap / sky exit 20,967; FarStartT 0), far hits/frame 8; PRIMARY steps/frame 3,361 (0.2/ray); SHADOW rays/frame 8, steps/frame 214 (26.8/ray); mean far start 2787 m
+    [shell foliage_off] pixels/frame 331,776; PRIMARY hit rays 35,166 (10.6%) iters 4,484,131 (127.5/ray); PRIMARY no-hit rays 22,189 (6.7%) iters 1,995,167 (89.9/ray); tier-0 leaps 490,477 (8% of primary iters); SHADOW rays 35,166 iters 2,051,004 (58.3/ray); all shell iters/pixel 25.71
+    [shell foliage_off] primary iters by step: tier-0 leap 8%, air chunk 8%, air brick 64%, cell / end 21%; reads per primary iter: directory 0.14, page 0.66
+    [shell foliage_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_off] sky rays 22,181/frame (6.7% of pixels), shell iters 1,992,108 (89.8/sky ray); ended by the sky exit 20,951 (94%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell foliage_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_off] ON: near sun rays handed on to the shells 45,524/frame (30% of traced), shell iters 2,292,608 (50.4/ray), blocked by the shells 4,354 (9.6%)
+    [nearsh foliage_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] forest_eye [foliage_off] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 703 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m        78,072   23.5%    2,734,821    35.0         33         55     100%     100%      0%    0.0%
+    primary 10-40 m      144,623   43.6%    7,905,775    54.7         39    160-175     100%     100%     53%    0.0%
+    primary 40-82 m       32,970    9.9%    3,627,702   110.0      80-95    256-271     100%     100%     34%    0.0%
+    primary 82 m+         76,112   22.9%    8,295,552   109.0     96-111    208-223      22%      71%      8%    0.0%
+    primary all          331,776  100.0%   22,563,850    68.0         45    176-191      71%      93%     28%    0.0%
+    sun     0-10 m        21,096    6.4%    1,357,166    64.3         19    160-175      79%      59%      0%    0.0%
+    sun     10-40 m       56,454   17.0%    2,847,240    50.4         31    144-159      74%      66%     43%    0.0%
+    sun     40-82 m       24,499    7.4%    2,060,305    84.1      80-95    160-175      50%      50%     24%    0.0%
+    sun     82 m+         52,613   15.9%    3,053,561    58.0         48    176-191      24%      71%      4%    0.0%
+    sun     all          154,662   46.6%    9,318,272    60.2         45    160-175      53%      64%     21%    0.0%
+    sky     0-10 m         5,413    1.6%      197,266    36.4         28     96-111     100%      30%     15%    0.0%
+    sky     10-40 m       18,601    5.6%      933,334    50.2         37    128-143     100%      64%     46%    0.0%
+    sky     40-82 m        9,090    2.7%      419,233    46.1         33    128-143     100%      56%     35%    0.0%
+    sky     82 m+         11,087    3.3%      457,815    41.3         25    144-159     100%      42%      9%    0.0%
+    sky     all           44,191   13.3%    2,007,648    45.4         31    128-143     100%      53%     30%    0.0%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 425,606 tier-0 / 382,444 shell bodies; uploads 2,819 calls, 26,131,904 B; shader early-out OFF
+     still arm foliage_off: sun 16 deg, skypale ON, grade ON
+    [sun foliage_e2] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 153,425, steps/frame 4,081,989 (26.6/ray)
+    [far foliage_e2] far rays/frame 22,197 (from shells: past-last 0, absent 1,224, cap / sky exit 20,973; FarStartT 0), far hits/frame 8; PRIMARY steps/frame 3,373 (0.2/ray); SHADOW rays/frame 8, steps/frame 220 (26.8/ray); mean far start 2787 m
+    [shell foliage_e2] pixels/frame 331,776; PRIMARY hit rays 35,163 (10.6%) iters 4,484,155 (127.5/ray); PRIMARY no-hit rays 22,197 (6.7%) iters 1,996,028 (89.9/ray); tier-0 leaps 490,519 (8% of primary iters); SHADOW rays 35,163 iters 1,813,347 (51.6/ray); all shell iters/pixel 25.00
+    [shell foliage_e2] primary iters by step: tier-0 leap 8%, air chunk 8%, air brick 64%, cell / end 21%; reads per primary iter: directory 0.14, page 0.66
+    [shell foliage_e2] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_e2] sky rays 22,188/frame (6.7% of pixels), shell iters 1,992,879 (89.8/sky ray); ended by the sky exit 20,957 (94%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell foliage_e2] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_e2] ON: near sun rays handed on to the shells 38,882/frame (25% of traced), shell iters 2,091,924 (53.8/ray), blocked by the shells 4,441 (11.4%)
+    [nearsh foliage_e2] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] forest_eye [foliage_e2] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 569 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m        78,077   23.5%    2,735,081    35.0         33         55     100%     100%      0%    0.0%
+    primary 10-40 m      144,615   43.6%    7,904,754    54.7         39    160-175     100%     100%     53%    0.0%
+    primary 40-82 m       32,969    9.9%    3,627,811   110.0      80-95    256-271     100%     100%     34%    0.0%
+    primary 82 m+         76,115   22.9%    8,296,094   109.0     96-111    208-223      22%      71%      8%    0.0%
+    primary all          331,776  100.0%   22,563,740    68.0         45    176-191      71%      93%     28%    0.0%
+    sun     0-10 m        21,093    6.4%    1,358,285    64.4         21    160-175      79%      59%      0%    0.0%
+    sun     10-40 m       56,678   17.1%    2,227,089    39.3          9    128-143      71%      74%     22%   33.0%
+    sun     40-82 m       24,643    7.4%    1,764,945    71.6      64-79    160-175      46%      59%      9%   28.4%
+    sun     82 m+         52,685   15.9%    2,720,467    51.6         37    144-159      24%      74%      2%   13.6%
+    sun     all          155,100   46.7%    8,070,786    52.0         23    144-159      51%      70%     10%   21.2%
+    sky     0-10 m         5,411    1.6%      173,815    32.1         27      64-79     100%      35%      5%   17.2%
+    sky     10-40 m       18,702    5.6%      731,123    39.1         26    128-143     100%      75%     30%   37.4%
+    sky     40-82 m        9,155    2.8%      326,896    35.7         24     96-111     100%      64%     18%   32.3%
+    sky     82 m+         11,157    3.4%      425,461    38.1         24    128-143     100%      44%      3%    9.5%
+    sky     all           44,424   13.4%    1,657,295    37.3         25    112-127     100%      60%     18%   26.9%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 425,606 tier-0 / 382,444 shell bodies; uploads 2,819 calls, 26,131,904 B; shader early-out ON eps 0.5
+     still arm foliage_e2: sun 16 deg, skypale ON, grade ON
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,560 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 245,704 refused 0 (124.2 MB), in use 245,704, sealed 100,415 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2485.3 MB, peak 2503.5 MB of the 3,000 MB cap
+
+== oak_under: still pose (-costfixed), eye (3327.8, 518.5, 4897.4) looking at (3324.8, 527.0, 4894.4), yaw 225, pitch 63 up  (sun 16 deg at 7.09 h)
+  streaming pinned at the middle pose (3327.8, 518.5, 4897.4): resident 2447, deficit 640
+  [shells] fill wait 0 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 13282, generated 13282 (189 ms each on a worker), dropped stale 12, over-budget frames 0 (of 13463)
+  [shells] complete at (s; - = not within the wait):  s1 0  s2 0  s3 0  s4 0  s5 0  s6 0  s7 0
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 78,460, steps/frame 1,330,777 (17.0/ray)
+    [far full] far rays/frame 26,208 (from shells: past-last 0, absent 0, cap / sky exit 26,208; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 850 m
+    [shell full] pixels/frame 331,776; PRIMARY hit rays 31 (0.0%) iters 2,225 (71.1/ray); PRIMARY no-hit rays 26,208 (7.9%) iters 696,468 (26.6/ray); tier-0 leaps 203,270 (29% of primary iters); SHADOW rays 31 iters 1,841 (58.8/ray); all shell iters/pixel 2.11
+    [shell full] primary iters by step: tier-0 leap 29%, air chunk 59%, air brick 7%, cell / end 5%; reads per primary iter: directory 0.60, page 0.07
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 26,208/frame (7.9% of pixels), shell iters 696,468 (26.6/sky ray); ended by the sky exit 26,208 (100%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 748/frame (1% of traced), shell iters 21,697 (29.0/ray), blocked by the shells 6 (0.9%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] oak_under (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 236 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       274,019   82.6%    7,375,001    26.9         19      64-79     100%     100%     81%    0.0%
+    primary 10-40 m       31,063    9.4%    2,624,163    84.5      80-95    128-143     100%     100%     84%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+         26,694    8.0%      760,675    28.5         26         43       8%       2%      1%    0.0%
+    primary all          331,776  100.0%   10,759,839    32.4         23      80-95      94%      92%     75%    0.0%
+    sun     0-10 m        69,496   20.9%    1,200,022    17.3          6      64-79     100%     100%     58%   28.6%
+    sun     10-40 m        8,543    2.6%      137,672    16.1          7         59      92%      95%     52%   28.4%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+            453    0.1%       17,331    38.2         43      80-95      38%      42%     22%    8.6%
+    sun     all           78,492   23.7%    1,355,025    17.3          6      64-79      98%      99%     57%   28.4%
+    sky     0-10 m        17,977    5.4%    1,091,057    60.7         43    144-159     100%      91%     45%   22.5%
+    sky     10-40 m        2,658    0.8%      137,454    51.7         38    144-159     100%      91%     62%   25.9%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+            221    0.1%        9,907    44.9         31    128-143     100%      55%     47%   10.9%
+    sky     all           20,855    6.3%    1,238,418    59.4         42    144-159     100%      91%     47%   22.8%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 538,199 tier-0 / 434,442 shell bodies; uploads 3,495 calls, 31,595,968 B; shader early-out ON eps 0.125
+   1 full      pass 1  frames    1  p50  66.1  p95   66.1  p99   66.1 ms  >33ms 100.0%  cpu main p50  97.0 (present wait   0.0)  render thr   1.6  gpu* 148.1  deficit frames 1  far busy 0  resident 2431  kernel diet2  skyfill 2 res 4x4  sunfar 0 m  sunres inline  flood skip
+    [sun foliage_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 78,590, steps/frame 2,101,199 (26.7/ray)
+    [far foliage_off] far rays/frame 26,208 (from shells: past-last 0, absent 0, cap / sky exit 26,208; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 850 m
+    [shell foliage_off] pixels/frame 331,776; PRIMARY hit rays 31 (0.0%) iters 2,186 (70.2/ray); PRIMARY no-hit rays 26,208 (7.9%) iters 696,355 (26.6/ray); tier-0 leaps 203,262 (29% of primary iters); SHADOW rays 31 iters 1,822 (58.5/ray); all shell iters/pixel 2.11
+    [shell foliage_off] primary iters by step: tier-0 leap 29%, air chunk 59%, air brick 7%, cell / end 5%; reads per primary iter: directory 0.60, page 0.07
+    [shell foliage_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_off] sky rays 26,208/frame (7.9% of pixels), shell iters 696,355 (26.6/sky ray); ended by the sky exit 26,208 (100%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell foliage_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_off] ON: near sun rays handed on to the shells 2,786/frame (4% of traced), shell iters 100,684 (36.1/ray), blocked by the shells 6 (0.2%)
+    [nearsh foliage_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] oak_under [foliage_off] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 253 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       274,017   82.6%    7,374,986    26.9         19      64-79     100%     100%     81%    0.0%
+    primary 10-40 m       31,065    9.4%    2,624,356    84.5      80-95    128-143     100%     100%     84%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+         26,694    8.0%      760,610    28.5         26         43       8%       2%      1%    0.0%
+    primary all          331,776  100.0%   10,759,952    32.4         23      80-95      94%      92%     75%    0.0%
+    sun     0-10 m        69,480   20.9%    1,980,977    28.5          7    112-127      97%      98%     80%    0.0%
+    sun     10-40 m        8,544    2.6%      200,617    23.5          9      80-95      88%      90%     72%    0.0%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+            453    0.1%       18,773    41.4         45      80-95      38%      36%     24%    0.0%
+    sun     all           78,477   23.7%    2,200,367    28.0          8    112-127      95%      96%     79%    0.0%
+    sky     0-10 m        17,969    5.4%    1,212,308    67.5         52    160-175     100%      89%     56%    0.0%
+    sky     10-40 m        2,653    0.8%      157,172    59.2         45    160-175     100%      86%     70%    0.0%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+            222    0.1%       10,606    47.7         32    144-159     100%      49%     48%    0.0%
+    sky     all           20,844    6.3%    1,380,086    66.2         50    160-175     100%      88%     57%    0.0%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 538,199 tier-0 / 434,442 shell bodies; uploads 3,495 calls, 31,595,968 B; shader early-out OFF
+     still arm foliage_off: sun 16 deg, skypale ON, grade ON
+    [sun foliage_e2] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 78,429, steps/frame 652,240 (8.3/ray)
+    [far foliage_e2] far rays/frame 26,210 (from shells: past-last 0, absent 0, cap / sky exit 26,210; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 850 m
+    [shell foliage_e2] pixels/frame 331,776; PRIMARY hit rays 31 (0.0%) iters 2,215 (71.2/ray); PRIMARY no-hit rays 26,210 (7.9%) iters 696,555 (26.6/ray); tier-0 leaps 203,278 (29% of primary iters); SHADOW rays 31 iters 1,483 (47.7/ray); all shell iters/pixel 2.11
+    [shell foliage_e2] primary iters by step: tier-0 leap 29%, air chunk 59%, air brick 7%, cell / end 5%; reads per primary iter: directory 0.60, page 0.07
+    [shell foliage_e2] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell foliage_e2] sky rays 26,210/frame (7.9% of pixels), shell iters 696,555 (26.6/sky ray); ended by the sky exit 26,210 (100%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell foliage_e2] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh foliage_e2] ON: near sun rays handed on to the shells 275/frame (0% of traced), shell iters 8,713 (31.7/ray), blocked by the shells 9 (3.1%)
+    [nearsh foliage_e2] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  [raystats] oak_under [foliage_e2] (32-frame window; kernels primary diag, sky trace diag; skyfill 2 res 4, sun res 1, temporal shadows 1 in 4; buffer 9632 B; readback 194 ms): 32 frames (GPU-counted), 331,776 primary px/frame; per frame, band = camera distance of the ray's pixel / face (no hit or far band = 82 m+)
+    kind    band      rays/frame  %px  steps/frame  avg/ray  p50 steps  p95 steps  tier-0  blocked   leaf  folstop
+    primary 0-10 m       274,016   82.6%    7,374,928    26.9         19      64-79     100%     100%     81%    0.0%
+    primary 10-40 m       31,065    9.4%    2,624,398    84.5      80-95    128-143     100%     100%     84%    0.0%
+    primary 40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    primary 82 m+         26,694    8.0%      760,678    28.5         26         43       8%       2%      1%    0.0%
+    primary all          331,776  100.0%   10,760,005    32.4         23      80-95      94%      92%     75%    0.0%
+    sun     0-10 m        69,480   20.9%      582,420     8.4          4         32     100%     100%     33%   57.9%
+    sun     10-40 m        8,536    2.6%       68,784     8.1          4         30      96%      99%     31%   59.8%
+    sun     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sun     82 m+            455    0.1%       12,278    27.0         12      80-95      41%      64%     14%   40.8%
+    sun     all           78,471   23.7%      663,483     8.5          4         32      98%     100%     33%   58.0%
+    sky     0-10 m        17,969    5.4%      971,111    54.0         35    128-143     100%      93%     35%   44.0%
+    sky     10-40 m        2,651    0.8%      119,207    45.0         30    144-159     100%      94%     55%   49.2%
+    sky     40-82 m            0    0.0%            0     0.0          -          -       0%       0%      0%    0.0%
+    sky     82 m+            223    0.1%        9,226    41.4         28    128-143     100%      68%     43%   33.4%
+    sky     all           20,844    6.3%    1,099,544    52.8         35    128-143     100%      93%     37%   44.5%
+    (%px = rays per primary pixel; tier-0 = share of the steps taken in the tier-0 window (sun: TraceShadowRay; the rest is
+     task 133's shell continuation, task 80's shell-hit ray, the far band's ray); blocked = rays that ended on terrain
+     (primary: hit); leaf = rays stopped by a tier-0 LEAF voxel (primary: the hit is leaf); folstop = rays the foliage
+     early-out stopped (task 245, -foliageout); p50 / p95 = the histogram bin
+     holding it: exact below 64 steps, 16-step bins to 1087, 64-step bins to 5119)
+  [foliage] side buffer ON: tier-0 bodies 254,400 (254,400 B), shell bodies 665,472 (5,323,776 B); GPU 5,578,176 B, CPU 5,579,538 B; written 538,199 tier-0 / 434,442 shell bodies; uploads 3,495 calls, 31,595,968 B; shader early-out ON eps 0.5
+     still arm foliage_e2: sun 16 deg, skypale ON, grade ON
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,560 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,395 refused 21 (124.2 MB), in use 254,395, sealed 86,839 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2489.5 MB, peak 2512.7 MB of the 3,000 MB cap
+
+COST SPLIT TABLES (gpu* = FrameTimingManager gpuFrameTime, inflated ~2.6x on this Mac: relative only)
+walk_near
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       60.1   60.1   60.1   100.0    1 runs: 60.1   (range 0.0)   cpu 33.0 / 0.0   gpu* 191.7
+
+forest_eye
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full      158.6  158.6  158.6   100.0    1 runs: 158.6   (range 0.0)   cpu 138.1 / 0.0   gpu* 312.0
+
+oak_under
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       66.1   66.1   66.1   100.0    1 runs: 66.1   (range 0.0)   cpu 97.0 / 0.0   gpu* 148.1
+
+
+
+power before: Now drawing from 'AC Power'  -InternalBattery-0 (id=25100387)	100%; charged; 0:00 remaining present: true 
+power after:  Now drawing from 'AC Power'  -InternalBattery-0 (id=25100387)	100%; charged; 0:00 remaining present: true 
+owner hold file before/after: no/no
+Metal RecreateSurface[0x74b302b900]: surface size 2880x1800

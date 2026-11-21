@@ -1,0 +1,7 @@
+<html><body style="background:#111;color:#ddd;font-family:sans-serif"><h3>Task 196 natural basins: Space flips BEFORE (183's sheer shape, -pocketbasin 0) / AFTER, arrows change pose, Z full size</h3><div id=t style="font-size:15px;margin-bottom:6px"></div><img id=i style="max-width:100%"><script>
+var p=[['surface_lava','Lava in the snow forest (191\'s pose). Look at the FAR rim: before, a grey sheer wall ~1-2 m tall; after, a terraced snow bank stepping down to a thin dark crust shore one voxel over the lava.'],
+['surface_quicksand','Quicksand in the desert. Look at the far half of the pit: before, a vertical orange-banded wall; after, a sloped sand crater, like a sinkhole.'],
+['surface_oil','Oil in the badlands. Look at the far rim: before, a sheer red-brown wall; after, a graded bank, the pool flush with its shore.'],
+['surface_water','Water in a snowy fir forest, seen from 16 m up (a fir crown fills the left). Look at the FAR rim: before, a grey sheer wall; after, a snow bank stepping down to a thin mud shore.']],k=0,a=1,z=0;
+function s(){var f=p[k][0]+'_'+(a?'after':'before')+'.png';document.getElementById('i').src=f;document.getElementById('i').style.maxWidth=z?'none':'100%';document.getElementById('t').textContent=(k+1)+'/'+p.length+'  '+(a?'AFTER (natural basin)':'BEFORE (183)')+' -- '+p[k][1];}
+document.onkeydown=function(e){if(e.key==' '){a=1-a;}else if(e.key=='ArrowRight'){k=(k+1)%p.length;}else if(e.key=='ArrowLeft'){k=(k+p.length-1)%p.length;}else if(e.key=='z'||e.key=='Z'){z=1-z;}s();e.preventDefault();};s();</script></body></html>

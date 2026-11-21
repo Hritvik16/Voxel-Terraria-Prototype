@@ -1,0 +1,10 @@
+{
+"cliff_forest": "Forest cliff, centre face: AFTER = BEFORE, still one flat brown granite wall (no deep stone there before either). Its flatness is geometry, a separate decision; not touched here.",
+"cliff_desert": "Desert cliff: AFTER = BEFORE, orange sandstone top to bottom. The fix changes nothing where the face never reached the old 11-19 m deep band.",
+"cliff_snow": "Snow cliff, left of centre: BEFORE's black box (deep blue slate in shade, in 0.8 m brick steps) is gone; AFTER the whole face is one grey schist.",
+"bank": "River bank: AFTER = BEFORE (mud collar along the water). Nothing here was deep or bared by a shell.",
+"border_bank": "Canyon at a biome border: the grey canyon walls (upper middle) lose BEFORE's dark-blue / black patches; the near banks are unchanged.",
+"beach": "Beach, far hills LEFT: BEFORE's red / yellow / blue brick mosaic is gone. The layered grass / brown / ochre / grey faces that remain are vertical cut faces at the edge of loaded shell chunks (s3 1,623 of 2,001 missing after the 45 s wait); the black slab right of centre is a missing-chunk hole too (BEFORE had a dark slab over the water at the same pose).",
+"oasis_or_swamp": "Desert river: AFTER = BEFORE (green grass + mud collar, the oasis rule).",
+"scree": "Scree: the face above the gravel apron was a wall of dark-blue / black boxes BEFORE (deep slate by depth, per brick); AFTER it is one grey schist face."
+}

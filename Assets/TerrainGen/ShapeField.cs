@@ -30,6 +30,13 @@ namespace TerrainGen
         /// blend band (ShapeField.SurfaceBiome); ores, pocket liquids, crystals,
         /// danger and the world record keep `biome`.
         public byte surfBiome;
+        /// Task 178c: the biomes whose ROCK this column's thick layers wear, + 1
+        /// (0 = surfBiome, e.g. cliffs off or no border blend). Each layer takes
+        /// rockA or rockB by a hash of its index (DetailField.LayerSideB), so at a
+        /// biome border the layers interfinger. Both come from the border's SMOOTH
+        /// warp only (ShapeField.RockBiomes): surfBiome's 10-40 m patch octaves,
+        /// projected onto a steep face, drew 178's vertical "drips".
+        public byte rockA, rockB;
         public float rough;      // map detail scale at this column
         /// Absolute Y of the still-water surface over this column (lake or
         /// river, map v2), or NO_WATER_Y. Water fills (height, water].
@@ -52,6 +59,9 @@ namespace TerrainGen
         /// The column's TOP voxel is carved by a surface opening (cave mouth,
         /// fissure, skull mouth): the LOD-0 oracle excludes exactly these.
         public bool carvesTop;
+        /// Task 185 (StampFit): the cave mouth's direction as quarter turns of the
+        /// stamp's hashed axis (Stamps.FitCave), for D's carve. 0 otherwise.
+        public byte stampRot;
         /// The stamp site's map ground (absolute Y), for D's 3D tests.
         public int stampGround;
         /// v3 T5: the REGIONAL ground (absolute Y) -- the map's mean height over
@@ -76,6 +86,21 @@ namespace TerrainGen
         /// and its patch variant (bit 3), from the column's shape (Cover.Choose).
         /// 0 (flat) when TerrainSpec.CoverSlots is off or only the height was asked for.
         public byte cover;
+        /// Task 180b (TerrainSpec.MatRules only; 0 otherwise): the rule slot
+        /// (GroundRules.Flat .. Bare, bits 0-2), its variant (bit 3), a non-water
+        /// fluid bed (bit 4); the depths (voxels below the generated top) where the
+        /// soil and subsoil bands end (GroundRules.Band; the rock under them is absolute).
+        public byte mrSlot, mrSoil, mrSub;
+        /// Task 182: a SHELL column's exposure depth (voxels): its coarse voxels above
+        /// it are bared (top or side) and wear the skin. 0 everywhere else (chunks,
+        /// points, the far band); set by ShellColumnJob when MatRules is on.
+        public ushort mrExpose;
+        /// Task 183 (TerrainSpec.Pockets only; 0 otherwise): a surface fluid
+        /// pocket's lining material for solid voxels in [pkLineLo, pkLineHi]
+        /// (FluidPockets.Apply), and the column's deep-pocket rule context
+        /// (archetype + 1 of its 51.2 m plane cell; 0 = the old pocket fluids).
+        public int pkLineLo, pkLineHi;
+        public byte pkLining, pkCtx;
     }
 
     public static class ShapeField
@@ -85,6 +110,8 @@ namespace TerrainGen
         // Wavelengths (voxels) and base amplitudes (voxels) of the detail octaves.
         // 64 m down to 1 m. Amplitudes scale with the map's roughness channel.
         public static float Wavelength(int i) => 640f / (1 << i);
+        /// Sum of every octave's Amplitude: |detail| <= DETAIL_AMP_SUM * rough at texel 1.
+        public const float DETAIL_AMP_SUM = 40f + 24f + 14f + 8f + 4.5f + 2.5f + 1.3f;
         public static float Amplitude(int i)
         {
             switch (i)
@@ -139,18 +166,33 @@ namespace TerrainGen
             float2 p = new float2(x, z);
             float detail = 0f;
             int oct = OctavesFor(texelVoxels);
-            for (int i = 0; i < oct; i++)
-                detail += Amplitude(i) * OctaveNoise(in o, p, i);
+            bool landSig = spec.LandSig && map.landSig != null;   // task 189 (-landsig 1)
+            float3 lsw = float3.zero;
+            if (!landSig)
+            {
+                for (int i = 0; i < oct; i++)
+                    detail += Amplitude(i) * OctaveNoise(in o, p, i);
+            }
+            else
+            {
+                // Task 189: in a signature landform the broad isotropic octaves give
+                // way to the landform's own meso shape (LandSig.OctaveKeep).
+                lsw = LandSig.Weights(in map, p);
+                for (int i = 0; i < oct; i++)
+                    detail += LandSig.OctaveKeep(lsw, i) * Amplitude(i) * OctaveNoise(in o, p, i);
+            }
             var c = new ColumnSample();
             float hRel = macro + detail * rough;
             bool scree = false;
-            if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, p, macro, hRel, texelVoxels, out scree);   // task 178
+            if (landSig) hRel = LandSig.Relief(in spec, in map, in o, p, hRel, texelVoxels, lsw);   // task 189
+            if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, spec.seed, spec.seaLevelY, p, macro, hRel, texelVoxels, out scree);   // task 178
             c.height = spec.seaLevelY + (int)math.floor(hRel);
             c.height = math.max(c.height, spec.worldBottomY + 1);
             if (o.biomeBlend != 0 && surfaceBiome)
             {
                 c.biome = BiomeAndBorder(in o, p, true, out float border);
                 c.surfBiome = SurfaceBiome(in o, p, c.biome, border);
+                if (spec.Cliffs) RockBiomes(in o, p, c.biome, border, ref c);   // task 178c
             }
             else c.surfBiome = c.biome = Biome(in o, p);
             c.rough = rough;
@@ -181,7 +223,13 @@ namespace TerrainGen
                 c.carvesTop = false; c.stamp3D = false;
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
-            if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
+            if (map.pocket != null) FluidPockets.Apply(in spec, in map, x, z, ref c);   // task 183: pockets at rest (-fluidpockets 1)
+            if (map.pocket != null && map.stream != null && spec.Pockets)
+                PocketStreams.Column(in spec, in map, x, z, texelVoxels, rimY, riverHoldY, ref c);   // task 209b: the ponds' streams at rest
+            if (map.town != null) Towns.Apply(in spec, in map, x, z, ref c);   // task 190: the site pads (-towns 1)
+            if (surfaceBiome && spec.MatRules)   // task 180b: the material rules replace the cover slots
+                GroundRules.Column(in spec, in map, in o, p, macro, rough, scree, coverTexel, ref c);
+            else if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
             {
                 c.cover = Cover.Choose(in spec, in map, in o, p, macro, rough, c.height, c.water, c.regional, coverTexel);
                 // Task 178: scree is steep ground (the palette's steep cell), wherever the
@@ -234,16 +282,27 @@ namespace TerrainGen
         // itself reads the map only, so every footprint gets the same apron.
         // ------------------------------------------------------------------
         public const float FACE_FROM_DEG = Danger.CLIMB_DEG - 5f, FACE_FULL_DEG = Danger.CLIMB_DEG + 10f;
-        public const float FLUTE_WAVE = 50f, FLUTE_DEPTH = 8f, FACE_SLOPE_CAP = 4f;
+        // TASK 178c: the fluting was a RIDGED noise (1 - 2|n|) of 5 m: sharp creases
+        // every few metres that read as fine vertical hatching on every face
+        // (178's coast_cliff). Now plain snoise of 9 m, 0.5 m deep: broad
+        // buttresses and gullies. The 4 m ledges read as horizontal hatching;
+        // now ONE bench at each rock layer's base (LayerBench), so the shape
+        // follows the strata (a resistant layer top stands out as a shelf).
+        public const float FLUTE_WAVE = 90f, FLUTE_DEPTH = 5f, FACE_SLOPE_CAP = 4f;
         /// Fluting ramps in from FACE_FULL_DEG to FLUTE_FULL_DEG: a plan noise reads as a
         /// VERTICAL flute only where one feature spans more height than width (s >~ 2);
         /// on a 40-55 deg slope it read as crumpled noise (178's first top views).
         public const float FLUTE_FULL_DEG = 70f;
-        public const float LEDGE_SPACING = 40f, LEDGE_TREAD = 0.35f;
+        /// Task 178c: the bench is the lowest LEDGE_TREAD of each rock layer
+        /// (DetailField.LayerBoundary; 9.6-38.4 m thick), flattened into a tread.
+        /// LEDGE_SPACING = the thinnest layer (the band-limit gate), LEDGE_MAX the
+        /// thickest (the bound).
+        public const float LEDGE_SPACING = DetailField.LAYER_THICK * (1f - 2f * DetailField.LAYER_JITTER), LEDGE_TREAD = 0.2f;
+        public const float LEDGE_MAX = DetailField.LAYER_THICK * (1f + 2f * DetailField.LAYER_JITTER);
         public const float SCREE_PROBE = 200f, SCREE_KNEE = 1f, SCREE_SHARE = 0.2f, SCREE_CAP = 100f, SCREE_MIN = 5f;
         public const float RUBBLE_WAVE = 15f, RUBBLE_AMP = 3f;
         /// Most a footprint's dropped relief can move a column (flutes + ledge + rubble).
-        public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_SPACING + RUBBLE_AMP;
+        public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_MAX + RUBBLE_AMP;
         /// Map cells round the column checked for lake / river water (+-2 = ~20 m).
         public const int RELIEF_DRY_CELLS = 2;
         /// Task 178b: the relief fades in over this many map cells beyond a route
@@ -253,7 +312,7 @@ namespace TerrainGen
         /// The column's height (voxels rel. sea) with the face relief; `h` is
         /// macro + detail, `macro` the map at p. scree: the apron covers p by at
         /// least SCREE_MIN (a function of the map alone).
-        public static float FaceRelief(in MapView map, in Offsets o, float2 p, float macro, float h, int texel, out bool scree)
+        public static float FaceRelief(in MapView map, in Offsets o, uint seed, int seaY, float2 p, float macro, float h, int texel, out bool scree)
         {
             scree = false;
             if (h <= 0f || WetNear(in map, p)) return h;
@@ -269,14 +328,18 @@ namespace TerrainGen
                 if (wf > 0f && FLUTE_WAVE >= 2f * texel)
                 {
                     float n = noise.snoise(p / FLUTE_WAVE + o.detail + new float2(-31.7f, 57.3f));
-                    h += wf * FLUTE_DEPTH * math.min(s, FACE_SLOPE_CAP) * (1f - 2f * math.abs(n));
+                    h += wf * FLUTE_DEPTH * math.min(s, FACE_SLOPE_CAP) * n;   // 178c: smooth, not ridged
                 }
                 if (LEDGE_SPACING >= 2f * texel)
                 {
-                    float t = (h + DetailField.LayerWave(in o, p)) / LEDGE_SPACING;
-                    float f = t - math.floor(t);
+                    // 178c: the layer holding the column top, in the layers' own frame
+                    // (absolute y + LayerWave); f = how far up that layer the top is.
+                    float gl = seaY + h + DetailField.LayerWave(in o, p);
+                    int k = DetailField.LayerIndex(seed, gl);
+                    float b0 = DetailField.LayerBoundary(seed, k), span = DetailField.LayerBoundary(seed, k + 1) - b0;
+                    float f = (gl - b0) / span;
                     float tf = f < LEDGE_TREAD ? 0f : (f - LEDGE_TREAD) / (1f - LEDGE_TREAD);
-                    h -= w * LEDGE_SPACING * (f - tf);
+                    h -= w * span * (f - tf);
                 }
             }
             float fill = ScreeFill(in map, p, macro);
@@ -394,6 +457,7 @@ namespace TerrainGen
         public static float BandLimitBound(in TerrainSpec spec, int texelVoxels, float rough)
         {
             float b = BandLimitBound(texelVoxels, rough);
+            if (spec.LandSig && texelVoxels > 1) b = LandSig.BandBound(b);   // task 189: before the face relief, as in Sample
             return spec.Cliffs && texelVoxels > 1 ? b / (1f - LEDGE_TREAD) + RELIEF_BAND_BOUND : b;
         }
 
@@ -417,6 +481,10 @@ namespace TerrainGen
         public const int LEDGE_BELOW_CAP = 30;         // the shelf sits 3 m under the cap level
         public const int LEDGE_MIN_GAP = 25;           // no gap under 2.5 m (a crawl is not a ledge)
 
+        public const int LEDGE_FIT_THICK = 35;         // task 185: the flat shelf is 3.5 m thick
+        /// Task 185: the flat shelf's top voxel on rock-layer boundary k at a column whose LayerWave is `wave`.
+        public static int LedgeFitTop(uint seed, int k, float wave) => (int)math.floor(DetailField.LayerBoundary(seed, k) - wave);
+
         private static void Ledge(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, ref ColumnSample c)
         {
             if (c.stamp3D || c.open1Hi > c.open1Lo || c.water > c.height || c.height < spec.seaLevelY + 60) return;
@@ -433,6 +501,17 @@ namespace TerrainGen
             if (best - own < LEDGE_MIN_STEP) return;
             int top = spec.seaLevelY + (int)math.floor(best) - LEDGE_BELOW_CAP;
             float thick = 25f + 20f * (0.5f + 0.5f * noise.snoise(p / 300f + o.detail + new float2(-40f, 88f)));
+            if (spec.StampFit)
+            {
+                // Task 185 (C7): the shelf top is the rock-layer boundary at or under
+                // that level (flat but for the layers' slow wave, DetailField.LayerWave)
+                // and the shelf a fixed thickness: a flat ceiling and lip. The old top
+                // followed the cliff (the cap a probe away), an egg with contour rings.
+                float wave = DetailField.LayerWave(in o, p);
+                int k = DetailField.LayerIndex(spec.seed, top + wave);
+                top = LedgeFitTop(spec.seed, k, wave);
+                thick = LEDGE_FIT_THICK;
+            }
             int under = top - (int)thick;
             if (top <= c.height || under - (c.height + 1) < LEDGE_MIN_GAP) return;
             c.open3Lo = c.height + 1;
@@ -707,6 +786,34 @@ namespace TerrainGen
         {
             if (border > BlendClimateReach(in o)) return biome;
             return Biome(in o, p + BlendOffset(in o, p));
+        }
+
+        // ------------------------------------------------------------------
+        // TASK 178c (owner 2026-11-06 on 178's shots: "what's with all the stripes
+        // ... we should rework it"). THE ROCK'S BIOME. 178's layers wore the
+        // column's surfBiome, whose border jitter has a 40 m clump and a 10 m
+        // patch octave. Those are 2-D (plan) patterns: on a steep face, where a
+        // few metres of plan span tens of metres of height, every patch edge
+        // became a VERTICAL streak ("drips", hooks and blobs) cutting through
+        // the horizontal layers -- also in the pre-178 faces. The rock now takes
+        // the biome at p + the border's two SMOOTH warp octaves (800 m / 150 m)
+        // only, shifted by +-ROCK_SPLIT (29 m): rockA at +, rockB at -.
+        // Each layer picks one side by a hash of its index, so at a border the
+        // layers interfinger by up to ~2 x 29 m and one layer's cut is a single
+        // smooth line, not a patch edge. |J| stays within BLEND_REACH, so the
+        // early-out is the surface blend's own (exact).
+        // ------------------------------------------------------------------
+        public const float ROCK_SPLIT_X = 250f, ROCK_SPLIT_Z = 150f;   // voxels: |split| 29 m
+
+        public static void RockBiomes(in Offsets o, float2 p, byte biome, float border, ref ColumnSample c)
+        {
+            if (border > BlendClimateReach(in o)) { c.rockA = c.rockB = (byte)(biome + 1); return; }
+            float2 a = o.tempA.yx + new float2(31.7f, -12.9f), b = o.moistA.yx + new float2(-57.1f, 44.3f);
+            float2 j = BLEND_WARP1_AMP * new float2(noise.snoise(p / BLEND_WARP1_WAVE + a), noise.snoise(p / BLEND_WARP1_WAVE + b));
+            j += BLEND_WARP2_AMP * new float2(noise.snoise(p / BLEND_WARP2_WAVE + b + 9.1f), noise.snoise(p / BLEND_WARP2_WAVE + a - 7.3f));
+            float2 sp = new float2(ROCK_SPLIT_X, ROCK_SPLIT_Z);
+            c.rockA = (byte)(Biome(in o, p + j + sp) + 1);
+            c.rockB = (byte)(Biome(in o, p + j - sp) + 1);
         }
 
         /// Still-water level (voxels rel. sea) at (x, z): the highest level among

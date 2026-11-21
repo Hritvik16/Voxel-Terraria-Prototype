@@ -34,8 +34,11 @@ namespace TerrainGen.Tests
         {
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(SEED);
+            // Task 186: the material rules are the default and set surfBiome to their own skin
+            // biome (GroundRules.Column); this fixture pins the task-122 surface, -matrules 0.
+            _map = SharedMaps.Get(TerrainSpec.SizeClass2(SEED));   // the rules never change the map
+            _spec.matRulesOff = 1;
             _o = Offsets.For(in _spec);
-            _map = SharedMaps.Get(_spec);
         }
 
         private static byte Surf(in Offsets o, float2 p)
@@ -62,6 +65,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void EarlyOut_IsExact_AndTheRecordBiomeIsUnchanged()
         {
             Assert.AreEqual(1, _o.biomeBlend, "v4 default: blend on");
@@ -88,6 +92,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Band_IsMixed_TensOfMetresWide_AndNotStraight()
         {
             // E-W transects at one sample per dither cell (8 voxels).

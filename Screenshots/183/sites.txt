@@ -1,0 +1,34 @@
+Task 183 sites, seed 42 (ON = -fluidpockets 1)
+  surface_water: water basin at (50402, 53059) r 47 x 48, depth 20, level 5191
+    PASS; changed ON vs OFF 205,821 voxels, non-water fluid voxels ON 0; settle 150 ticks 0.7 s: nothing moved or reacted; shells 1-2 samples compared 11,806; far texels 3,124; 4 chunks ON 265 ms / OFF 262 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 42 cells, 0 reactions (first at tick 0); 
+  surface_lava: lava basin at (54920, 35660) r 39 x 47, depth 14, level 5600
+    PASS; changed ON vs OFF 170,163 voxels, non-water fluid voxels ON 40,304; settle 150 ticks 1.8 s: nothing moved or reacted; shells 1-2 samples compared 7,844; far texels 2,532; 4 chunks ON 273 ms / OFF 263 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 124 cells, 4 reactions (first at tick 5); material 11: 40304 -> 40302; 
+  surface_oil: oil basin at (25834, 34441) r 33 x 38, depth 7, level 6341
+    PASS; changed ON vs OFF 95,452 voxels, non-water fluid voxels ON 13,761; settle 150 ticks 0.1 s: nothing moved or reacted; shells 1-2 samples compared 3,145; far texels 1,724; 4 chunks ON 240 ms / OFF 241 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 42 cells, 0 reactions (first at tick 1); 
+  surface_acid: acid basin at (53484, 31961) r 27 x 18, depth 8, level 5626
+    PASS; changed ON vs OFF 29,226 voxels, non-water fluid voxels ON 6,092; settle 150 ticks 0.1 s: nothing moved or reacted; shells 1-2 samples compared 1,504; far texels 636; 8 chunks ON 545 ms / OFF 471 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 54 cells, 4 reactions (first at tick 0); material 19: 6092 -> 6088; 
+  surface_sludge: sludge basin at (45784, 52017) r 27 x 19, depth 12, level 5390
+    PASS; changed ON vs OFF 36,785 voxels, non-water fluid voxels ON 9,664; settle 150 ticks 0.2 s: nothing moved or reacted; shells 1-2 samples compared 4,994; far texels 704; 8 chunks ON 480 ms / OFF 480 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 40 cells, 0 reactions (first at tick 11); 
+  surface_honey: honey basin at (60699, 53114) r 28 x 27, depth 6, level 5168
+    PASS; changed ON vs OFF 47,013 voxels, non-water fluid voxels ON 7,120; settle 150 ticks 0.2 s: nothing moved or reacted; shells 1-2 samples compared 1,924; far texels 1,040; 4 chunks ON 236 ms / OFF 235 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 22 cells, 0 reactions (first at tick 29); 
+  surface_quicksand: quicksand basin at (28007, 37507) r 40 x 35, depth 11, level 6301
+    PASS; changed ON vs OFF 131,386 voxels, non-water fluid voxels ON 24,179; settle 150 ticks 0.8 s: nothing moved or reacted; shells 1-2 samples compared 11,986; far texels 1,936; 4 chunks ON 232 ms / OFF 251 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 6 cells, 0 reactions (first at tick 59); 
+  deep_lava: deep lava pocket at (48335, 1805, 18099) radii (49, 25, 45) level 1809
+    PASS; changed ON vs OFF 183,603 voxels, non-water fluid voxels ON 147,265; settle 150 ticks 6.3 s: nothing moved or reacted; shells 1-2 samples compared 24,748; far texels 0; 8 chunks ON 681 ms / OFF 616 ms (Editor, rough cost only)
+    negative control: OFF (old fluid 6, unlined, 147,265 mobile cells) -> at rest
+  deep_acid: deep acid pocket at (14521, 2377, 43747) radii (47, 27, 46) level 2382
+    PASS; changed ON vs OFF 37,390 voxels, non-water fluid voxels ON 157,720; settle 150 ticks 1.8 s: nothing moved or reacted; shells 1-2 samples compared 25,774; far texels 0; 4 chunks ON 333 ms / OFF 261 ms (Editor, rough cost only)
+    negative control: OFF (old fluid 19, unlined, 157,720 mobile cells) -> changed 4103008 cells, 83598 reactions (first at tick 0); material 19: 157720 -> 74122; 
+  forced_cliff_water: FORCED water basin at (33480, 52040) r 40 x 28, depth 16, level 6451
+    PASS; changed ON vs OFF 210,817 voxels, non-water fluid voxels ON 0; settle 150 ticks 0.3 s: nothing moved or reacted; shells 1-2 samples compared 4,952; far texels 1,544; 4 chunks ON 322 ms / OFF 252 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 168 cells, 0 reactions (first at tick 0); 
+  forced_canyon_lava: FORCED lava basin at (34600, 57000) r 40 x 28, depth 16, level 5798
+    PASS; changed ON vs OFF 190,240 voxels, non-water fluid voxels ON 28,100; settle 150 ticks 1.2 s: nothing moved or reacted; shells 1-2 samples compared 5,390; far texels 1,544; 4 chunks ON 268 ms / OFF 269 ms (Editor, rough cost only)
+    negative control: rim hole -> changed 44 cells, 0 reactions (first at tick 5); 

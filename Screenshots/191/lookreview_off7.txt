@@ -1,0 +1,83 @@
+UPSCALER CLIPS -- 2026-11-13_020329
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 35 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 7, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 35 s; start (3974.8, 587.3, 4018.8)
+map v4 Height FNV 036149929906C114  cell(613,259) 265.11960
+  biome x landform pairs on land (282747 cells = 18.1 km^2):
+    snow      x rolling highlands    34182 cells  12.1 %  -> shot
+    savanna   x river plains         18400 cells   6.5 %  -> shot
+    forest    x rolling highlands    17137 cells   6.1 %  -> shot
+    jungle    x river plains         15533 cells   5.5 %  -> shot
+    jungle    x dune sea             15295 cells   5.4 %  -> shot
+    snow      x sea cliffs           14144 cells   5.0 %  -> shot
+    savanna   x dune sea             13719 cells   4.9 %  -> shot
+    badlands  x canyonlands          13685 cells   4.8 %  -> shot
+    desert    x river plains         13104 cells   4.6 %  -> shot
+    forest    x alpine range         12253 cells   4.3 %  -> shot
+    forest    x dune sea              9697 cells   3.4 %  -> shot
+    desert    x wetland basin         9207 cells   3.3 %  -> shot
+    savanna   x canyonlands           8433 cells   3.0 %  -> shot
+    forest    x river plains          8185 cells   2.9 %  -> shot
+    badlands  x volcanic              7277 cells   2.6 %  -> shot
+    desert    x volcanic              7216 cells   2.6 %  -> shot
+    badlands  x alpine range          6017 cells   2.1 %  -> shot
+    forest    x canyonlands           5803 cells   2.1 %  -> shot
+    badlands  x dune sea              5369 cells   1.9 %
+    badlands  x rolling highlands     5312 cells   1.9 %
+    snow      x wetland basin         4899 cells   1.7 %
+    badlands  x wetland basin         4663 cells   1.6 %
+    snow      x river plains          3475 cells   1.2 %
+    jungle    x rolling highlands     3413 cells   1.2 %
+    snow      x canyonlands           3300 cells   1.2 %
+    jungle    x alpine range          3249 cells   1.1 %
+    savanna   x volcanic              3122 cells   1.1 %
+    forest    x wetland basin         2957 cells   1.0 %
+    desert    x dune sea              2566 cells   0.9 %
+    forest    x sea cliffs            2142 cells   0.8 %
+    desert    x canyonlands           1893 cells   0.7 %
+    snow      x dune sea              1856 cells   0.7 %
+    jungle    x canyonlands           1338 cells   0.5 %
+    savanna   x wetland basin          941 cells   0.3 %
+    snow      x alpine range           717 cells   0.3 %
+    badlands  x river plains           540 cells   0.2 %
+    badlands  x sea cliffs             504 cells   0.2 %
+    forest    x volcanic               500 cells   0.2 %
+    savanna   x rolling highlands      471 cells   0.2 %
+    jungle    x wetland basin           85 cells   0.0 %
+    desert    x rolling highlands       81 cells   0.0 %
+    desert    x sea cliffs              67 cells   0.0 %
+  coast: 1781 sun-lit coastal cells (step 2)
+  40 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1201/961/8  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3371, missing 4627, pending 0; requested 3922, generated 3914 (74 ms each on a worker), dropped stale 9, over-budget frames 1 (of 1103)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 40781/40781/150016 160/160/1540 r0  s2 23938/23938/119296 89/89/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 384,444 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 222,724 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2455.6 MB, peak 2529.2 MB of the 3,000 MB cap
+WSPOSE fixed_town_eye|3300.0,532.9,2719.2|3300.0,534.2,2668.0|fixed pose town_eye (-wsfixed)
+  fixed_town_eye: yaw 180 pitch 1 deg, distance 51 m, 102 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2157/12/1  s2 861/1302/7  s3 78/1923/0  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3096, missing 4843, pending 0; requested 7273, generated 7265 (78 ms each on a worker), dropped stale 13, over-budget frames 2 (of 1913)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 40792/40792/150016 159/160/1540 r0  s2 16884/27769/119296 65/103/1392 r0  s3 1339/1339/102400 5/5/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 418,292 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 246,855 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2343.9 MB, peak 2529.2 MB of the 3,000 MB cap
+WSPOSE fixed_village_eye|3788.0,525.9,2117.6|3788.0,527.2,2092.0|fixed pose village_eye (-wsfixed)
+  fixed_village_eye: yaw 180 pitch 3 deg, distance 26 m, 104 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1024/1138/8  s3 75/1926/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3269, missing 4729, pending 0; requested 10854, generated 10846 (75 ms each on a worker), dropped stale 21, over-budget frames 2 (of 2741)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 40776/41048/150016 161/161/1540 r0  s2 20123/27769/119296 75/103/1392 r0  s3 1081/1339/102400 4/5/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 418,292 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 246,855 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2345.2 MB, peak 2529.2 MB of the 3,000 MB cap
+WSPOSE fixed_town_150m|3300.0,561.2,2818.0|3300.0,534.2,2668.0|fixed pose town_150m (-wsfixed)
+  fixed_town_150m: yaw 180 pitch -10 deg, distance 152 m, 97 s
+  [shells] waited 35 s (cap 35 s): stored/missing/in flight:  s1 2170/0/0  s2 1604/224/4  s3 408/1082/4  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4182, missing 2980, pending 0; requested 15282, generated 15274 (65 ms each on a worker), dropped stale 27, over-budget frames 2 (of 3643)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 0/41048/150016 0/161/1540 r0  s2 8048/27769/119296 54/106/1392 r0  s3 12946/12946/102400 59/59/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 418,292 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 246,855 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2347.6 MB, peak 2529.2 MB of the 3,000 MB cap
+WSPOSE fixed_wide_400m|3300.0,935.0,3300.0|3300.0,534.0,2600.0|fixed pose wide_400m (-wsfixed)
+  fixed_wide_400m: yaw 180 pitch -30 deg, distance 807 m, 88 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-13_020329_high

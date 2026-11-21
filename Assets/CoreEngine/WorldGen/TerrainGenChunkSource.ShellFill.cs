@@ -51,6 +51,7 @@
 //
 // THREADING: runs inside GenerateShellChunk on the caller's thread and writes
 // only the ShellChunk the caller owns (single-writer, CLAUDE.md).
+using System;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -105,25 +106,96 @@ namespace VoxelEngine.WorldGen
             FillShellChunk(output, (1 << (output.Shell - 1)) - 1, null, true);
         }
 
+        /// Task 224: a shell WORKER's reused scratch -- the fill's arrays (~0.46 MB) and the voxel pass's skip stats --
+        /// allocated once per worker thread (ShellStreamer.WorkerLoop, or the synchronous streamer's main thread) and
+        /// reused by every shell chunk it builds, instead of a malloc + free per chunk. OWNED BY ONE THREAD, never shared
+        /// (single-writer). Not part of ShellChunk on purpose: a ShellChunk waits on the main thread for upload (2 per
+        /// worker + 2 exist), so the scratch there would be held ~2.7x over. Reset() gives exactly what a fresh one holds.
+        public sealed class ShellScratch : IDisposable
+        {
+            internal NativeList<int3> boxes;
+            internal NativeArray<int> stats, voxStats;
+            internal NativeArray<byte> pass, dirty;
+            internal NativeArray<ulong> open;
+            internal NativeArray<int> lyOpen, halo, head, scanLo;
+            internal NativeList<int> cand, next;
+
+            public ShellScratch(Allocator a = Allocator.Persistent)
+            {
+                boxes = new NativeList<int3>(a);
+                stats = new NativeArray<int>(8, a);
+                voxStats = new NativeArray<int>(4, a);
+                pass = new NativeArray<byte>(256, a);
+                open = new NativeArray<ulong>(128 * 128 * 128 / 64, a);
+                lyOpen = new NativeArray<int>(128 * 128, a);
+                halo = new NativeArray<int>(4 * 128, a);
+                dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, a);
+                head = new NativeArray<int>(128 * 128, a);
+                cand = new NativeList<int>(1024, a);
+                next = new NativeList<int>(1024, a);
+                scanLo = new NativeArray<int>(128 * 128, a, NativeArrayOptions.UninitializedMemory);   // written before read (fast)
+            }
+
+            /// The fill's arrays back to a fresh allocation's state: every ClearMemory array zero, the lists empty
+            /// (capacity kept: the job reads Length only), scanLo as it is (it was UninitializedMemory; phase 0 writes it).
+            internal unsafe void ResetFill()
+            {
+                boxes.Clear(); cand.Clear(); next.Clear();
+                Zero(stats); Zero(pass); Zero(open); Zero(lyOpen); Zero(halo); Zero(dirty); Zero(head);
+            }
+
+            internal static unsafe void Zero<T>(NativeArray<T> a) where T : struct
+                => UnsafeUtility.MemClear(a.GetUnsafePtr(), (long)a.Length * UnsafeUtility.SizeOf<T>());
+
+            /// Tests (task 224): fills every array with `v` and the lists with junk, a worst-case stale state.
+            public unsafe void Scribble(byte v)
+            {
+                foreach (var arr in new[] { lyOpen, halo, head, scanLo, stats, voxStats })
+                    UnsafeUtility.MemSet(arr.GetUnsafePtr(), v, (long)arr.Length * sizeof(int));
+                UnsafeUtility.MemSet(pass.GetUnsafePtr(), v, pass.Length);
+                UnsafeUtility.MemSet(dirty.GetUnsafePtr(), v, dirty.Length);
+                UnsafeUtility.MemSet(open.GetUnsafePtr(), v, (long)open.Length * sizeof(ulong));
+                for (int i = 0; i < 37; i++) { boxes.Add(new int3(v, i, v)); cand.Add(v * i); next.Add(-i); }
+            }
+
+            /// Bytes one scratch holds at its starting capacities.
+            public static long Bytes
+                => 12 * 4 + 256 + 128 * 128 * 128 / 8 + 3 * 128 * 128 * 4 + 4 * 128 * 4 + EngineConfig.BRICKS_PER_CHUNK
+                   + 128L * 128 * 4 + 2 * 1024 * 4;
+
+            public void Dispose()
+            {
+                if (boxes.IsCreated) boxes.Dispose();
+                if (stats.IsCreated) stats.Dispose();
+                if (voxStats.IsCreated) voxStats.Dispose();
+                if (pass.IsCreated) pass.Dispose();
+                if (open.IsCreated) open.Dispose();
+                if (lyOpen.IsCreated) lyOpen.Dispose();
+                if (halo.IsCreated) halo.Dispose();
+                if (dirty.IsCreated) dirty.Dispose();
+                if (head.IsCreated) head.Dispose();
+                if (cand.IsCreated) cand.Dispose();
+                if (next.IsCreated) next.Dispose();
+                if (scanLo.IsCreated) scanLo.Dispose();
+            }
+        }
+
         /// The pass over a generated (and edited) shell chunk. `half` is the
-        /// sample offset generation used.
+        /// sample offset generation used. `scratch`: the worker's reused scratch (task 224), or null = a one-shot one.
         private void FillShellChunk(ShellChunk output, int half, VoxelEngine.Streaming.EditOpSnapshot ops, bool force = false,
-                                    VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
+                                    VoxelEngine.Streaming.EditSummarySnapshot summaries = null, ShellScratch scratch = null)
         {
             if ((!ShellFill && !force) || !FillsShell(output.Shell) || output.IsUniformAir) return;
             int k = output.Shell;
             int3 origin = output.Coord << (CHUNK_SHIFT + k);
-            var boxes = new NativeList<int3>(Allocator.TempJob);
-            var stats = new NativeArray<int>(8, Allocator.TempJob);
-            var pass = new NativeArray<byte>(256, Allocator.TempJob);
-            var open = new NativeArray<ulong>(128 * 128 * 128 / 64, Allocator.TempJob);
-            var lyOpen = new NativeArray<int>(128 * 128, Allocator.TempJob);
-            var halo = new NativeArray<int>(4 * 128, Allocator.TempJob);
-            var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-            var head = new NativeArray<int>(128 * 128, Allocator.TempJob);
-            var cand = new NativeList<int>(1024, Allocator.TempJob);
-            var next = new NativeList<int>(1024, Allocator.TempJob);
-            var scanLo = new NativeArray<int>(128 * 128, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            // Task 223: Persistent, not TempJob (a shell worker holds it for a whole chunk build, > 4 frames).
+            // Task 224: the worker's reused scratch, reset to a fresh one's state; null = one-shot, freed below.
+            ShellScratch own = scratch == null ? new ShellScratch(Allocator.Persistent) : null;
+            var sx = scratch ?? own;
+            if (scratch != null) scratch.ResetFill();
+            var boxes = sx.boxes; var stats = sx.stats; var pass = sx.pass; var open = sx.open; var lyOpen = sx.lyOpen;
+            var halo = sx.halo; var dirty = sx.dirty; var head = sx.head; var cand = sx.cand; var next = sx.next;
+            var scanLo = sx.scanLo;
             try
             {
                 if (ops != null)
@@ -145,7 +217,7 @@ namespace VoxelEngine.WorldGen
                         { boxes.Add(math.max(l0 - 1, 0)); boxes.Add(math.min(l1 + 1, 127)); }
                 var job = new ShellFillJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, toEngine = _toEngine, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, toEngine = _toEngine, spec = Spec, o = O,
                     origin = origin, shift = k, half = half,
                     colS = output.colS, colCd = output.colCd,
                     mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
@@ -168,11 +240,7 @@ namespace VoxelEngine.WorldGen
                 }
                 for (int i = 0; i < 8; i++) System.Threading.Interlocked.Add(ref FillStats[i], stats[i]);
             }
-            finally
-            {
-                boxes.Dispose(); stats.Dispose(); pass.Dispose(); open.Dispose(); lyOpen.Dispose(); halo.Dispose();
-                dirty.Dispose(); head.Dispose(); cand.Dispose(); next.Dispose(); scanLo.Dispose();
-            }
+            finally { own?.Dispose(); }
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
@@ -182,6 +250,10 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
+            [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
+            [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
+            [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> toEngine;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -204,7 +276,7 @@ namespace VoxelEngine.WorldGen
             // only if the coarse value is below (0.0156 + 0.71 V G) / 0.0084.
             private const float LINE_W_MAX = 0.0156f, LINE_W_MIN = 0.0084f, LINE_GRAD = 1.74f * 3.5f / 2200f;
 
-            // Scratch the caller allocates (TempJob) and disposes; zeroed.
+            // Scratch the caller allocates (Persistent since task 223) and disposes; zeroed.
             public NativeArray<byte> _pass;
             public NativeArray<ulong> _open;
             public NativeArray<int> _lyOpen;    // per column: first ly whose sample is above h - V (unclamped)
@@ -227,6 +299,11 @@ namespace VoxelEngine.WorldGen
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
+                    shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
+                    pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
+                    stream = pocketPlane.Length > 1 ? TerrainGen.PocketStreams.Section((int*)pocketPlane.GetUnsafeReadOnlyPtr(), pocketPlane.Length, spec.mapCells, spec.mapCellVoxels) : null,   // task 209b
+                    landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
 

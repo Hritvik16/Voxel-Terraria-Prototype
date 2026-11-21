@@ -1,0 +1,93 @@
+UPSCALER CLIPS -- 2026-11-15_081638
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 40 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 40 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  39 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 1712/452/6  s2 503/1665/2  s3 0/1832/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 2215, missing 5614, pending 0; requested 2745, generated 2737 (117 ms each on a worker), dropped stale 9, over-budget frames 0 (of 1640)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 29912/29912/150016 179/179/1540 r0  s2 13616/13616/119296 80/80/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 156,519 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 95,952 refused 0 (124.2 MB), in use 0, sealed 0 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2488.6 MB, peak 2664.3 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_redwood_far600 native: settle frames mean 79.5 ms, p50 79.4 ms, max 82.8 ms (skyfill 0)
+  [refused] now 0, total 0, in use 0 of 254,400 | box chunks int3(259, 54, 410)..int3(274, 69, 425) | shell 1 cam chunk int3(133, 31, 209) hole +-1 (25.6 m chunks: tier-0 x/z 264..269 / 416..421) [native]
+  [kernel] fixed_redwood_far600 native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_redwood_far600|3423.2,800.0,5350.4|3423.2,580.0,4750.4|fixed pose redwood_far600 (-wsfixed)
+  fixed_redwood_far600: yaw 180 pitch -20 deg, distance 639 m, 100 s
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 1494/0/0  s2 1225/96/4  s3 354/807/4  s4 0/996/0  s5 0/411/0  s6 0/162/0  s7 0/16/0   total stored 3073, missing 2488, pending 0; requested 5921, generated 5913 (101 ms each on a worker), dropped stale 17, over-budget frames 0 (of 3088)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 0/31915/150016 0/187/1540 r0  s2 0/13616/119296 0/80/1392 r0  s3 9616/9616/102400 43/43/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 156,519 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 95,952 refused 0 (124.2 MB), in use 0, sealed 0 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2379.2 MB, peak 2664.3 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_redwood_far1500 native: settle frames mean 67.7 ms, p50 67.4 ms, max 71.6 ms (skyfill 0)
+  [refused] now 0, total 0, in use 0 of 254,400 | box chunks int3(259, 81, 480)..int3(274, 96, 495) | shell 1 cam chunk int3(133, 44, 244) hole +-1 (25.6 m chunks: tier-0 x/z 264..269 / 486..491) [native]
+  [kernel] fixed_redwood_far1500 native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_redwood_far1500|3423.2,1150.0,6250.4|3423.2,580.0,4750.4|fixed pose redwood_far1500 (-wsfixed)
+  fixed_redwood_far1500: yaw 180 pitch -21 deg, distance 1605 m, 97 s
+  [shells] waited 40 s (cap 40 s): stored/missing/in flight:  s1 2170/0/0  s2 1468/702/0  s3 151/1673/8  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3789, missing 3981, pending 0; requested 9882, generated 9874 (88 ms each on a worker), dropped stale 25, over-budget frames 0 (of 4601)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 0/31915/150016 0/187/1540 r0  s2 29055/29055/119296 123/123/1392 r0  s3 6336/12797/102400 24/54/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 156,519 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 95,952 refused 0 (124.2 MB), in use 0, sealed 0 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2390.7 MB, peak 2664.3 MB of the 3,000 MB cap
+  [fluidtiles] awake-only on, resident 0 (peak 0), acquired total 0, unsettled 0, pool-full refusals 0 (CA dispatch suspended by the survey)
+  [frame] fixed_banyan_far600 native: settle frames mean 79.7 ms, p50 79.6 ms, max 83.2 ms (skyfill 0)
+  [refused] now 0, total 0, in use 0 of 254,400 | box chunks int3(412, 52, 464)..int3(427, 67, 479) | shell 1 cam chunk int3(210, 30, 236) hole +-1 (25.6 m chunks: tier-0 x/z 418..423 / 470..475) [native]
+  [kernel] fixed_banyan_far600 native: primary CSMainFarShadeLean, loaded, failed frames so far 0, flood ready False
+WSPOSE fixed_banyan_far600|5376.8,780.0,6044.8|5376.8,530.0,5444.8|fixed pose banyan_far600 (-wsfixed)
+  fixed_banyan_far600: yaw 180 pitch -23 deg, distance 650 m, 105 s
+[kernels] heartbeat reads 0; verified none; FAILED none; unchecked CSMainFarShadeLean,CSShellPrepassLean
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-15_081638_high

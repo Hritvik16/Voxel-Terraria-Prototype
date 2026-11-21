@@ -1,0 +1,7 @@
+Task 193 shots (native 1920x1080, noon, High preset): share of pure-black pixels (luma < 6/255) and mean luma, OFF / -skyfill 1 / -skyfill 2
+forest       sf0: black  27.5% mean  45.7 | sf1: black  11.8% mean  43.4 | sf2: black  12.2% mean  43.0
+jungle_high  sf0: black  10.8% mean  84.0 | sf1: black   4.9% mean  83.7 | sf2: black   3.8% mean  81.9
+under_crown  sf0: black  83.2% mean   9.8 | sf1: black  53.2% mean  12.0 | sf2: black  54.6% mean  12.8
+cave_in      sf0: black  99.0% mean   0.7 | sf1: black  98.3% mean   1.7 | sf2: black  96.5% mean   1.9
+cavern       sf0: black 100.0% mean   0.0 | sf1: black 100.0% mean   0.0 | sf2: black 100.0% mean   0.0
+open_slope   sf0: black   0.0% mean 137.5 | sf1: black   0.0% mean 133.0 | sf2: black   0.0% mean 134.0

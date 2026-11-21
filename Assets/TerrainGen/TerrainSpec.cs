@@ -108,6 +108,121 @@ namespace TerrainGen
         /// scree at the foot). IGNORED below v4. Read it through Cliffs, never
         /// directly. `-cliffs 0` sets it.
         public byte cliffsOff;
+        /// Task 178c: 1 = the cliff layers without the per-brick rock mix (each
+        /// layer one rock, DetailField.MixBrick off). 0 = the default. Only with
+        /// Cliffs. Read it through RockMix. `-rockmix 0` sets it; tests whose
+        /// shells run without the fill pass use it (TerrainGenChunkSource.SetRockMix).
+        public byte rockMixOff;
+        /// Task 179 (C5, owner 2026-11-06 "queue C5"): 1 = the pre-179 rivers (the
+        /// D8 centre line drawn straight cell to cell, water at bed + depth held by
+        /// raised banks). 0 = the version's default: on v4 the course is a smooth
+        /// curve with meanders, the water stands UNDER its floodplain and the banks
+        /// are carved into the ground (Rivers.cs). IGNORED below v4. Read it through
+        /// RiverShape, never directly. `-rivershape 0` sets it. Changes the MAP
+        /// (Rivers.Profile's levels) as well as the columns.
+        public byte riverShapeOff;
+        /// Task 180 (placement, first test): 1 = generated voxel trees (Trees.cs),
+        /// OPT-IN: 0 (the default) = none. Needs a world record (v4) and a MapView
+        /// carrying the tree plane. Read it through Trees, never directly. The engine's
+        /// chunk source sets it unless `-trees 0` (task 195a); a bare spec stays 0.
+        /// Columns only: the map, the record and the far band ignore it.
+        /// Task 188 (TESTS ONLY, no flag): 2 + b = the ADVERSARIAL cover -- every
+        /// tree cell that passes the physical rules (land, dry, no stamp / ledge,
+        /// foot, clearance) gets a biome-b tree, density and the plane ignored.
+        public byte treesOn;
+        /// Task 192 (trees' look; read through Trees.LeafFill, never directly): the
+        /// leaf FILL target, percent of a crown's envelope. 0 = Trees.DEFAULT_LEAF_FILL.
+        /// `-leaffill 30|45|60` sets it (the owner's three arms). Columns only.
+        public byte treeLeafFill;
+        /// Task 192 (diagnostic): 1 = task 180's tree families byte for byte (3 shapes
+        /// per biome, one solid crown), `-treestyle 0`. 0 (the default) = 192's open
+        /// crowns on a branch skeleton. Columns only.
+        public byte treeStyle180;
+        /// Task 210 (owner 2026-11-14 Q-AD (a)): 1 = the WORLD space-colonization trees
+        /// (Trees2.cs: a shared prototype library, a brick budget per area, giants on their
+        /// own sparse grid; 192's trees kept only for the forms the library does not grow).
+        /// 0 (the default, a bare spec) = today's trees byte for byte. Needs treesOn and
+        /// the library the chunk source builds (ON by default in the chunk source since task 214;
+        /// `-trees2 0` = today's trees). Read it through Trees2, never directly.
+        /// Task 213 (owner 2026-11-15 Q-AJ (a)): 1 = the DENSER forest (oaks on the 12.8 m grid, the
+        /// small trees -- birch, spruce, acacia -- on a 6.4 m grid, a bigger forest budget);
+        /// 2 = task 210's placement byte for byte (`-trees2dense 0`, the comparison arm).
+        public byte trees2On;
+        /// Task 243 (lever F3, PERF_SLICE_BUDGETS.md sec. 6): 1 = SOLID CROWN CORES -- the world-tree
+        /// library fills each prototype crown's interior with its leaf, leaving a 2-voxel ragged skin
+        /// (CrownCore.cs). 0 (the default) = the library as before, byte for byte. Only with trees2On
+        /// (map v4); placement is the same either way. `-crowncore 1`. 2 = the CLOSED crown: gaps between
+        /// leaf masses narrower than ~2 of the crown's clump radii count as interior (`-crowncore 2`).
+        /// Read by the library build only.
+        public byte crownCore;
+        /// Task 180b / 186: 0 (THE DEFAULT since task 186, owner 2026-11-07 Q-M (a))
+        /// = the simple material rules (GroundRules.cs: one palette row per biome
+        /// paints skin, soil, subsoil and stone; a short slot list over local
+        /// inputs). 1 = the 177-179 cover + layered rock, byte for byte (the old
+        /// path, `-matrules 0`). Columns and the far band's colours only: the map
+        /// and the record ignore it. Read it through MatRules, never directly.
+        public byte matRulesOff;
+        /// Task 181 (placement, resource deposits): 1 = OreRules.cs (harshness-scaled
+        /// deposits, wall veins, rich features, the hidden start, latent cobalt and
+        /// emberstone twins). 0 = step 3's Ores.cs placement, byte for byte (a bare
+        /// spec's value). Needs a record (v4) and the ore cell plane
+        /// (ColumnDetail.oreCell), so only the engine's TerrainGenChunkSource sets
+        /// it -- ON there by default since task 195 (owner 2026-11-13); `-ores 0`
+        /// leaves it 0. Read it through Ores2, never directly.
+        public byte oresOn;
+        /// Task 183 (placement, fluid pockets at rest): 1 = FluidPockets.cs (surface
+        /// basins by rule, the deep pockets' rule fluids and linings). 0 (the
+        /// default) = no surface pockets, the deep pockets as before, byte for byte.
+        /// Needs a record (v4) and the site plane (MapView.pocket). Read it through
+        /// Pockets, never directly. `-fluidpockets 1` sets it.
+        public byte fluidPocketsOn;
+        /// Task 185 / 187a (WORLD_GEN_LOOK_PLAN C7): 0 (THE DEFAULT since task 187a,
+        /// owner 2026-11-12 Q-F (a)) = stamps that sit in the land (Stamps.cs
+        /// "TASK 185"): a cave mouth only where its tube stays covered, flat
+        /// cap-rock ledges on a rock-layer boundary, the geyser basin's terraces
+        /// follow the ground, hoops only on a rise or in rugged rock, and no stamp
+        /// opening within SEA_KEEP_OUT of the sea. 1 = the pre-185 stamps, byte for
+        /// byte (`-stampfit 0`). Columns only: the map and the record ignore it.
+        /// Read it through StampFit, never directly.
+        public byte stampFitOff;
+        /// Task 187 (surface rebuild B7, flag-off): 1 = plan town / village /
+        /// outpost / frontier sites (Sites.cs) into WorldRecord.SiteList and the
+        /// record's site bytes (ids >= 16). Changes NO terrain (the flatten rule
+        /// is stored, not applied): the map, the columns and every voxel ignore
+        /// it. Read it through Sites, never directly. `-sites 1` sets it.
+        public byte sitesOn;
+        /// Task 188a / 190a (owner 2026-11-12: "just randomly spraying it is weird
+        /// ... like blotches"; default flipped by task 190a, Q-V (a)): 0 (THE
+        /// DEFAULT since task 190a) = the material rules give every column its
+        /// slot's MAIN palette entry -- no random variant patches. 1 = the
+        /// pre-190a ~20-25 % VariantNoise spray, byte for byte (`-matvariant 1`).
+        /// Rules path only (MatRules); the old -matrules 0 path, the map and the
+        /// record ignore it, and trees keep reading the noise (c.cover's variant
+        /// bit is unchanged). Read it through MatVariant, never directly.
+        public byte matVariantOn;
+        /// Task 189 / 190b (WORLD_GEN_LOOK_PLAN C6; default flipped by task 190b,
+        /// owner 2026-11-12 Q-W (b)): 0 (THE DEFAULT since task 190b) = landform
+        /// signatures at walking scale (LandSig.cs): meso (20-200 m) shapes per
+        /// landform, never per biome -- dune ridges with a steep lee side,
+        /// canyonland slot canyons and benches, alpine ridgelines and side valleys
+        /// along the slope. 1 = the pre-189 columns, byte for byte (`-landsig 0`).
+        /// Columns only: the map's arrays and the record ignore it; its weight
+        /// plane is derived (WorldMap.EnsureLandSigPlane, which WorldMap.Build runs
+        /// whenever LandSig is in force). Read it through LandSig, never directly.
+        public byte landSigOff;
+        /// Task 190 (placement, flag-off): 1 = TOWNS ON THE SITES (Towns.cs): the
+        /// site discs flattened to their pad (ring blended back) and BuildingKit's
+        /// huts / houses / halls laid out on them. Needs the site planner (sitesOn;
+        /// the engine's chunk source and far band set both unless `-towns 0`, task 195a;
+        /// a bare spec stays 0). 0 = every byte as before. The map
+        /// and the record's cells ignore it (the plane is derived, WorldMap.EnsureTowns).
+        /// Read it through Towns, never directly.
+        public byte townsOn;
+        /// Task 250 (WORLD_FILL_BUDGET sec. 5 E3; `-fringe 1`, DEFAULT OFF): 1 = VOXEL GRASS FRINGE --
+        /// 1-3 voxel stubs (GenMat.GrassFringe / SavannaFringe) on grass surface voxels, written by the
+        /// engine's LOD-0 chunk pass ONLY into bricks that are already dense (no new bricks, no new GPU
+        /// bodies). The map, the record, the shells and the point query ignore it. 0 = every byte as before.
+        public byte fringeOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -164,6 +279,50 @@ namespace TerrainGen
 
         /// Task 178's cliff geology and face relief in force (see cliffsOff): v4 only.
         public bool Cliffs => mapVersion >= 4 && cliffsOff == 0;
+
+        /// Task 178c's per-brick rock mix inside the cliff layers in force (see rockMixOff).
+        public bool RockMix => Cliffs && rockMixOff == 0;
+
+        /// Task 179's river course and incision in force (see riverShapeOff): v4 only.
+        public bool RiverShape => mapVersion >= 4 && riverShapeOff == 0;
+
+        /// Task 180's generated trees in force (see treesOn): v4 only, opt-in.
+        public bool Trees => mapVersion >= 4 && treesOn != 0;
+        /// Task 210's world trees in force (see trees2On): only with Trees.
+        public bool Trees2 => Trees && trees2On != 0;
+        /// Task 213's denser placement (trees2On 1); false = task 210's (trees2On 2).
+        public bool Trees2Dense => trees2On == 1;
+
+        /// Task 180b's material rules in force (see matRulesOff): v4 only, ON by
+        /// default since task 186.
+        public bool MatRules => mapVersion >= 4 && matRulesOff == 0;
+
+        /// Task 188a / 190a: the material rules' random variant spray in force
+        /// (see matVariantOn): OFF by default since task 190a.
+        public bool MatVariant => matVariantOn != 0;
+
+        /// Task 181's rule ores in force (see oresOn): v4 only; the chunk source's default since task 195.
+        public bool Ores2 => mapVersion >= 4 && oresOn != 0;
+
+        /// Task 183's fluid pockets in force (see fluidPocketsOn): v4 only, opt-in.
+        public bool Pockets => mapVersion >= 4 && fluidPocketsOn != 0;
+
+        /// Task 185's stamp fit in force (see stampFitOff): v4 only, ON by default
+        /// since task 187a.
+        public bool StampFit => mapVersion >= 4 && stampFitOff == 0;
+
+        /// Task 189's landform signatures in force (see landSigOff): v4 only, ON by
+        /// default since task 190b.
+        public bool LandSig => mapVersion >= 4 && landSigOff == 0;
+
+        /// Task 187's site planner in force (see sitesOn): v4 only, opt-in.
+        public bool Sites => mapVersion >= 4 && sitesOn != 0;
+
+        /// Task 190's towns in force (see townsOn): v4 + the site planner, opt-in.
+        public bool Towns => Sites && townsOn != 0;
+
+        /// Task 250's voxel grass fringe in force (see fringeOn): v4 only, opt-in.
+        public bool Fringe => mapVersion >= 4 && fringeOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

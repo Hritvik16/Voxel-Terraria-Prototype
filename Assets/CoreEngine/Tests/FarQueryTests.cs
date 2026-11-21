@@ -418,6 +418,7 @@ public class FarQueryTests
     // ==================================================================
 
     [Test, Category("Slow"), Timeout(600000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void StreamManager_FarAnswers_EqualTheChunkOnceStreamedIn()
     {
         string dir = TempDir("streamed");

@@ -433,9 +433,11 @@ public class LightFloodReferenceTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_IncrementalEqualsScratch_ThenAllSlotsFreed() => Fuzz(80, 157);
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_Long() { Fuzz(300, 1571); Fuzz(300, 1572); }
 
     [Test]
@@ -479,6 +481,7 @@ public class LightFloodReferenceTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Streaming_EvictEditReadmit_EqualsScratch()
     {
         NewWorld(new int3(3, 1, 3));
@@ -715,6 +718,7 @@ public class LightFloodReferenceTests
         $"{(m.cells > 0 ? 100.0 * m.split / m.cells : 0),6:F2}% ({m.split:N0}/{m.cells:N0}) leak {m.splitLeak} | per torch {m.MbPlan / torches:F2} MB";
 
     [Test, Category("Slow"), Timeout(1800000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Report_MemoryAndTimingAndSlices()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

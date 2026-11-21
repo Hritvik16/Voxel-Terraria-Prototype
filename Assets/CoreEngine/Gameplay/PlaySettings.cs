@@ -90,6 +90,10 @@ public sealed class PlaySettings
     /// (TorchFloodPool, dir 2, I 1.6 k 0.35; `-torchflood 0|1`). Off: the old point-light
     /// torches. Applies live. A file saved before task 175 gets on.
     public bool torchFlood = true;
+    /// Task 194a (owner Q-Z (a), 2026-11-13): shade light = task 193's SKY FILL
+    /// (RaymarchFeature.SkyFill, `-skyfill 0|1|2`): 0 off (the vertical sky probe), 1 sky,
+    /// 2 sky + ground bounce. Applies live. A file saved before task 194a gets 2.
+    public int skyFill = 2;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -109,6 +113,7 @@ public sealed class PlaySettings
         if (Array.IndexOf(GameModes, gameMode) < 0) { notes.Add($"gameMode '{gameMode}' -> survival"); gameMode = "survival"; }
         if (shadowLevel < 0 || shadowLevel > 3) { notes.Add($"shadowLevel {shadowLevel} -> 0"); shadowLevel = 0; }
         if (perfOverlay < 0 || perfOverlay > 2) { notes.Add($"perfOverlay {perfOverlay} -> 1"); perfOverlay = 1; }
+        if (skyFill < 0 || skyFill > 2) { notes.Add($"skyFill {skyFill} -> 2"); skyFill = 2; }
         return notes.Count == 0 ? null : string.Join(", ", notes);
     }
 
@@ -145,6 +150,7 @@ public sealed class PlaySettings
         string fs = Last(args, "-farshade");
         string sl = Last(args, "-shells");
         string tf = Last(args, "-torchflood");
+        string sf = Last(args, "-skyfill");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -208,6 +214,11 @@ public sealed class PlaySettings
         {
             if (tf == "0" || tf == "1") { s.torchFlood = tf == "1"; overridden?.Add("torchFlood"); }
             else overridden?.Add($"-torchflood: bad value '{tf}'");
+        }
+        if (sf != null)
+        {
+            if (sf == "0" || sf == "1" || sf == "2") { s.skyFill = sf[0] - '0'; overridden?.Add("skyFill"); }
+            else overridden?.Add($"-skyfill: bad value '{sf}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.

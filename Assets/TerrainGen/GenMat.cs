@@ -46,6 +46,8 @@ namespace TerrainGen
         public const byte BlueSlate = 50, Marble = 51, Basalt = 52, TealQuartzite = 53, SilverSchist = 54;  // snow
         public const byte KarstLimestone = 60, BlackBasalt = 61, Laterite = 62, MossRock = 63, JadeSerpentine = 64; // jungle
         // Ores (gameplay step 3, map v4): 65-69 = Ores.Copper .. Ores.Emberstone (Ores.cs).
+        // Task 181 (-ores 1): LATENT ORE TWINS in free codes 26-29, 38, 39 (cobalt in each biome's
+        // cavern rock), 59, 94, 95 (emberstone in magma crust / ash / obsidian) -- OreRules.cs.
         // B10 (map v4), in the gaps after forest's and desert's sets: savanna's rock per
         // depth layer, and badlands' three exposed bands (layer 0 cycles them by height)
         // plus its deep and cavern rock.
@@ -69,6 +71,22 @@ namespace TerrainGen
         public const byte MushroomStem = 89, MushroomCap = 90;
         public const byte VolcanicRock = 91;    // the volcano's cone
         public const byte StandingStone = 92;   // stone rings
+
+        // ---- task 180: generated trees (Trees.cs), one wood + one leaf per biome family ----
+        // Trunk and leaf voxels are told apart BY MATERIAL (chopping: any trunk voxel cut
+        // drops the whole tree). The world tree's Bark / Leaves (87 / 88) are a stamp, not these.
+        public const byte ForestLeaves = 55, JungleLeaves = 56, SavannaLeaves = 57, PineNeedles = 58;
+        public const byte ForestWood = 76, JungleWood = 77, AcaciaWood = 78, PineWood = 79;
+        public const byte Cactus = 93;          // the desert's "tree": trunk class, no leaves
+        public const byte BirchBark = 19;       // task 210 (-trees2 1): the birch's pale bark, trunk class (a free code after Gravel)
+        // ---- task 250 (-fringe 1, DEFAULT OFF): voxel grass fringe, the two free codes left below 96 ----
+        // 1-3 voxel stubs on a grass surface; never in the map, the shells or the point query (LOD-0 chunks only).
+        public const byte SavannaFringe = 9;    // on SavannaGrass (dry gold)
+        public const byte GrassFringe = 18;     // on Grass and JungleGrass (green)
+        public static bool IsFringe(byte m) => m == GrassFringe || m == SavannaFringe;
+
+        public static bool IsTreeTrunk(byte m) => (m >= ForestWood && m <= PineWood) || m == Cactus || m == BirchBark;
+        public static bool IsTreeLeaf(byte m) => m >= ForestLeaves && m <= PineNeedles;
 
         public static bool IsFluid(byte m) => m >= Water && m <= Quicksand;
         public static bool IsSolid(byte m) => m >= Grass;

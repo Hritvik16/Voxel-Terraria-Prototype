@@ -80,7 +80,7 @@ def label(img, text, xy=(10, 8), sz=22):
     d.text(xy, text, fill=(255, 255, 255), font=font(sz))
 
 
-def sheets(dump, out):
+def sheets(dump, out, after_label="AFTER (task 178)"):
     os.makedirs(out, exist_ok=True)
     for p in POSES:
         b, ylo_b, hb = section(os.path.join(dump, f"{p}_before_section.bin"))
@@ -93,7 +93,7 @@ def sheets(dump, out):
         sheet.paste(b, (0, top_y - (ylo_b + hb)))
         sheet.paste(a, (b.width + 20, top_y - (ylo_a + ha)))
         label(sheet, f"{p}: BEFORE (-cliffs 0)", (10, 8))
-        label(sheet, f"{p}: AFTER (task 178)", (b.width + 30, 8))
+        label(sheet, f"{p}: {after_label}", (b.width + 30, 8))
         sheet.save(os.path.join(out, f"section_{p}.png"))
         tb = top(os.path.join(dump, f"{p}_before_top.bin"))
         ta = top(os.path.join(dump, f"{p}_after_top.bin"))
@@ -101,7 +101,7 @@ def sheets(dump, out):
         sheet.paste(tb, (0, 0))
         sheet.paste(ta, (tb.width + 20, 0))
         label(sheet, f"{p} from above, 160 m: BEFORE", (10, 8))
-        label(sheet, "AFTER", (tb.width + 30, 8))
+        label(sheet, after_label, (tb.width + 30, 8))
         sheet.save(os.path.join(out, f"top_{p}.png"))
         print("wrote", p)
 
@@ -114,7 +114,9 @@ img{display:block;image-rendering:pixelated}b{color:#ffcc55}</style></head><body
 Keys: left/right = image, Space = BEFORE | AFTER, 1-4 = zoom (1 = fit width). Question: <b>keep these cliffs?</b></div>
 <div id="wrap"><img id="im"></div>
 <script>
-const S=%s;let i=0,after=true,zoom=1;
+// 178c: pairs.json rows are ARRAYS [after, before, caption]; 178 read s.after / s.before
+// (undefined on an array), so every <img> got src="undefined" and the page showed black.
+const S=%s.map(r=>Array.isArray(r)?{after:r[0],before:r[1]||r[0],caption:r[2]||'',name:r[0]}:r);let i=0,after=true,zoom=1;
 function show(){const s=S[i];const im=document.getElementById('im');im.src=after?s.after:s.before;
 document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+s.name+'  ['+(after?'AFTER':'BEFORE')+']';
 document.getElementById('c').textContent=s.caption;

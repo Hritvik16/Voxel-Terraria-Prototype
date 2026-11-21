@@ -1,0 +1,12 @@
+<html><body style="background:#111;color:#ddd;font-family:sans-serif"><h3>Task 203 natural pond outlines: Space flips BEFORE (196's ellipse, -pocketoutline 0) / AFTER, arrows change pose, Z full size</h3><div id=t style="font-size:15px;margin-bottom:6px"></div><img id=i style="max-width:100%"><script>
+var p=[['top_water','Water in a snowy fir forest, from 22 m straight above. Look at the dark pond in the middle: before, a perfect circle; after, a clover-like blob (lobes toward the right and bottom), same terraced snow bank around it.'],
+['top_lava','Lava in the snow forest, from above. Before, a clean ellipse; after, a lopsided bean/pear shape, narrower at the top (north), with a bulge at the lower left.'],
+['side_lava','Same lava pond from the west (201\'s pose). Before, an ellipse; after, a kidney shape with a notch at the right; the stepped snow bank behind is unchanged.'],
+['side_water','Water from the north, 16 m up (a fir crown fills the left). The pond (centre, behind the trees) is smaller and its near edge is irregular.'],
+['top_oil','Oil (black) in the badlands. Before, a round black disc; after, a smaller lumpy pool with a lobe toward the left.'],
+['top_acid','Acid (green) on red rock between snow. Before, an oval; after, a smaller pool with a bump on its right side.'],
+['top_sludge','Sludge in the green forest floor. Before, an oval; after, a smaller lumpy pool.'],
+['top_honey','Honey in the jungle. Before, a round amber pond in a gap of the canopy; after, the pond is HIDDEN: a tree now stands on ground the old ellipse took, and its crown covers the smaller pond.'],
+['top_quicksand','Quicksand in the desert. Before, a round grey disc inside its crescent bank; after, a smaller pool with a lobe at the upper right.']],k=0,a=1,z=0;
+function s(){var f=p[k][0]+'_'+(a?'after':'before')+'.png';document.getElementById('i').src=f;document.getElementById('i').style.maxWidth=z?'none':'100%';document.getElementById('t').textContent=(k+1)+'/'+p.length+'  '+(a?'AFTER (natural outline)':'BEFORE (ellipse)')+' -- '+p[k][1];}
+document.onkeydown=function(e){if(e.key==' '){a=1-a;}else if(e.key=='ArrowRight'){k=(k+1)%p.length;}else if(e.key=='ArrowLeft'){k=(k+p.length-1)%p.length;}else if(e.key=='z'||e.key=='Z'){z=1-z;}s();e.preventDefault();};s();</script></body></html>

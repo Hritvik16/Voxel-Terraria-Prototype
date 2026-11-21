@@ -1,0 +1,357 @@
+UPSCALER CLIPS -- 2026-11-14_003940
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native_sf0_lh0, native_sf0; shell wait cap 45 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  40 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 2170/0/0  s2 1988/178/4  s3 571/1426/4  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4729, missing 3269, pending 0; requested 5297, generated 5289 (136 ms each on a worker), dropped stale 8, over-budget frames 17 (of 2093)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 63303/63303/150016 257/257/1540 r0  s2 55689/55689/119296 235/235/1392 r0  s3 15680/15680/102400 61/61/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,198 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 10,058 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2326.2 MB, peak 2518.8 MB of the 3,000 MB cap
+  [frame] fixed_forest native_sf0_lh0: settle frames mean 154.8 ms, p50 155.3 ms, max 169.6 ms (skyfill 0)
+  [refused] now 20, total 10,626, in use 254,133 of 254,400 | box chunks int3(255, 34, 380)..int3(270, 49, 395) | shell 1 cam chunk int3(131, 21, 194) hole +-1 (25.6 m chunks: tier-0 x/z 260..265 / 386..391) [native_sf0_lh0]
+  [refused] chunk int3(262, 41, 383) world x 3353.6..3366.4 y 524.8..537.6 z 4902.4..4915.2 | dist 65 m | dense 676 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1054, 361) [native_sf0_lh0]
+  [refused] chunk int3(261, 41, 383) world x 3340.8..3353.6 y 524.8..537.6 z 4902.4..4915.2 | dist 67 m | dense 703 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1243, 361) [native_sf0_lh0]
+  [refused] chunk int3(260, 41, 383) world x 3328.0..3340.8 y 524.8..537.6 z 4902.4..4915.2 | dist 72 m | dense 1057 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1432, 361) [native_sf0_lh0]
+  [refused] of 20: on screen 3, in shell 1's hole 0, chunk below drawn solid by tier 0 17 [native_sf0_lh0]
+  [mirror] box int3(255, 34, 380)..int3(270, 49, 395) layers 39..45 | MISSING (resident, not air, slot not its own): refused 19, dirty 57, parked 0, LOST 0 | ABSENT over solid 9 (queued 0, loading 0) | dirty set 1,057, pending loads 539, in flight 18, refused now 20 | evicted total 16,782 (LRU valve 14,264) | hand-over columns 17 [native_sf0_lh0]
+  [mirror] chunk int3(262, 41, 383) dist 65 m px (1052, 454) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(261, 41, 383) dist 67 m px (1235, 454) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(260, 41, 383) dist 72 m px (1419, 454) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(261, 41, 382) dist 79 m px (1192, 423) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 15 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(261, 40, 382) dist 79 m px (1181, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 15 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(265, 40, 382) dist 83 m px (591, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 13 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(260, 40, 382) dist 83 m px (1329, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 6 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(259, 40, 382) dist 89 m px (1476, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 14 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(268, 40, 383) dist 95 m px (4, 625) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(265, 40, 381) dist 95 m px (640, 529) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 13 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(267, 40, 382) dist 96 m px (296, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 14 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(268, 40, 382) dist 104 m px (149, 570) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 6 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(267, 39, 381) dist 107 m px (405, 648) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 43 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(265, 40, 380) dist 107 m px (677, 498) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 793 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(268, 40, 381) dist 114 m px (255, 529) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 11 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(255, 39, 381) dist 131 m px (1885, 648) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 225 passes ago | column resident False hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(256, 41, 380) dist 132 m px (1723, 384) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 224 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(256, 40, 380) dist 132 m px (1696, 498) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 230 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(270, 42, 380) dist 141 m px (47, 261) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 225 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(255, 41, 380) dist 141 m px (1840, 384) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 221 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(270, 41, 380) dist 141 m px (80, 384) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 217 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(270, 40, 380) dist 141 m px (110, 498) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 230 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(255, 39, 380) dist 141 m px (1781, 604) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 217 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0_lh0]
+  [gen] resident band chunks stored as uniform AIR: 797; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0_lh0]
+  [mirror +5s] of 23 listed: still missing/absent 10 | dirty set 583, refused now 0 | evicted total 17,063 (LRU valve 14,545) [native_sf0_lh0]
+  [mirror +5s] chunk int3(262, 41, 383) | held | stage Resident | dense | inBox True owner self held True lastUpload 35 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(261, 41, 383) | held | stage Resident | dense | inBox True owner self held True lastUpload 30 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(260, 41, 383) | held | stage Resident | dense | inBox True owner self held True lastUpload 35 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(261, 41, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 21 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(261, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 15 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(265, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 14 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(260, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 20 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(259, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 15 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(268, 40, 383) | held | stage Resident | dense | inBox True owner self held True lastUpload 28 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(265, 40, 381) | held | stage Resident | dense | inBox True owner self held True lastUpload 9 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(267, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 14 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(268, 40, 382) | held | stage Resident | dense | inBox True owner self held True lastUpload 21 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(267, 39, 381) | held | stage Resident | dense | inBox True owner self held True lastUpload 6 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(265, 40, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 829 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(268, 40, 381) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 47 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(255, 39, 381) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 261 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(256, 41, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 260 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(256, 40, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 266 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(270, 42, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 261 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(255, 41, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 257 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(270, 41, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 253 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(270, 40, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 266 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(255, 39, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 253 passes ago [native_sf0_lh0]
+  [frame] fixed_forest native_sf0: settle frames mean 156.2 ms, p50 154.8 ms, max 174.3 ms (skyfill 0)
+  [refused] now 15, total 10,916, in use 254,333 of 254,400 | box chunks int3(255, 34, 380)..int3(270, 49, 395) | shell 1 cam chunk int3(131, 21, 194) hole +-1 (25.6 m chunks: tier-0 x/z 260..265 / 386..391) [native_sf0]
+  [refused] chunk int3(263, 41, 385) world x 3366.4..3379.2 y 524.8..537.6 z 4928.0..4940.8 | dist 39 m | dense 1553 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (806, 425) [native_sf0]
+  [refused] chunk int3(266, 39, 385) world x 3404.8..3417.6 y 499.2..512.0 z 4928.0..4940.8 | dist 59 m | dense 268 | below absent | shell 1 STORES it | top centre at px (54, 940) [native_sf0]
+  [refused] of 15: on screen 2, in shell 1's hole 4, chunk below drawn solid by tier 0 14 [native_sf0]
+  [mirror] box int3(255, 34, 380)..int3(270, 49, 395) layers 39..45 | MISSING (resident, not air, slot not its own): refused 20, dirty 75, parked 0, LOST 0 | ABSENT over solid 9 (queued 0, loading 3) | dirty set 802, pending loads 82, in flight 54, refused now 20 | evicted total 17,757 (LRU valve 15,239) | hand-over columns 118 [native_sf0]
+  [mirror] chunk int3(263, 41, 385) dist 39 m px (813, 571) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(262, 41, 384) dist 52 m px (1073, 499) | ABSENT stage Unloaded | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(266, 39, 385) dist 59 m px (88, 1044) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(260, 41, 383) dist 72 m px (1419, 454) | ABSENT stage Unloaded | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(266, 41, 383) dist 78 m px (318, 454) | ABSENT stage Unloaded | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(260, 41, 380) dist 107 m px (1253, 384) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 317 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(255, 41, 380) dist 141 m px (1840, 384) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 318 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(255, 39, 380) dist 141 m px (1781, 604) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 314 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0]
+  [gen] resident band chunks stored as uniform AIR: 676; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0]
+  [mirror +5s] of 8 listed: still missing/absent 6 | dirty set 861, refused now 45 | evicted total 18,134 (LRU valve 15,616) [native_sf0]
+  [mirror +5s] chunk int3(263, 41, 385) | held | stage Resident | dense | inBox True owner self held True lastUpload 4 passes ago [native_sf0]
+  [mirror +5s] chunk int3(262, 41, 384) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago [native_sf0]
+  [mirror +5s] chunk int3(266, 39, 385) | held | stage Resident | dense | inBox True owner self held True lastUpload 33 passes ago [native_sf0]
+  [mirror +5s] chunk int3(260, 41, 383) | ABSENT stage queued [native_sf0]
+  [mirror +5s] chunk int3(266, 41, 383) | ABSENT stage queued [native_sf0]
+  [mirror +5s] chunk int3(260, 41, 380) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 351 passes ago [native_sf0]
+  [mirror +5s] chunk int3(255, 41, 380) | ABSENT stage Unloaded [native_sf0]
+  [mirror +5s] chunk int3(255, 39, 380) | ABSENT stage Unloaded [native_sf0]
+WSPOSE fixed_forest|3366.4,544.2,4973.0|3366.4,530.7,4928.0|fixed pose forest (-wsfixed)
+  fixed_forest: yaw 180 pitch -17 deg, distance 47 m, 300 s
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 2170/0/0  s2 2157/12/1  s3 765/1229/7  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 5092, missing 2847, pending 0; requested 10815, generated 10807 (143 ms each on a worker), dropped stale 16, over-budget frames 62 (of 3605)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 82263/82263/150016 312/312/1540 r0  s2 78236/78236/119296 185/260/1392 r0  s3 29054/29054/102400 89/98/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,600 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 15,493 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2379.4 MB, peak 2675.4 MB of the 3,000 MB cap
+  [frame] fixed_jungle_high native_sf0_lh0: settle frames mean 218.7 ms, p50 217.9 ms, max 239.0 ms (skyfill 0)
+  [refused] now 111, total 16,218, in use 253,799 of 254,400 | box chunks int3(443, 34, 384)..int3(458, 49, 399) | shell 1 cam chunk int3(225, 22, 196) hole +-1 (25.6 m chunks: tier-0 x/z 448..453 / 390..395) [native_sf0_lh0]
+  [refused] chunk int3(450, 42, 387) world x 5760.0..5772.8 y 537.6..550.4 z 4953.6..4966.4 | dist 65 m | dense 1131 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1056, 204) [native_sf0_lh0]
+  [refused] chunk int3(451, 42, 387) world x 5772.8..5785.6 y 537.6..550.4 z 4953.6..4966.4 | dist 65 m | dense 608 | below dense | shell 1 STORES it | top centre at px (864, 204) [native_sf0_lh0]
+  [refused] chunk int3(451, 41, 387) world x 5772.8..5785.6 y 524.8..537.6 z 4953.6..4966.4 | dist 65 m | dense 876 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (874, 382) [native_sf0_lh0]
+  [refused] chunk int3(449, 41, 387) world x 5747.2..5760.0 y 524.8..537.6 z 4953.6..4966.4 | dist 67 m | dense 867 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1219, 382) [native_sf0_lh0]
+  [refused] chunk int3(449, 39, 387) world x 5747.2..5760.0 y 499.2..512.0 z 4953.6..4966.4 | dist 67 m | dense 256 | below absent | shell 1 STORES it | top centre at px (1175, 647) [native_sf0_lh0]
+  [refused] chunk int3(452, 42, 387) world x 5785.6..5798.4 y 537.6..550.4 z 4953.6..4966.4 | dist 67 m | dense 772 | below dense | shell 1 STORES it | top centre at px (671, 204) [native_sf0_lh0]
+  [refused] chunk int3(452, 41, 387) world x 5785.6..5798.4 y 524.8..537.6 z 4953.6..4966.4 | dist 67 m | dense 894 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (701, 382) [native_sf0_lh0]
+  [refused] chunk int3(453, 42, 387) world x 5798.4..5811.2 y 537.6..550.4 z 4953.6..4966.4 | dist 72 m | dense 1054 | below dense | shell 1 STORES it | top centre at px (479, 204) [native_sf0_lh0]
+  [refused] chunk int3(453, 41, 387) world x 5798.4..5811.2 y 524.8..537.6 z 4953.6..4966.4 | dist 72 m | dense 918 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (528, 382) [native_sf0_lh0]
+  [refused] chunk int3(448, 42, 387) world x 5734.4..5747.2 y 537.6..550.4 z 4953.6..4966.4 | dist 72 m | dense 443 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1441, 204) [native_sf0_lh0]
+  [refused] chunk int3(450, 41, 386) world x 5760.0..5772.8 y 524.8..537.6 z 4940.8..4953.6 | dist 77 m | dense 983 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1035, 320) [native_sf0_lh0]
+  [refused] chunk int3(447, 41, 387) world x 5721.6..5734.4 y 524.8..537.6 z 4953.6..4966.4 | dist 78 m | dense 1227 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1564, 382) [native_sf0_lh0]
+  [refused] chunk int3(447, 42, 387) world x 5721.6..5734.4 y 537.6..550.4 z 4953.6..4966.4 | dist 78 m | dense 455 | below dense | shell 1 STORES it | top centre at px (1633, 204) [native_sf0_lh0]
+  [refused] chunk int3(449, 41, 386) world x 5747.2..5760.0 y 524.8..537.6 z 4940.8..4953.6 | dist 79 m | dense 1084 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1185, 320) [native_sf0_lh0]
+  [refused] chunk int3(449, 42, 386) world x 5747.2..5760.0 y 537.6..550.4 z 4940.8..4953.6 | dist 79 m | dense 1030 | below dense | shell 1 STORES it | top centre at px (1206, 162) [native_sf0_lh0]
+  [refused] chunk int3(452, 41, 386) world x 5785.6..5798.4 y 524.8..537.6 z 4940.8..4953.6 | dist 79 m | dense 853 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (735, 320) [native_sf0_lh0]
+  [refused] chunk int3(448, 41, 386) world x 5734.4..5747.2 y 524.8..537.6 z 4940.8..4953.6 | dist 83 m | dense 1124 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1334, 320) [native_sf0_lh0]
+  [refused] chunk int3(448, 42, 386) world x 5734.4..5747.2 y 537.6..550.4 z 4940.8..4953.6 | dist 83 m | dense 432 | below dense | shell 1 STORES it | top centre at px (1371, 162) [native_sf0_lh0]
+  [refused] chunk int3(453, 41, 386) world x 5798.4..5811.2 y 524.8..537.6 z 4940.8..4953.6 | dist 83 m | dense 837 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (586, 320) [native_sf0_lh0]
+  [refused] chunk int3(446, 40, 387) world x 5708.8..5721.6 y 512.0..524.8 z 4953.6..4966.4 | dist 86 m | dense 183 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1665, 527) [native_sf0_lh0]
+  [refused] chunk int3(446, 41, 387) world x 5708.8..5721.6 y 524.8..537.6 z 4953.6..4966.4 | dist 86 m | dense 949 | below dense | shell 1 STORES it | top centre at px (1737, 382) [native_sf0_lh0]
+  [refused] chunk int3(446, 42, 387) world x 5708.8..5721.6 y 537.6..550.4 z 4953.6..4966.4 | dist 86 m | dense 199 | below dense | shell 1 STORES it | top centre at px (1826, 204) [native_sf0_lh0]
+  [refused] chunk int3(455, 42, 387) world x 5824.0..5836.8 y 537.6..550.4 z 4953.6..4966.4 | dist 86 m | dense 624 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (94, 204) [native_sf0_lh0]
+  [refused] chunk int3(447, 41, 386) world x 5721.6..5734.4 y 524.8..537.6 z 4940.8..4953.6 | dist 89 m | dense 787 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1484, 320) [native_sf0_lh0]
+  [refused] of 111: on screen 35, in shell 1's hole 0, chunk below drawn solid by tier 0 59 [native_sf0_lh0]
+  [mirror] box int3(443, 34, 384)..int3(458, 49, 399) layers 39..45 | MISSING (resident, not air, slot not its own): refused 15, dirty 214, parked 0, LOST 0 | ABSENT over solid 0 (queued 0, loading 0) | dirty set 1,407, pending loads 78, in flight 19, refused now 15 | evicted total 32,002 (LRU valve 27,112) | hand-over columns 12 [native_sf0_lh0]
+  [mirror] chunk int3(450, 42, 387) dist 65 m px (1051, 297) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(451, 42, 387) dist 65 m px (869, 297) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(451, 41, 387) dist 65 m px (878, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(449, 39, 387) dist 67 m px (1166, 700) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(449, 41, 387) dist 67 m px (1206, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(452, 41, 387) dist 67 m px (714, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(452, 42, 387) dist 67 m px (687, 297) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(453, 41, 387) dist 72 m px (549, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 9 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(448, 42, 387) dist 72 m px (1415, 297) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(453, 42, 387) dist 72 m px (505, 297) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(450, 41, 386) dist 77 m px (1032, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(447, 41, 387) dist 78 m px (1535, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 8 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(449, 42, 386) dist 79 m px (1195, 244) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 7 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(449, 41, 386) dist 79 m px (1175, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 7 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(452, 41, 386) dist 79 m px (745, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(448, 41, 386) dist 83 m px (1318, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 6 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(453, 41, 386) dist 83 m px (602, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(448, 42, 386) dist 83 m px (1352, 244) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(446, 42, 387) dist 86 m px (1779, 297) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(446, 41, 387) dist 86 m px (1699, 458) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 9 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(446, 40, 387) dist 86 m px (1634, 590) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(455, 42, 387) dist 86 m px (141, 297) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(445, 40, 388) dist 87 m px (1910, 693) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 6 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(447, 41, 386) dist 89 m px (1462, 389) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 7 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0_lh0]
+  [gen] resident band chunks stored as uniform AIR: 655; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0_lh0]
+  [mirror +5s] of 24 listed: still missing/absent 13 | dirty set 1,351, refused now 0 | evicted total 32,310 (LRU valve 27,420) [native_sf0_lh0]
+  [mirror +5s] chunk int3(450, 42, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 11 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(451, 42, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 19 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(451, 41, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 10 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(449, 39, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 19 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(449, 41, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(452, 41, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 11 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(452, 42, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 10 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(453, 41, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 11 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(448, 42, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(453, 42, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 10 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(450, 41, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 14 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(447, 41, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 10 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(449, 42, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 17 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(449, 41, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 17 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(452, 41, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 15 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(448, 41, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 14 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(453, 41, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 14 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(448, 42, 386) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 17 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(446, 42, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(446, 41, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(446, 40, 387) | held | stage Resident | dense | inBox True owner self held True lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(455, 42, 387) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 11 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(445, 40, 388) | held | stage Resident | dense | inBox True owner self held True lastUpload 24 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(447, 41, 386) | held | stage Resident | dense | inBox True owner self held True lastUpload 13 passes ago [native_sf0_lh0]
+  [frame] fixed_jungle_high native_sf0: settle frames mean 211.8 ms, p50 211.9 ms, max 243.5 ms (skyfill 0)
+  [refused] now 0, total 16,446, in use 204,386 of 254,400 | box chunks int3(443, 34, 384)..int3(458, 49, 399) | shell 1 cam chunk int3(225, 22, 196) hole +-1 (25.6 m chunks: tier-0 x/z 448..453 / 390..395) [native_sf0]
+  [mirror] box int3(443, 34, 384)..int3(458, 49, 399) layers 39..45 | MISSING (resident, not air, slot not its own): refused 0, dirty 27, parked 0, LOST 0 | ABSENT over solid 3 (queued 0, loading 0) | dirty set 400, pending loads 29, in flight 68, refused now 0 | evicted total 32,947 (LRU valve 28,057) | hand-over columns 135 [native_sf0]
+  [mirror] chunk int3(449, 41, 386) dist 79 m px (1175, 389) | ABSENT stage Unloaded | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(449, 41, 385) dist 92 m px (1151, 335) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 98 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(452, 43, 385) dist 92 m px (735, 50) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 99 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(454, 42, 385) dist 100 m px (479, 204) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 151 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(454, 41, 385) dist 100 m px (515, 335) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 100 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0]
+  [gen] resident band chunks stored as uniform AIR: 413; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0]
+  [mirror +5s] of 5 listed: still missing/absent 2 | dirty set 328, refused now 0 | evicted total 33,246 (LRU valve 28,356) [native_sf0]
+  [mirror +5s] chunk int3(449, 41, 386) | ABSENT stage queued [native_sf0]
+  [mirror +5s] chunk int3(449, 41, 385) | held | stage Resident | dense | inBox True owner self held True lastUpload 27 passes ago [native_sf0]
+  [mirror +5s] chunk int3(452, 43, 385) | ABSENT stage queued [native_sf0]
+  [mirror +5s] chunk int3(454, 42, 385) | held | stage Resident | dense | inBox True owner self held True lastUpload 25 passes ago [native_sf0]
+  [mirror +5s] chunk int3(454, 41, 385) | held | stage Resident | dense | inBox True owner self held True lastUpload 27 passes ago [native_sf0]
+WSPOSE fixed_jungle_high|5772.8,566.3,5024.2|5772.8,536.3,4979.2|fixed pose jungle_high (-wsfixed)
+  fixed_jungle_high: yaw 180 pitch -34 deg, distance 54 m, 310 s
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 2170/0/0  s2 2044/121/5  s3 600/1398/3  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4814, missing 3184, pending 0; requested 16194, generated 16186 (148 ms each on a worker), dropped stale 24, over-budget frames 71 (of 5640)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 43339/82263/150016 232/312/1540 r0  s2 49101/78635/119296 164/260/1392 r0  s3 14732/47328/102400 55/151/320 r0  s4 0/429/102400 0/1/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,600 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 21,631 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2386.6 MB, peak 2742.0 MB of the 3,000 MB cap
+  [frame] fixed_town_eye native_sf0_lh0: settle frames mean 138.0 ms, p50 137.8 ms, max 147.1 ms (skyfill 0)
+  [refused] now 13, total 21,867, in use 254,291 of 254,400 | box chunks int3(204, 41, 251)..int3(219, 56, 266) | shell 1 cam chunk int3(106, 24, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native_sf0_lh0]
+  [refused] chunk int3(215, 49, 252) world x 2752.0..2764.8 y 627.2..640.0 z 3225.6..3238.4 | dist 94 m | dense 768 | below absent | shell 1 STORES it | top centre at px (591, 514) [native_sf0_lh0]
+  [refused] chunk int3(212, 49, 251) world x 2713.6..2726.4 y 627.2..640.0 z 3212.8..3225.6 | dist 100 m | dense 768 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (997, 521) [native_sf0_lh0]
+  [refused] chunk int3(211, 49, 251) world x 2700.8..2713.6 y 627.2..640.0 z 3212.8..3225.6 | dist 101 m | dense 795 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1117, 521) [native_sf0_lh0]
+  [refused] chunk int3(207, 49, 251) world x 2649.6..2662.4 y 627.2..640.0 z 3212.8..3225.6 | dist 121 m | dense 952 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1595, 521) [native_sf0_lh0]
+  [refused] chunk int3(218, 49, 251) world x 2790.4..2803.2 y 627.2..640.0 z 3212.8..3225.6 | dist 124 m | dense 945 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (280, 521) [native_sf0_lh0]
+  [refused] chunk int3(206, 49, 251) world x 2636.8..2649.6 y 627.2..640.0 z 3212.8..3225.6 | dist 129 m | dense 1084 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1715, 521) [native_sf0_lh0]
+  [refused] chunk int3(219, 49, 251) world x 2803.2..2816.0 y 627.2..640.0 z 3212.8..3225.6 | dist 132 m | dense 1048 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (160, 521) [native_sf0_lh0]
+  [refused] of 13: on screen 7, in shell 1's hole 0, chunk below drawn solid by tier 0 11 [native_sf0_lh0]
+  [mirror] box int3(204, 41, 251)..int3(219, 56, 266) layers 46..52 | MISSING (resident, not air, slot not its own): refused 17, dirty 6, parked 0, LOST 0 | ABSENT over solid 10 (queued 3, loading 7) | dirty set 34, pending loads 28, in flight 33, refused now 17 | evicted total 45,332 (LRU valve 38,274) | hand-over columns 15 [native_sf0_lh0]
+  [mirror] chunk int3(215, 51, 252) dist 94 m px (593, 310) | ABSENT stage Loading | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(215, 49, 252) dist 94 m px (591, 583) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(212, 47, 251) dist 100 m px (998, 822) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(212, 49, 251) dist 100 m px (997, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(211, 49, 251) dist 101 m px (1117, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(214, 49, 251) dist 102 m px (758, 581) | ABSENT stage queued | column resident False hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(210, 49, 251) dist 104 m px (1237, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(209, 51, 251) dist 109 m px (1354, 342) | ABSENT stage queued | column resident False hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(216, 49, 251) dist 111 m px (518, 581) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 36 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(217, 49, 251) dist 117 m px (398, 581) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 36 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(207, 49, 251) dist 121 m px (1597, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(218, 49, 251) dist 124 m px (279, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(206, 49, 251) dist 129 m px (1716, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(219, 49, 251) dist 132 m px (159, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago | column resident False hand-over True | shell 1 stores [native_sf0_lh0]
+  [mirror] chunk int3(205, 49, 251) dist 137 m px (1836, 581) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 36 passes ago | column resident True hand-over False | shell 1 stores [native_sf0_lh0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0_lh0]
+  [gen] resident band chunks stored as uniform AIR: 627; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0_lh0]
+  [mirror +5s] of 15 listed: still missing/absent 11 | dirty set 0, refused now 31 | evicted total 45,604 (LRU valve 38,546) [native_sf0_lh0]
+  [mirror +5s] chunk int3(215, 51, 252) | held | stage Resident | air | inBox True owner self held True lastUpload 33 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(215, 49, 252) | held | stage Resident | dense | inBox True owner self held True lastUpload 35 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(212, 47, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(212, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(211, 49, 251) | held | stage Resident | dense | inBox True owner self held True lastUpload 31 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(214, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(210, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(209, 51, 251) | held | stage Resident | air | inBox True owner self held True lastUpload 30 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(216, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(217, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(207, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(218, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(206, 49, 251) | ABSENT stage Unloaded [native_sf0_lh0]
+  [mirror +5s] chunk int3(219, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 2 passes ago [native_sf0_lh0]
+  [mirror +5s] chunk int3(205, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 1 passes ago [native_sf0_lh0]
+  [frame] fixed_town_eye native_sf0: settle frames mean 138.3 ms, p50 138.5 ms, max 145.7 ms (skyfill 0)
+  [refused] now 33, total 22,520, in use 254,399 of 254,400 | box chunks int3(204, 41, 251)..int3(219, 56, 266) | shell 1 cam chunk int3(106, 24, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native_sf0]
+  [refused] chunk int3(212, 49, 251) world x 2713.6..2726.4 y 627.2..640.0 z 3212.8..3225.6 | dist 100 m | dense 768 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (997, 521) [native_sf0]
+  [refused] chunk int3(214, 49, 251) world x 2739.2..2752.0 y 627.2..640.0 z 3212.8..3225.6 | dist 102 m | dense 818 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (758, 521) [native_sf0]
+  [refused] chunk int3(217, 49, 252) world x 2777.6..2790.4 y 627.2..640.0 z 3225.6..3238.4 | dist 106 m | dense 939 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (317, 514) [native_sf0]
+  [refused] chunk int3(216, 49, 251) world x 2764.8..2777.6 y 627.2..640.0 z 3212.8..3225.6 | dist 111 m | dense 895 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (519, 521) [native_sf0]
+  [refused] chunk int3(208, 49, 251) world x 2662.4..2675.2 y 627.2..640.0 z 3212.8..3225.6 | dist 114 m | dense 854 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1476, 521) [native_sf0]
+  [refused] chunk int3(217, 49, 251) world x 2777.6..2790.4 y 627.2..640.0 z 3212.8..3225.6 | dist 117 m | dense 1016 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (399, 521) [native_sf0]
+  [refused] chunk int3(207, 49, 251) world x 2649.6..2662.4 y 627.2..640.0 z 3212.8..3225.6 | dist 121 m | dense 952 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1595, 521) [native_sf0]
+  [refused] chunk int3(218, 49, 251) world x 2790.4..2803.2 y 627.2..640.0 z 3212.8..3225.6 | dist 124 m | dense 945 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (280, 521) [native_sf0]
+  [refused] chunk int3(206, 49, 251) world x 2636.8..2649.6 y 627.2..640.0 z 3212.8..3225.6 | dist 129 m | dense 1084 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1715, 521) [native_sf0]
+  [refused] chunk int3(219, 49, 251) world x 2803.2..2816.0 y 627.2..640.0 z 3212.8..3225.6 | dist 132 m | dense 1048 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (160, 521) [native_sf0]
+  [refused] chunk int3(205, 49, 251) world x 2624.0..2636.8 y 627.2..640.0 z 3212.8..3225.6 | dist 137 m | dense 839 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1835, 521) [native_sf0]
+  [refused] of 33: on screen 11, in shell 1's hole 0, chunk below drawn solid by tier 0 30 [native_sf0]
+  [mirror] box int3(204, 41, 251)..int3(219, 56, 266) layers 46..52 | MISSING (resident, not air, slot not its own): refused 34, dirty 0, parked 0, LOST 0 | ABSENT over solid 2 (queued 1, loading 0) | dirty set 0, pending loads 37, in flight 28, refused now 34 | evicted total 46,040 (LRU valve 38,982) | hand-over columns 32 [native_sf0]
+  [mirror] chunk int3(212, 49, 251) dist 100 m px (997, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(214, 49, 251) dist 102 m px (758, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(217, 49, 252) dist 106 m px (316, 583) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 5 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(216, 49, 251) dist 111 m px (518, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(208, 49, 251) dist 114 m px (1477, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(217, 49, 251) dist 117 m px (398, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(207, 49, 251) dist 121 m px (1597, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(218, 49, 251) dist 124 m px (279, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(206, 49, 251) dist 129 m px (1716, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(219, 49, 251) dist 132 m px (159, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [mirror] chunk int3(205, 49, 251) dist 137 m px (1836, 581) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago | column resident False hand-over True | shell 1 stores [native_sf0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0]
+  [gen] resident band chunks stored as uniform AIR: 647; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0]
+  [mirror +5s] of 11 listed: still missing/absent 11 | dirty set 15, refused now 14 | evicted total 46,287 (LRU valve 39,229) [native_sf0]
+  [mirror +5s] chunk int3(212, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0]
+  [mirror +5s] chunk int3(214, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago [native_sf0]
+  [mirror +5s] chunk int3(217, 49, 252) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago [native_sf0]
+  [mirror +5s] chunk int3(216, 49, 251) | MISSING refused | stage Resident | dense | inBox True owner self held False lastUpload 0 passes ago [native_sf0]
+  [mirror +5s] chunk int3(208, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0]
+  [mirror +5s] chunk int3(217, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0]
+  [mirror +5s] chunk int3(207, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0]
+  [mirror +5s] chunk int3(218, 49, 251) | ABSENT stage Loading [native_sf0]
+  [mirror +5s] chunk int3(206, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago [native_sf0]
+  [mirror +5s] chunk int3(219, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 4 passes ago [native_sf0]
+  [mirror +5s] chunk int3(205, 49, 251) | MISSING dirty (upload queued) | stage Resident | dense | inBox True owner self held False lastUpload 3 passes ago [native_sf0]
+WSPOSE fixed_town_eye|2724.0,635.4,3319.2|2724.0,636.7,3268.0|fixed pose town_eye (-wsfixed)
+  fixed_town_eye: yaw 180 pitch 1 deg, distance 51 m, 272 s
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 2170/0/0  s2 1416/754/0  s3 42/1951/8  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3628, missing 4311, pending 0; requested 20156, generated 20148 (138 ms each on a worker), dropped stale 32, over-budget frames 71 (of 6593)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 57391/82263/150016 437/437/1540 r0  s2 37158/78635/119296 196/260/1392 r0  s3 795/47328/102400 3/151/320 r0  s4 0/429/102400 0/1/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,600 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 22,788 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2386.8 MB, peak 2742.0 MB of the 3,000 MB cap
+  [frame] fixed_badlands_wall native_sf0_lh0: settle frames mean 198.1 ms, p50 197.9 ms, max 219.5 ms (skyfill 0)
+  [refused] now 0, total 22,788, in use 194,456 of 254,400 | box chunks int3(234, 33, 444)..int3(249, 48, 459) | shell 1 cam chunk int3(121, 20, 226) hole +-1 (25.6 m chunks: tier-0 x/z 240..245 / 450..455) [native_sf0_lh0]
+  [mirror] box int3(234, 33, 444)..int3(249, 48, 459) layers 38..44 | MISSING (resident, not air, slot not its own): refused 0, dirty 0, parked 0, LOST 0 | ABSENT over solid 78 (queued 0, loading 0) | dirty set 2, pending loads 0, in flight 0, refused now 0 | evicted total 49,326 (LRU valve 39,229) | hand-over columns 0 [native_sf0_lh0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0_lh0]
+  [gen] resident band chunks stored as uniform AIR: 688; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0_lh0]
+  [mirror +5s] of 0 listed: still missing/absent 0 | dirty set 0, refused now 0 | evicted total 49,326 (LRU valve 39,229) [native_sf0_lh0]
+  [frame] fixed_badlands_wall native_sf0: settle frames mean 199.1 ms, p50 198.6 ms, max 217.5 ms (skyfill 0)
+  [refused] now 0, total 22,788, in use 194,456 of 254,400 | box chunks int3(234, 33, 444)..int3(249, 48, 459) | shell 1 cam chunk int3(121, 20, 226) hole +-1 (25.6 m chunks: tier-0 x/z 240..245 / 450..455) [native_sf0]
+  [mirror] box int3(234, 33, 444)..int3(249, 48, 459) layers 38..44 | MISSING (resident, not air, slot not its own): refused 0, dirty 0, parked 0, LOST 0 | ABSENT over solid 78 (queued 0, loading 0) | dirty set 0, pending loads 0, in flight 0, refused now 0 | evicted total 49,326 (LRU valve 39,229) | hand-over columns 0 [native_sf0]
+  [gpu] band chunks whose GPU clipmap differs from the CPU mirror: 0 (GPU air over CPU solid: 0, of them CPU says held: 0) | air-mip words differing: 0 [native_sf0]
+  [gen] resident band chunks stored as uniform AIR: 689; of them the GENERATOR has solid voxels in 0 (sampled 1024 points each) [native_sf0]
+  [mirror +5s] of 0 listed: still missing/absent 0 | dirty set 0, refused now 0 | evicted total 49,326 (LRU valve 39,229) [native_sf0]
+WSPOSE fixed_badlands_wall|3098.9,527.5,5797.7|3128.9,525.5,5797.7|fixed pose badlands_wall (-wsfixed)
+  fixed_badlands_wall: yaw 90 pitch -4 deg, distance 30 m, 160 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-14_003940_high

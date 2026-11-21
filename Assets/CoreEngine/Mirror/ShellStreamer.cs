@@ -73,6 +73,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Unity.Mathematics;
 using UnityEngine;
+using VoxelEngine.Memory;
 using VoxelEngine.WorldGen;
 
 namespace VoxelEngine.Mirror
@@ -116,6 +117,8 @@ namespace VoxelEngine.Mirror
         public int LastBytes { get; private set; }
 
         private readonly TerrainGenChunkSource _src;
+        /// Task 224: the synchronous path's reused generation scratch (main thread only; workers make their own).
+        private TerrainGenChunkSource.ShellScratch _syncScratch;
         private readonly ShellStore[] _stores;
         private readonly int3[] _cc;          // camera chunk per shell
         private readonly bool[] _ccValid;
@@ -185,6 +188,7 @@ namespace VoxelEngine.Mirror
                 dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
             }
             Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN, heightN);
+            FoliageDensity.RegisterShells(brickN);   // task 245 (-foliageout 1 only)
             dirN = 0; pageN = 0; brickN = 0; heightN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {
@@ -347,7 +351,8 @@ namespace VoxelEngine.Mirror
                 if (!Synchronous) { _jobs.Add(sc); continue; }
                 // Tests: generate here; it is stored from _done on the next Update.
                 var t = System.Diagnostics.Stopwatch.StartNew();
-                _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot, sc.Summaries);
+                if (_syncScratch == null) _syncScratch = new TerrainGenChunkSource.ShellScratch();
+                _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot, sc.Summaries, _syncScratch);
                 _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, true));
                 made++;
                 avail -= (sc.ColumnReused ? 0f : SyncColumnCost) + (sc.IsUniformAir ? 0f : SyncVoxelCost);
@@ -366,6 +371,17 @@ namespace VoxelEngine.Mirror
             if (!_stores[k].FlushDirectory(ref budget)) return false;
             if (_ccValid[k]) { _pubLo[k] = _lo[k]; _pubHi[k] = _hi[k]; _pubCc[k] = _cc[k]; _pubValid[k] = true; }
             return true;
+        }
+
+        /// Task 197: does shell k's PUBLISHED directory (what the shader reads) cover shell-k chunk c --
+        /// inside the published box and outside its hole? The tier-0 hand-over gives a column whose
+        /// chunk is not resident (evicted by the pool valve, or still streaming) to the shells only then.
+        public bool PublishedHolds(int k, int3 c)
+        {
+            if (!_pubValid[k]) return false;
+            if (math.any(c < _pubLo[k]) || math.any(c > _pubHi[k])) return false;
+            int H = Layout[k].Hole;
+            return H < 0 || math.cmax(math.abs(c - _pubCc[k])) > H;
         }
 
         /// The box the GPU directory of shell k matches (false: nothing published yet).
@@ -814,18 +830,22 @@ namespace VoxelEngine.Mirror
 
         private void WorkerLoop()
         {
+            // Task 224: this worker's generation scratch (~0.46 MB), owned by this thread alone for its lifetime and
+            // reused by every shell chunk it builds (TerrainGenChunkSource.ShellScratch).
+            var scratch = new TerrainGenChunkSource.ShellScratch();
             try
             {
                 foreach (var sc in _jobs.GetConsumingEnumerable())
                 {
                     var t = System.Diagnostics.Stopwatch.StartNew();
                     bool ok = true;
-                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot, sc.Summaries); }   // sets sc.OpsApplied
+                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot, sc.Summaries, scratch); }   // sets sc.OpsApplied
                     catch (Exception e) { ok = false; UnityEngine.Debug.LogError($"[ShellStreamer] shell {sc.Shell} chunk {sc.Coord}: {e}"); }
                     _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, ok));
                 }
             }
             catch (InvalidOperationException) { }   // CompleteAdding during shutdown
+            finally { scratch.Dispose(); }
         }
 
         public void Dispose()
@@ -838,6 +858,7 @@ namespace VoxelEngine.Mirror
             }
             foreach (var sc in _all) sc.Dispose();
             _all.Clear();
+            _syncScratch?.Dispose(); _syncScratch = null;
             DisposeSummaries();
             for (int k = 0; k < _stores.Length; k++) { _stores[k]?.Dispose(); _stores[k] = null; }
             Gpu?.Dispose();

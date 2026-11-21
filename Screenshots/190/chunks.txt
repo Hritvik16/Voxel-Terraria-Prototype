@@ -1,0 +1,7 @@
+Task 190 towns in the engine (seed 42, the first town's hall)
+hall 0 site #16 rot 2 biome 0: box int3(27172, 6332, 32641) .. int3(27308, 6411, 32719); 14 sites, 102 buildings (hall 4, house 46, hut 52) of 104 in the programs; ring shortened at 6 sites; slots refused by the ground 962
+  LOD 0: 4 chunks, 726282 building-part voxels = Towns.VoxelAt, 475372 voxels ON != OFF, all inside a disc + ring
+  point path: 24000 points equal (half inside the hall's box)
+  shell 1: 69114 building samples compared, 2619/2619 hall columns solid; dense bricks of the chunk ON 871 vs OFF 719
+  shell 2: 3376 building samples compared, 680/680 hall columns solid; dense bricks of the chunk ON 686 vs OFF 658
+  shell 3: 886 building samples compared, 180/180 hall columns solid; dense bricks of the chunk ON 649 vs OFF 719

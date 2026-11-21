@@ -1,0 +1,6 @@
+Task 243: OFF vs -crowncore 2, per pose and sun (4x diff images: <pose>_diff4_<sun>.png)
+forest_eye  noon: mean |diff|   5.2 / 255, pixels changed (> 8)   8.6 %, mean luma OFF  78.6 ON  74.4
+oak_under   noon: mean |diff|  13.0 / 255, pixels changed (> 8)  12.6 %, mean luma OFF  20.7 ON   8.3
+oak_inside  noon: mean |diff|  19.6 / 255, pixels changed (> 8)  30.6 %, mean luma OFF  37.9 ON  22.4
+forest_eye    16: mean |diff|   6.0 / 255, pixels changed (> 8)  10.0 %, mean luma OFF  71.2 ON  66.6
+oak_under     16: mean |diff|  11.5 / 255, pixels changed (> 8)   9.8 %, mean luma OFF  18.9 ON   7.8

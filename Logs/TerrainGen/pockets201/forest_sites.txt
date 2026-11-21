@@ -1,0 +1,11 @@
+Task 201 forest pocket sites, seed 42 (largest first per fluid)
+  water at (32986, 21776) r 44 x 48, depth 13, level 5251, cam ground 5313: forest_water|3298.7,541.1,2207.4|3298.7,525.1,2177.7
+  water at (51387, 48868) r 47 x 34, depth 10, level 5337, cam ground 5305: forest_water|5138.8,549.7,4915.2|5138.8,533.7,4886.9
+  water at (32396, 47935) r 31 x 42, depth 9, level 5159, cam ground 5164: forest_water|3239.7,531.9,4822.7|3239.7,515.9,4793.6
+  water at (51869, 49497) r 30 x 38, depth 9, level 5302, cam ground 5279: forest_water|5187.0,546.2,4978.5|5187.0,530.2,4949.8
+  water at (32967, 23815) r 25 x 28, depth 8, level 5308, cam ground 5369: forest_water|3296.8,546.8,2409.3|3296.8,530.8,2381.6
+  water at (33027, 50495) r 20 x 32, depth 6, level 5164, cam ground 5188: forest_water|3302.8,532.4,5077.7|3302.8,516.4,5049.6
+  lava at (48864, 35141) r 31 x 36, depth 9, level 6555, cam ground 6503: forest_lava|4886.5,671.5,3542.7|4886.5,655.5,3514.2
+  lava at (52596, 47381) r 31 x 30, depth 9, level 5301, cam ground 5288: forest_lava|5259.7,546.1,4766.1|5259.7,530.1,4738.2
+  lava at (51971, 47845) r 23 x 35, depth 7, level 5297, cam ground 5326: forest_lava|5197.2,545.7,4813.0|5197.2,529.7,4784.6
+  lava at (56586, 48309) r 27 x 22, depth 7, level 5306, cam ground 5278: forest_lava|5658.7,546.6,4858.1|5658.7,530.6,4831.0

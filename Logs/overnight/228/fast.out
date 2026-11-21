@@ -1,0 +1,3 @@
+08:54:43 lock is free; waiting for the Mac to be clear of Unity for 45 s
+PASS 1081  FAIL 0  SKIP 25  suite=fast  wall=6m37s
+  fast suite left out 92 of 1176 cases (Category Slow; vs TestResults_all.xml of 2026-11-16 12:15)

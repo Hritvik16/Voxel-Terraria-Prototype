@@ -216,6 +216,10 @@ namespace VoxelEngine.Rendering
         private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
         private NativeArray<byte> _tgRoute; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
+        private NativeArray<byte> _tgLandSig; // task 189: LandSig's weight plane (length 1 = none)
+        private NativeArray<int> _tgTown;      // task 190: the town plane (length 1 = none)
+        private NativeArray<ushort> _tgShore; // task 180b: GroundRules' shore field (length 1 = none)
+        private NativeArray<int> _tgPocket;   // task 183: FluidPockets' site plane (length 1 = none)
         /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
         /// uint (Raymarch.compute RiverFlow; 2 MB at 1024^2 cells). Null = none.
         public GraphicsBuffer RiverFlow { get; private set; }
@@ -311,6 +315,13 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.BiomeVaryOffArg()) { var ts = Tg2Spec; ts.biomeVaryOff = 1; Tg2Spec = ts; }   // task 176
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CoverSlotsOffArg()) { var ts = Tg2Spec; ts.coverSlotsOff = 1; Tg2Spec = ts; }   // task 177
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CliffsOffArg()) { var ts = Tg2Spec; ts.cliffsOff = 1; Tg2Spec = ts; }   // task 178
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.RiverShapeOffArg()) { var ts = Tg2Spec; ts.riverShapeOff = 1; Tg2Spec = ts; }   // task 179
+                if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOff = 1; Tg2Spec = ts; }   // task 180b / 186: ON unless -matrules 0
+                if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOff = 1; Tg2Spec = ts; }   // task 185 / 187a: ON unless -stampfit 0
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.MatVariantArg()) { var ts = Tg2Spec; ts.matVariantOn = 1; Tg2Spec = ts; }   // task 188a / 190a: spray OFF unless -matvariant 1
+                if (sharedTg2Map == null && !VoxelEngine.WorldGen.TerrainGenChunkSource.LandSigArg()) { var ts = Tg2Spec; ts.landSigOff = 1; Tg2Spec = ts; }   // task 189 / 190b: ON unless -landsig 0
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.SitesArg()) { var ts = Tg2Spec; ts.sitesOn = 1; Tg2Spec = ts; }   // task 187 (records only)
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.TownsArg()) { var ts = Tg2Spec; ts.townsOn = 1; ts.sitesOn = 1; Tg2Spec = ts; }   // task 190
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);
@@ -320,6 +331,13 @@ namespace VoxelEngine.Rendering
                 _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
                 _tgFlow = new NativeArray<ushort>(Tg2Map.FlowDir ?? new ushort[1], Allocator.Persistent);
                 _tgRoute = new NativeArray<byte>(Tg2Map.RouteMask ?? new byte[1], Allocator.Persistent);
+                if (Tg2Spec.MatRules) Tg2Map.EnsureShoreField();   // task 180b
+                _tgShore = new NativeArray<ushort>(Tg2Map.ShoreField ?? new ushort[1], Allocator.Persistent);
+                if (Tg2Spec.LandSig) Tg2Map.EnsureLandSigPlane();   // task 189
+                _tgLandSig = new NativeArray<byte>(Tg2Spec.LandSig && Tg2Map.LandSigPlane != null ? Tg2Map.LandSigPlane : new byte[1], Allocator.Persistent);
+                _tgTown = VoxelEngine.WorldGen.TerrainGenChunkSource.TownArray(Tg2Map);   // task 190: before the pockets, as the chunk source
+                if (Tg2Spec.Pockets) Tg2Map.EnsurePocketPlane();   // task 183
+                _tgPocket = new NativeArray<int>(Tg2Spec.Pockets && Tg2Map.PocketPlane != null ? Tg2Map.PocketPlane : new int[1], Allocator.Persistent);
                 if (Tg2Map.FlowDir != null)
                 {
                     var fd = Tg2Map.FlowDir;
@@ -342,7 +360,8 @@ namespace VoxelEngine.Rendering
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
                 Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
-                          $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}");
+                          $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}, material rules {(Tg2Spec.MatRules ? "ON" : "OFF (-matrules 0)")}, stamp fit {(Tg2Spec.StampFit ? "ON" : "OFF (-stampfit 0)")}, material variant spray {(Tg2Spec.MatVariant ? "ON (-matvariant 1)" : "OFF (default)")}, " +
+                          $"landform signatures {(Tg2Spec.LandSig ? $"ON (default; plane {(Tg2Map.LandSigPlane?.Length ?? 0) / 1024} KB in {Tg2Map.LandSigBuildMs:F0} ms)" : "OFF (-landsig 0)")}");   // task 186 / 187a / 190a / 190b
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _surfaceByBiome[i] = Materials.Stone;
@@ -395,38 +414,102 @@ namespace VoxelEngine.Rendering
         /// [layerLo, layerHi] is -- a half-streamed column would otherwise hand
         /// its missing layers to the voxel march as air. Flat worlds: 0..0,
         /// exactly the old "its y=0 chunk is resident".
-        /// gpuRefused (task 93f): a column with a chunk the GPU body pool refused is
-        /// NOT resident, so the shells draw it (tier 0 holds air there).
+        /// gpuRefused (task 93f; 197): a column with a chunk the GPU body pool refused, or one tier 0 lacks
+        /// (TerrainClipmap.Tier0LacksChunk), is NOT resident and hands over, so the shells draw it.
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi,
-                                    TerrainClipmap gpuRefused = null)
+                                    TerrainClipmap gpuRefused = null, Func<int3, bool> shellHolds = null)
         {
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
             int words = (n + 31) >> 5;
-            if (_residentBits.Length != words) _residentBits = new uint[words];
-            Array.Clear(_residentBits, 0, words);
+            // Task 194: words [words, 2 words) = the REFUSED columns (a chunk of the band the GPU body
+            // pool refused): Raymarch.compute's refused-chunk hand-over reads them (Tier0ColumnRefused).
+            if (_residentBits.Length != 2 * words) _residentBits = new uint[2 * words];
+            Array.Clear(_residentBits, 0, 2 * words);
+            int handOvers = 0;
             for (int rz = 0; rz < windowDimsChunks.z; rz++)
             for (int rx = 0; rx < windowDimsChunks.x; rx++)
             {
-                bool all = true;
-                for (int cy = layerLo; cy <= layerHi && all; cy++)
-                {
-                    int3 c = new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz);
-                    all = store.IsResident(c) && (gpuRefused == null || !gpuRefused.IsGpuRefused(c));
-                }
-                if (!all) continue;
+                int cx = windowOriginChunks.x + rx, cz = windowOriginChunks.z + rz;
                 int i = rz * windowDimsChunks.x + rx;
+                // Task 197: one store lookup per chunk for both bits (ColumnState).
+                ColumnState(store, cx, cz, layerLo, layerHi, gpuRefused, out bool resident, out bool handOver, shellHolds);
+                if (handOver) { _residentBits[words + (i >> 5)] |= 1u << (i & 31); handOvers++; }
+                if (!resident) continue;
                 _residentBits[i >> 5] |= 1u << (i & 31);
             }
-            if (Resident.count < words)
+            HandOverColumns = handOvers;
+            if (Resident.count < 2 * words)
             {
                 Resident.Release();
-                Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, words, sizeof(uint));
+                Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 2 * words, sizeof(uint));
             }
-            Resident.SetData(_residentBits, 0, 0, words);
+            Resident.SetData(_residentBits, 0, 0, 2 * words);
             LastResidencyOrigin = windowOriginChunks; LastResidencyDims = windowDimsChunks;
             LastResidencyLayers = new int2(layerLo, layerHi);
             LastFrame.residencyMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+        }
+
+        /// One column's bit of the residency bitmap (UpdateResidency's rule; task 194 shares it with
+        /// Tier0HandOverReference's tests): every chunk of [layerLo, layerHi] resident and none refused
+        /// or lacking in tier 0 (task 197: TerrainClipmap.Tier0LacksChunk).
+        public static bool ColumnResident(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap gpuRefused = null)
+        {
+            ColumnState(store, cx, cz, layerLo, layerHi, gpuRefused, out bool resident, out _);
+            return resident;
+        }
+
+        /// Task 197: columns with the hand-over bit set by the last UpdateResidency. RaymarchFeature runs
+        /// the shader's hand-over block (_Tier0Refused) only while this is > 0.
+        public int HandOverColumns { get; private set; }
+
+        /// Task 197: false = task 194's rule only (refused chunks hand over; lacking or evicted ones do not) --
+        /// the capture's `_lh0` arm (before pictures). Default true.
+        public static bool LackHandOver = true;
+
+        /// Task 197: both bits of one column in one pass. resident = every chunk of [layerLo, layerHi]
+        /// is resident on the CPU, none refused and none lacking in tier 0; handOver = some chunk of the
+        /// band is
+        ///   refused by the GPU body pool (task 194), or
+        ///   resident but not held by its mirror slot (retried-but-queued, first upload queued --
+        ///     TerrainClipmap.Tier0LacksChunk), or
+        ///   NOT resident (evicted by the CPU pool's LRU valve and reloading, or still streaming) where
+        ///     the shells hold it: shellHolds(c) (Phase4Bootstrapper: shell 1's published directory,
+        ///     outside its hole). Inside shell 1's hole no shell holds anything, so such a column stays
+        ///     tier 0's (task 194's lost houses at eye level); shellHolds null = never (194's rule).
+        public static void ColumnState(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap clip,
+                                       out bool resident, out bool handOver, Func<int3, bool> shellHolds = null)
+        {
+            resident = true; handOver = false;
+            for (int cy = layerLo; cy <= layerHi; cy++)
+            {
+                int3 c = new int3(cx, cy, cz);
+                VoxelEngine.Memory.Chunk ch = store.GetChunk(c);
+                if (ch == null)
+                {
+                    resident = false;
+                    if (!handOver && LackHandOver && clip != null && shellHolds != null && shellHolds(c)) handOver = true;
+                    continue;
+                }
+                if (clip != null && (clip.IsGpuRefused(c) || (LackHandOver && clip.Tier0LacksChunk(c, ch)))) { resident = false; handOver = true; }
+            }
+        }
+
+        /// Task 197: does the column hand over (ColumnState's handOver bit)?
+        public static bool ColumnHandOver(ChunkStore store, int cx, int cz, int layerLo, int layerHi, TerrainClipmap clip,
+                                          Func<int3, bool> shellHolds = null)
+        {
+            ColumnState(store, cx, cz, layerLo, layerHi, clip, out _, out bool handOver, shellHolds);
+            return handOver;
+        }
+
+        /// Task 194: does the column hold a chunk of [layerLo, layerHi] the GPU body pool refused?
+        /// (the refused half of the residency buffer; Tier0HandOverReference's tests use it too).
+        public static bool ColumnRefused(int cx, int cz, int layerLo, int layerHi, TerrainClipmap gpuRefused)
+        {
+            for (int cy = layerLo; cy <= layerHi; cy++)
+                if (gpuRefused.IsGpuRefused(new int3(cx, cy, cz))) return true;
+            return false;
         }
 
         /// Per-frame: finish jobs, issue at most ONE strip scatter, schedule new work.
@@ -577,7 +660,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, shoreField = _tgShore, pocketPlane = _tgPocket, landSigPlane = _tgLandSig, townPlane = _tgTown, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                     ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
@@ -1017,6 +1100,10 @@ namespace VoxelEngine.Rendering
             if (_tgCls.IsCreated) _tgCls.Dispose();
             if (_tgFlow.IsCreated) _tgFlow.Dispose();
             if (_tgRoute.IsCreated) _tgRoute.Dispose();
+            if (_tgShore.IsCreated) _tgShore.Dispose();
+            if (_tgLandSig.IsCreated) _tgLandSig.Dispose();
+            if (_tgTown.IsCreated) _tgTown.Dispose();
+            if (_tgPocket.IsCreated) _tgPocket.Dispose();
             RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
@@ -1090,6 +1177,10 @@ namespace VoxelEngine.Rendering
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b (length 1 = none)
+            [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
+            [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
+            [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -1122,6 +1213,11 @@ namespace VoxelEngine.Rendering
                     waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
                     flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,   // task 178b
+                    shore = shoreField.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(shoreField) : null,   // task 180b
+                    pocket = pocketPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane) : null,   // task 183
+                    stream = pocketPlane.Length > 1 ? TerrainGen.PocketStreams.Section((int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane), pocketPlane.Length, spec.mapCells, spec.mapCellVoxels) : null,   // task 209b (texel 1 only)
+                    landSig = landSigPlane.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(landSigPlane) : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(townPlane) : null,   // task 190
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
@@ -1138,8 +1234,8 @@ namespace VoxelEngine.Rendering
                     t = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(spec.seaLevelY - c.height);
                 else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
                     t = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
-                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24)
-                              | (c.waterKind == 1 ? 0u : DepthBits(c.water - c.height));
+                              | ((uint)genToEngine[TerrainGen.FluidPockets.FluidOf(c.waterKind)] << 16) | (FLAG_WATER << 24)
+                              | (c.waterKind != 0 ? 0u : DepthBits(c.water - c.height));   // task 183: any pocket fluid; only water is see-through
                 else
                     t = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
 

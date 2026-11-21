@@ -55,11 +55,13 @@ public class SunDeferTests
     public void Shader_DeferredMarchIsTheInlineMarch()
     {
         string src = File.ReadAllText(Src).Replace("\r\n", "\n");
-        const string tail = "normalize(_SunDir), {0}, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));";
+        const string tail = "normalize(_SunDir), {0}, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false),";
         // The two inline calls (every other kernel) and the deferred one, which reads its start / tStart back.
-        StringAssert.Contains("ShellMarch(nso, " + string.Format(tail, "sh.exitT"), src);
-        StringAssert.Contains("ShellMarch(so, " + string.Format(tail, "0.0"), src);
-        StringAssert.Contains("ShellMarch(so, " + string.Format(tail, "asfloat(q.d)"), src);
+        // Task 228: the last argument is the coarse-far height (SunCoarseY); the deferred kernel stays exact
+        // (SUN_COARSE_NEVER), so with -sunfar the deferred path equals the inline one only at sunfar 0.
+        StringAssert.Contains("ShellMarch(nso, " + string.Format(tail, "sh.exitT") + "\n", src);
+        StringAssert.Contains("ShellMarch(so, " + string.Format(tail, "0.0") + "\n", src);
+        StringAssert.Contains("ShellMarch(so, " + string.Format(tail, "asfloat(q.d)") + " SUN_COARSE_NEVER);", src);
         StringAssert.Contains("sdPending = true; sdStart = nso; sdT0 = sh.exitT;", src);
         StringAssert.Contains("sdPending = true; sdStart = so; sdT0 = 0.0;", src);
         StringAssert.Contains("#pragma kernel CSMainFarShadeLeanSun VE_FAR_SHADE VE_DIET2 VE_SUNDEFER\n", src);

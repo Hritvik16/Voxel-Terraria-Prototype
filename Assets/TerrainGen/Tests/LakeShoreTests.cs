@@ -115,8 +115,8 @@ namespace TerrainGen.Tests
 
         [Category("Slow")]   // one shared v4 map per case
         [TestCase(42u)]
-        [TestCase(7u)]
-        [TestCase(2026u)]
+        [TestCase(7u, Category = "Nightly")]      // task 184b: 42 + 31337 (the adversarial river seed) in SUITE=all
+        [TestCase(2026u, Category = "Nightly")]
         [TestCase(31337u)]
         public void LakeShore_IsNotGridAligned(uint seed)
         {

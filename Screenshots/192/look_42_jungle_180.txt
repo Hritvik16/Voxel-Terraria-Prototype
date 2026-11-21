@@ -1,0 +1,1 @@
+seed 42 jungle 180: the 12 trees nearest float2(57728f, 49792f), side view along +z

@@ -139,6 +139,16 @@ namespace VoxelEngine.Streaming
         public int DeltaSaveFailuresTotal { get; private set; }
         public int PendingLoads => _pending.Count;
         public int InFlightLoads => _inFlight;
+        /// Task 197 (diagnostic, read-only): a chunk's streaming stage -- "queued" (in _pending),
+        /// else its record's state (Unloaded / Loading / Resident / Saving), else "untracked".
+        public string DebugChunkStage(int3 c)
+            => _pendingSet.Contains(c) ? "queued" : _table.TryGetValue(c, out var r) ? r.state.ToString() : "untracked";
+        /// Task 197 (diagnostic): the record's generation counter and delta length (-1 = no record).
+        public void DebugChunkRecord(int3 c, out int generation, out long deltaBytes)
+        {
+            if (_table.TryGetValue(c, out var r)) { generation = r.generation; deltaBytes = r.deltaByteLength; }
+            else { generation = -1; deltaBytes = -1; }
+        }
         public double LastDrainMs { get; private set; }
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }
@@ -562,7 +572,15 @@ namespace VoxelEngine.Streaming
             _clipmap = clipmap; _cascades = cascades;
             _meta = meta; _deltaDir = deltaDirectory;
             _samplerState = ColumnSampler.CreateState(meta);
-            if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS) _tgSource = new TerrainGenChunkSource(meta.seed);
+            if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS)
+            {
+                _tgSource = new TerrainGenChunkSource(meta.seed);
+                Debug.Log($"[StreamManager] tg2 chunk source: map v{_tgSource.Spec.mapVersion}, material rules {(_tgSource.Spec.MatRules ? "ON (default)" : "OFF (-matrules 0)")}, stamp fit {(_tgSource.Spec.StampFit ? "ON (default)" : "OFF (-stampfit 0)")}, material variant spray {(_tgSource.Spec.MatVariant ? "ON (-matvariant 1)" : "OFF (default)")}, " +
+                          $"landform signatures {(_tgSource.Spec.LandSig ? $"ON (default; plane {(_tgSource.Map.LandSigPlane?.Length ?? 0) / 1024} KB in {_tgSource.Map.LandSigBuildMs:F0} ms)" : "OFF (-landsig 0)")}, " +
+                          $"rule ores {(_tgSource.Spec.Ores2 ? $"ON (default; plane {_tgSource.OreCellPlane.Length * 4 / 1024} KB)" : "OFF (-ores 0)")}, " +
+                          $"trees {(_tgSource.Spec.Trees ? "ON (default)" : "OFF (-trees 0)")}, world trees {(_tgSource.Spec.Trees2 ? (_tgSource.Spec.Trees2Dense ? "ON (default, dense)" : "ON (210 placement, -trees2dense 0)") : "OFF (-trees2 0)")}, towns {(_tgSource.Spec.Towns ? "ON (default)" : "OFF (-towns 0)")}, sites {(_tgSource.Spec.Sites ? "ON" : "OFF")}, " +
+                          $"fluid pockets {(_tgSource.Spec.Pockets ? $"ON (default; {_tgSource.Map.PocketStats.sites} surface sites)" : "OFF (-fluidpockets 0)")}");   // task 186 / 187a / 190a / 190b / 195 / 195a / 201 / 214
+            }
 
             _windowDims = store.WindowDims;
             if (VerticalStreaming)
@@ -675,6 +693,7 @@ namespace VoxelEngine.Streaming
                 Debug.Log($"[StreamManager] world.state: clock {World.ClockSeconds:F1} s, stage {World.Stage}, " +
                           $"{World.ChunkCount} chunk entries (reject: {World.LoadReject})");
             _worldStateWriteClock = World.ClockSeconds;
+            LatentOres.SetStage(World.Stage);   // task 181: latent ore twins resolve against the loaded stage
             // 8.15 row E2 (task 108): D.5 edit summaries, written beside each D.1.
             SavedSummaries = SavedEditSummaries.Open(_deltaDir, meta.seed);
             if (SavedSummaries.Count > 0)
@@ -739,6 +758,10 @@ namespace VoxelEngine.Streaming
         // =====================================================================
         // Per-frame entry point. MAIN THREAD ONLY.
         // =====================================================================
+        /// Task 201a (capture only, `-gpusealcmp 1`): no slide, admission, completion drain, eviction or valve;
+        /// the dirty sweep and the uploads still run (residency frozen for identity stills).
+        public static bool DebugHoldResidency;
+
         public void Update(Vector3 cameraWorldPos, bool allowSlide = true)
         {
             _frame++;
@@ -759,6 +782,10 @@ namespace VoxelEngine.Streaming
             bool cameraMoved = !camChunk.Equals(_lastCameraChunk);
             double tp0 = sw.Elapsed.TotalMilliseconds;
             long admitted0 = ChunksAdmittedTotal, evicted0 = ChunksEvictedTotal;
+            double tp1 = tp0, tp2 = tp0, tp3 = tp0;
+            _transferTicks = 0;
+            if (!DebugHoldResidency)   // task 201a: capture only
+            {
             if (allowSlide && cameraMoved)
             {
                 _lastCameraChunk = camChunk;
@@ -796,13 +823,14 @@ namespace VoxelEngine.Streaming
             // Task 123: the queued slab, a slice per frame (inside the slide timer).
             if (_evictQueue.Count > 0) DrainEvictQueue();
 
-            double tp1 = sw.Elapsed.TotalMilliseconds;
+            tp1 = sw.Elapsed.TotalMilliseconds;
             DispatchLoads(camChunk);
-            double tp2 = sw.Elapsed.TotalMilliseconds;
+            tp2 = sw.Elapsed.TotalMilliseconds;
             _transferTicks = 0;
             DrainCompletions(budgeted: true);
-            double tp3 = sw.Elapsed.TotalMilliseconds;
+            tp3 = sw.Elapsed.TotalMilliseconds;
             ApplyPoolPressureValve(camChunk);
+            }
             double tp4 = sw.Elapsed.TotalMilliseconds;
 
             // EDIT PROPAGATION. SetVoxel sets chunk.dirty and nothing else --
@@ -833,6 +861,8 @@ namespace VoxelEngine.Streaming
             LastEvicted = (int)(ChunksEvictedTotal - evicted0);
 
             sw.Restart();
+            // Task 216: the GPU body pool evicts out-of-view chunks for in-view ones (208's frustum).
+            _clipmap.SetView(_viewValid ? (_inViewFn ??= ChunkInView) : null, ViewVersion);
             // Task 168e: with the upload ring on, the shared per-frame cap is UploadRing.CapBytes (default 1 MiB).
             var stats = _clipmap.UploadDirty(_store, _pool, UploadRing.FrameBudget(EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME),
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
@@ -1727,6 +1757,7 @@ namespace VoxelEngine.Streaming
         private void ApplyPoolPressureValve(int3 camChunk)
         {
             RelievePoolFromQueue();   // task 123: queued chunks before any in-range victim
+            if (ValveViewOrder && _viewValid) { ApplyPoolPressureValveByView(camChunk); return; }
             int guard = 0;
             while (_store.IsUnderPoolPressure && guard++ < 32)
             {
@@ -1749,6 +1780,156 @@ namespace VoxelEngine.Streaming
                 }
 
                 if (!found) break;
+                CountValveVictim(victim, camChunk);   // task 208: the in-view counters, also for the old order
+                EvictChunk(victim);
+                LruEvictionsTotal++;
+            }
+        }
+
+        // ---- Task 208: the valve spares chunks the player can see ----------
+        // Owner, 2026-11-14 (Q-AB (a), fix 2): "Never drop a chunk the player can
+        // see; drop chunks behind or far away first." The ORDER changes, nothing
+        // else: the same pressure test, the same 32-victim guard per call, the
+        // same 5x5 exemption, the same EvictChunk (save before drop). Victim key,
+        // most evictable first:
+        //   class 0 = outside the view frustum (behind / beside the camera),
+        //   class 1 = inside the frustum, beyond the near range (load radius),
+        //   class 2 = inside the frustum within the near range: only when nothing
+        //             else is left (counted, logged);
+        // then farthest (Chebyshev XZ) first, then LRU (oldest touched), then the
+        // coord (deterministic). One scan + one sort per call under pressure (the
+        // old code scanned every resident chunk once PER victim); no per-chunk
+        // memory, the scratch list is reused. Main thread only (Update's valve).
+
+        /// `-valveview 0` = the old order (pure LRU); launch-wide, for before/after.
+        public static bool ValveViewOrder = true;
+
+        /// Valve victims that were inside the view frustum (classes 1+2), and of
+        /// those, within the near range (class 2). Counted in both orders.
+        public long ValveInViewEvictionsTotal { get; private set; }
+        public long ValveInViewNearEvictionsTotal { get; private set; }
+
+        private readonly float4[] _viewPlanes = new float4[5];
+        private bool _viewValid;
+        private long _inViewNearLogFrame = long.MinValue / 2;
+
+        /// The camera's frustum for the valve, in world metres. Unity's plane
+        /// order (left, right, bottom, top, near, far); the far plane is not used
+        /// (the raymarch draws past it). Null / fewer than 5 = no view: the valve
+        /// falls back to the old LRU order.
+        public void SetViewFrustum(Plane[] planes)
+        {
+            if (planes == null || planes.Length < 5) { _viewValid = false; return; }
+            bool changed = !_viewValid;
+            for (int i = 0; i < 5; i++)
+            {
+                Vector3 n = planes[i].normal;
+                var p = new float4(n.x, n.y, n.z, planes[i].distance);
+                if (!changed && math.any(p != _viewPlanes[i])) changed = true;
+                _viewPlanes[i] = p;
+            }
+            _viewValid = true;
+            if (changed) ViewVersion++;
+        }
+
+        /// Task 216: bumped whenever the frustum changed (the GPU pool's retry re-runs on it).
+        public int ViewVersion { get; private set; }
+        private Func<int3, bool> _inViewFn;   // ChunkInView, allocated once
+
+        public void ClearViewFrustum() => _viewValid = false;
+        public bool HasViewFrustum => _viewValid;
+
+        /// Does chunk c's world AABB touch the frustum (5 planes, positive-vertex test)?
+        public bool ChunkInView(int3 c)
+        {
+            if (!_viewValid) return false;
+            const float E = EngineConfig.CHUNK_EDGE_VOXELS / 10f;   // 12.8 m (10 voxels per metre, CoordMath)
+            float3 lo = (float3)c * E, hi = lo + E;
+            for (int i = 0; i < 5; i++)
+            {
+                float4 p = _viewPlanes[i];
+                float3 pv = math.select(lo, hi, p.xyz >= 0f);
+                if (math.dot(p.xyz, pv) + p.w < 0f) return false;
+            }
+            return true;
+        }
+
+        /// 0 = out of view, 1 = in view beyond the near range, 2 = in view and near.
+        private int ValveClass(int3 c, int dist)
+        {
+            if (!ChunkInView(c)) return 0;
+            return dist <= _loadRadiusChunks ? 2 : 1;
+        }
+
+        private void CountValveVictim(int3 c, int3 camChunk)
+        {
+            if (!_viewValid) return;
+            int dist = math.max(math.abs(c.x - camChunk.x), math.abs(c.z - camChunk.z));
+            int cls = ValveClass(c, dist);
+            if (cls == 0) return;
+            ValveInViewEvictionsTotal++;
+            if (cls < 2) return;
+            ValveInViewNearEvictionsTotal++;
+            if ((long)_frame - _inViewNearLogFrame >= 300)
+            {
+                _inViewNearLogFrame = _frame;
+                Debug.Log($"[valve] evicted an IN-VIEW NEAR chunk {c} ({(ValveViewOrder ? "nothing else left; " : "")}total {ValveInViewNearEvictionsTotal:N0}, " +
+                          $"in view {ValveInViewEvictionsTotal:N0}, LRU valve {LruEvictionsTotal:N0}, order {(ValveViewOrder ? "view" : "LRU")})");
+            }
+        }
+
+        private struct ValveCandidate
+        {
+            public int3 coord; public int cls, dist; public uint touched;
+        }
+
+        private sealed class ValveCandidateOrder : IComparer<ValveCandidate>
+        {
+            public int Compare(ValveCandidate a, ValveCandidate b)
+            {
+                if (a.cls != b.cls) return a.cls.CompareTo(b.cls);             // out of view first
+                if (a.dist != b.dist) return b.dist.CompareTo(a.dist);         // farthest first
+                if (a.touched != b.touched) return a.touched.CompareTo(b.touched); // LRU breaks ties
+                if (a.coord.x != b.coord.x) return a.coord.x.CompareTo(b.coord.x);
+                if (a.coord.z != b.coord.z) return a.coord.z.CompareTo(b.coord.z);
+                return a.coord.y.CompareTo(b.coord.y);
+            }
+        }
+
+        private static readonly ValveCandidateOrder s_valveOrder = new ValveCandidateOrder();
+        private readonly List<ValveCandidate> _valveCands = new List<ValveCandidate>();
+
+        /// The victim order the valve would use right now (tests; allocates).
+        public List<int3> ValveOrderForTest(int3 camChunk)
+        {
+            BuildValveCandidates(camChunk);
+            var r = new List<int3>(_valveCands.Count);
+            foreach (var v in _valveCands) r.Add(v.coord);
+            return r;
+        }
+
+        private void BuildValveCandidates(int3 camChunk)
+        {
+            _valveCands.Clear();
+            foreach (var chunk in _store.ResidentChunks())
+            {
+                int dist = math.max(math.abs(chunk.coord.x - camChunk.x), math.abs(chunk.coord.z - camChunk.z));
+                if (dist <= 2) continue; // never evict the player's immediate neighbourhood (as the LRU order)
+                uint touched = _table.TryGetValue(chunk.coord, out var r) ? r.lastTouchedFrame : 0;
+                _valveCands.Add(new ValveCandidate { coord = chunk.coord, cls = ValveClass(chunk.coord, dist), dist = dist, touched = touched });
+            }
+            _valveCands.Sort(s_valveOrder);
+        }
+
+        private void ApplyPoolPressureValveByView(int3 camChunk)
+        {
+            if (!_store.IsUnderPoolPressure) return;
+            BuildValveCandidates(camChunk);
+            int guard = 0;
+            for (int i = 0; i < _valveCands.Count && _store.IsUnderPoolPressure && guard++ < 32; i++)
+            {
+                int3 victim = _valveCands[i].coord;
+                CountValveVictim(victim, camChunk);
                 EvictChunk(victim);
                 LruEvictionsTotal++;
             }

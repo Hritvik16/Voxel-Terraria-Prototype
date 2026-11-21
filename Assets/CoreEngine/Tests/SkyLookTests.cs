@@ -18,7 +18,7 @@ public class SkyLookTests
         StringAssert.Contains("SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), \"-skyhaze\")", cs);
         StringAssert.Contains("\"_SkyLook\", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0)", cs, "the flags reach the shader");
         StringAssert.Contains("\"_LookSkyRim\", data.lookSkyRim", cs);
-        StringAssert.Contains("(SkyHaze ? SkyHazeRangeM : FarShadeHazeRangeM) * 10f", cs, "-skyhaze 0 keeps the 3500 m range");
+        StringAssert.Contains("(SkyHaze ? (AerialHaze ? AerialHazeRangeM : SkyHazeRangeM) : FarShadeHazeRangeM) * 10f", cs, "-skyhaze 0 keeps the 3500 m range (task 226: -aerial picks the sky-haze range)");
         Assert.AreEqual(3500f, RaymarchFeature.FarShadeHazeRangeM, "the old range is unchanged");
         Assert.Less(RaymarchFeature.SkyHazeRangeM, RaymarchFeature.FarShadeHazeRangeM);
     }
@@ -28,7 +28,9 @@ public class SkyLookTests
     {
         string src = File.ReadAllText("Assets/CoreEngine/Rendering/Raymarch.compute");
         StringAssert.Contains("baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));", src, "-skylook 0 = the old gradient");
-        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);", src, "a miss sees the disc");
+        // task 233: the miss line goes through skyBg (LookSkyBackground + the pale sky's clouds on sky pixels only)
+        StringAssert.Contains("float3 skyBg = LookSkyBackground(rayDir);", src, "a miss sees the disc");
+        StringAssert.Contains("color = float4(LookToLinear(LookShoulder(skyBg, _LookGrade.z)), 1.0);", src, "a miss sees the disc");
         int haze = src.IndexOf("float3 FarShadeApplyHaze(");
         Assert.Greater(haze, 0);
         int end = src.IndexOf("\n}", haze);

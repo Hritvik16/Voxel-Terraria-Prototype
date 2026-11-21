@@ -1,0 +1,10 @@
+proto_banyan.png: side view looking -z, 0.2 m per pixel, 3 per row; red post = 1.8 m person
+  [0,0] spacecol 1
+  [0,1] spacecol 2
+  [0,2] spacecol 3
+  [1,0] lsystem 1
+  [1,1] lsystem 2
+  [1,2] lsystem 3
+  [2,0] template 1
+  [2,1] template 2
+  [2,2] template 3

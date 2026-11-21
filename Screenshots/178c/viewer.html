@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Task 178c: keep the reworked cliffs?</title>
+<style>body{margin:0;background:#111;color:#eee;font:15px -apple-system,Helvetica,sans-serif}
+#bar{padding:8px 12px;background:#222}#wrap{overflow:auto;height:calc(100vh - 84px)}
+img{display:block;image-rendering:pixelated}b{color:#ffcc55}#err{color:#ff6666}</style></head><body>
+<div id="bar"><b id="t"></b> &nbsp; <span id="c"></span> <span id="err"></span><br>
+Keys: left/right = pose, Space = next arm, B / 1 / 2 / 3 = before / 178 / rework / rework without the mix,
+Z = zoom (fit width | 100 %). Question: <b>keep the reworked cliffs?</b></div>
+<div id="wrap"><img id="im"></div>
+<script>
+const S=[{"name": "fixed_cliff", "caption": "cliff, the 167 m face from 84 m. BEFORE: plain faces with vertical biome 'drips'. 178: flat orange/red/blue fields, drips and the red hook (right). REWORK: look at the whole face: grey schist and brown granite in long horizontal lenses, no drips or hooks. NO MIX: the same layers as flat grey and brown fields again.", "files": ["fixed_cliff_1_before.png", "fixed_cliff_2_178.png", "fixed_cliff_3_rework.png", "fixed_cliff_4_nomix.png"]}, {"name": "fixed_coast_cliff", "caption": "coast_cliff from 223 m (far LOD). Look at the face above the lake: REWORK has three gentle horizontal layers (grey, brown, cream) in close tones. The fine vertical hatching at the top is in BEFORE too (far-LOD steep face), not the cliffs. NO MIX: the same three layers, each one flat tone.", "files": ["fixed_coast_cliff_1_before.png", "fixed_coast_cliff_2_178.png", "fixed_coast_cliff_3_rework.png", "fixed_coast_cliff_4_nomix.png"]}, {"name": "fixed_forest_breaks", "caption": "forest_breaks canyon wall from 163 m. REWORK: horizontal bedding plus one cream marble layer at mid-height; the dark crescents are the benches at the layer bases. Compare with 178's flat colour fields. NO MIX: the same bedding with no lenses inside each layer.", "files": ["fixed_forest_breaks_1_before.png", "fixed_forest_breaks_2_178.png", "fixed_forest_breaks_3_rework.png", "fixed_forest_breaks_4_nomix.png"]}, {"name": "cliff_desert", "caption": "desert, a 113 m face from 110 m. 178: a cream band and a red band, each a flat colour field. REWORK: red and orange layers with ochre lenses inside, the boundaries nearly level. The grey on the left is the next biome's rock (a border). NO MIX: the red and orange layers as flat fields.", "files": ["cliff_desert_1_before.png", "cliff_desert_2_178.png", "cliff_desert_3_rework.png", "cliff_desert_4_nomix.png"]}, {"name": "cliff_snow", "caption": "snow, a 164 m face from 110 m. 178: strong blue-slate and cream bands. REWORK: grey schist with brown granite lenses and one cream marble layer. The black hole is a cave mouth, also in BEFORE. NO MIX: a flat brown band and a flat cream band on grey: close to 178's look, only in closer tones.", "files": ["cliff_snow_1_before.png", "cliff_snow_2_178.png", "cliff_snow_3_rework.png", "cliff_snow_4_nomix.png"]}], A=["BEFORE (-cliffs 0)", "TASK 178", "REWORK (178c)", "REWORK WITHOUT THE ROCK MIX (-rockmix 0)"];let i=0,a=2,fit=true;
+const im=document.getElementById('im');
+im.onerror=()=>{document.getElementById('err').textContent=' MISSING FILE: '+im.getAttribute('src');};
+function show(){const s=S[i];document.getElementById('err').textContent='';im.src=s.files[a];
+document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+s.name+'  ['+A[a]+']';
+document.getElementById('c').textContent=s.caption;im.style.width=fit?'100%':'auto';}
+document.onkeydown=e=>{const k=e.key.toLowerCase();
+if(k=='arrowright')i=(i+1)%S.length;else if(k=='arrowleft')i=(i+S.length-1)%S.length;
+else if(k==' '){a=(a+1)%A.length;e.preventDefault();}else if(k=='b')a=0;else if(k=='1')a=1;else if(k=='2')a=2;else if(k=='3'&&A.length>3)a=3;
+else if(k=='z')fit=!fit;show();};show();
+</script></body></html>

@@ -17,6 +17,7 @@ public class AirMipPackedTests
     private static int L0Index(int3 brick) => AirMip.FlatIndex(brick, L0Dims);
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Pack_AllAir_EveryBitClear()
     {
         AirMipData mips = AirMip.Build(AllAirL0(), L0Dims, 4);
@@ -83,6 +84,7 @@ public class AirMipPackedTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Pack_WordBoundaryCells_RoundTripExactly()
     {
         // Cells at indices 31/32/63/64 straddle word boundaries - the classic

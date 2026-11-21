@@ -20,6 +20,7 @@ using VoxelEngine.WorldGen;
 public class BurstMonoIdentityProbeTests
 {
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Probe_TodaysColumnSampler_BurstVsEditorMono()
     {
         var meta = AnchorPlanner.Plan(42, 1);

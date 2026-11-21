@@ -79,6 +79,7 @@ public static class VoxelCollision
 
         byte m = world.GetVoxel(voxel);
         if (m == Materials.Air) return false;
+        if (m == Materials.TG2_BASE + 18 || m == Materials.TG2_BASE + 9) return false;   // task 250: grass fringe (-fringe 1 only) never blocks
         return !MaterialRules.IsFluidMaterial(m);           // rule 2
     }
 

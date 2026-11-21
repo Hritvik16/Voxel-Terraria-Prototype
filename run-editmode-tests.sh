@@ -4,16 +4,25 @@
 # Headless EditMode test run + summary, so Claude Code (or you) doesn't have
 # to parse raw XML by eye every time. Run from the project root.
 #
-# Usage: ./run-editmode-tests.sh             FAST suite: everything except
-#                                            [Category("Slow")] -- every change
-#        SUITE=all ./run-editmode-tests.sh   the WHOLE suite -- before any merge
-#                                            to main and on every terrain-
-#                                            generator change
-#        REPORTS=1 ...                       also run the report-only tests
+# Usage: ./run-editmode-tests.sh             FAST suite (<= 3 min): everything
+#                                            except [Category("Slow")] -- every change
+#        SUITE=all ./run-editmode-tests.sh   (<= 15 min target) everything except
+#                                            [Category("Nightly")]: every generator /
+#                                            rule test at least once -- on every
+#                                            terrain-generator change
+#        SUITE=nightly ./run-editmode-tests.sh  EVERYTHING (~1 h): before a merge
+#                                            to main only (task 184b's third tier:
+#                                            the big shell fills, long fuzzers, cost
+#                                            reports, engine tests >= 2 s, seeds 7 /
+#                                            2026 of the per-seed generator tests)
+#        FILTER='<testFilter>' ...           only those tests (regex: escape "(42)"
+#                                            as "\(42\)"); overrides SUITE
+#        REPORTS=1 ...                       also the report-only tests
 #                                            (TerrainGen.Tests/ReportOnly.cs)
+# Tiers (task 184b): a Nightly test is ALSO Slow, so fast = !Slow, all = !Nightly.
 # Exit code: 0 if every test passed, 1 otherwise (including compile failure).
-# A SUITE=all run also leaves a copy in TestResults_all.xml; the fast suite
-# compares against it to say how many cases it left out.
+# A SUITE=all run also leaves a copy in TestResults_all.xml (nightly: TestResults_nightly.xml);
+# the fast suite compares against it to say how many cases it left out.
 
 set -uo pipefail
 # Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
@@ -28,10 +37,17 @@ LOG_FILE="unity_test.log"
 SUITE="${SUITE:-fast}"
 
 case "$SUITE" in
-  fast) CATEGORY_ARGS=(-testCategory "!Slow") ;;
-  all)  CATEGORY_ARGS=() ;;
-  *)    echo "SUITE must be 'fast' (default) or 'all', not '$SUITE'"; exit 1 ;;
+  fast)    CATEGORY_ARGS=(-testCategory "!Slow") ;;
+  all)     CATEGORY_ARGS=(-testCategory "!Nightly") ;;
+  nightly) CATEGORY_ARGS=() ;;
+  *)       echo "SUITE must be 'fast' (default), 'all' or 'nightly', not '$SUITE'"; exit 1 ;;
 esac
+# FILTER=<-testFilter value>: run only those tests (overrides SUITE's category).
+FILTER="${FILTER:-}"
+[ -n "$FILTER" ] && CATEGORY_ARGS=(-testFilter "$FILTER")
+# EXTRA = more Unity args (task 184b). The Editor already runs managed code in Release
+# (EditorPrefs ScriptDebugInfoEnabled = 0); -releaseCodeOptimization measured no gain.
+read -r -a EXTRA_ARGS <<< "${EXTRA:-}"
 
 rm -f "$RESULTS_XML" "$LOG_FILE"
 START=$SECONDS
@@ -45,6 +61,7 @@ START=$SECONDS
   -projectPath "$PROJECT_PATH" \
   -runTests -testPlatform EditMode \
   ${CATEGORY_ARGS[@]+"${CATEGORY_ARGS[@]}"} \
+  ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
   -testResults "$RESULTS_XML" \
   -logFile "$LOG_FILE"
 
@@ -58,7 +75,8 @@ if [ ! -f "$RESULTS_XML" ]; then
   exit 1
 fi
 
-[ "$SUITE" = "all" ] && cp "$RESULTS_XML" "$ALL_XML"
+[ "$SUITE" = "all" ] && [ -z "$FILTER" ] && cp "$RESULTS_XML" "$ALL_XML"
+[ "$SUITE" = "nightly" ] && [ -z "$FILTER" ] && cp "$RESULTS_XML" TestResults_nightly.xml
 
 python3 - "$RESULTS_XML" "$SUITE" "$WALL" "$ALL_XML" <<'PY'
 import sys, os, time, xml.etree.ElementTree as ET

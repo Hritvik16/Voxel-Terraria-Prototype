@@ -1,0 +1,32 @@
+BUDGET CHECK (task 230; PERF_BUDGET_GUARD.md sec. 3) -- 2026-11-17 22:12
+budget file Logs/overnight/230/budget_test_same.json (status: TEST COPY (task 230): baseline = this run (day_rerun + night; baseline test)
+day log Logs/budget/2026-11-17_192530/costsplit_day_rerun.txt
+night log Logs/budget/2026-11-17_192530/costsplit_night.txt
+settings: day: [play flags] -quality high -renderrows 432 -shellwait 60 -startsun 0 -costfixed forest_eye -costarms skyfill0,sun_off,flood_off,shells_off,ceiling; night: [play flags] ... -costpaths torch -costarms tf_on,tl_none
+walk_near FULL runs range 5.5 ms; FULL flood state ['skip'] (day: expect skip)
+
+number                                       now  baseline    delta     tol  status  share / target / note
+walk_near FULL p50 ms                       67.4      67.4     +0.0     5.0  PASS    target 33.3 (+34.1)
+walk_near FULL p95 ms                      117.1     117.1     +0.0    10.0  PASS    target 33.3 (+83.8)
+walk_near frames > 33 ms %                  88.8      88.8        -       -  info    target 5.0; target distance only
+walk_near step sky_fill ms                  11.5      11.5     +0.0     3.0  PASS    share 2.5 OVER SHARE
+walk_near step sun_shadow ms                20.9      20.9     +0.0     3.1  PASS    share 5.0 OVER SHARE
+walk_near step torch_flood ms               -0.2      -0.2     +0.0     3.0  PASS    day share 0 (night row below)
+walk_near step shells ms                     6.0       6.0     +0.0     3.0  PASS    share 4.0 OVER SHARE
+walk_near ceiling p50 ms                    22.9      22.9     +0.0     5.0  PASS    (sky probe + sun + shells off)
+torch night play p50 ms (tf_on)             59.0      59.0     +0.0     5.0  PASS    target 33.3 (+25.7)
+torch night step torch_flood ms              9.4       9.4     +0.0     3.0  PASS    share 1.0 OVER SHARE (tf_on - tl_none)
+forest_eye FULL p50 ms (secondary)         103.7     103.7     +0.0     5.2  info    deficit 592; would be ok
+forest_eye step shells ms (secondary)       14.2      14.2     +0.0     3.0  info    share 4.0; would be ok
+forest_eye step sky_fill ms (secondary)      12.9      12.9     +0.0     3.0  info    share 2.5; would be ok
+forest_eye step sun_shadow ms (secondary)      23.8      23.8     +0.0     3.6  info    share 5.0; would be ok
+forest_eye step torch_flood ms (secondary)      15.4      15.4     +0.0     3.0  info    share 1.0; would be ok
+memory process peak MB                    6025.1    6025.1     +0.0    50.0  PASS    day 2567.9 / night 6025.1
+memory process peak MB (hard)             6025.1     7,000   -974.9     0.0  PASS    hard limit 7000
+GPU body refusals at walk_near (hard)          0         0     +0.0     0.0  PASS    hard limit 0
+GPU body refusals after day paths              0         0     +0.0    20.0  PASS    
+GPU body pool peak                       245,704   245,704        -       -  info    cap 254,400
+CPU brick pool peak                      494,879   494,879        -       -  info    valve 484500
+
+BUDGET PASS
+same exit 0

@@ -1,0 +1,314 @@
+UPSCALER CLIPS -- 2026-11-14_061703
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 30 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native; shell wait cap 30 s; start (4015.6, 860.2, 3999.6)
+map v4 Height FNV 32D19FFC21BE14D0  cell(613,259) 1068.80900
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    forest    x river plains         20941 cells   7.2 %  -> shot
+    snow      x river plains         17819 cells   6.2 %  -> shot
+    desert    x canyonlands          16703 cells   5.8 %  -> shot
+    snow      x breaks               15847 cells   5.5 %  -> shot
+    savanna   x wetland basin        15844 cells   5.5 %  -> shot
+    snow      x volcanic             15650 cells   5.4 %  -> shot
+    snow      x rolling highlands    13821 cells   4.8 %  -> shot
+    desert    x alpine range         12666 cells   4.4 %  -> shot
+    forest    x breaks               12260 cells   4.2 %  -> shot
+    snow      x high plateau         11713 cells   4.1 %  -> shot
+    desert    x wetland basin        10666 cells   3.7 %  -> shot
+    desert    x breaks               10099 cells   3.5 %  -> shot
+    forest    x alpine range          9269 cells   3.2 %  -> shot
+    jungle    x dune sea              8604 cells   3.0 %  -> shot
+    jungle    x river plains          8245 cells   2.9 %  -> shot
+    desert    x river plains          8072 cells   2.8 %  -> shot
+    savanna   x alpine range          7993 cells   2.8 %  -> shot
+    desert    x high plateau          7480 cells   2.6 %  -> shot
+    badlands  x high plateau          6906 cells   2.4 %
+    badlands  x rolling highlands     6308 cells   2.2 %
+    forest    x dune sea              5714 cells   2.0 %
+    snow      x dune sea              5082 cells   1.8 %
+    forest    x volcanic              4741 cells   1.6 %
+    badlands  x canyonlands           4532 cells   1.6 %
+    forest    x wetland basin         3929 cells   1.4 %
+    badlands  x river plains          3714 cells   1.3 %
+    forest    x rolling highlands     3483 cells   1.2 %
+    savanna   x breaks                3412 cells   1.2 %
+    jungle    x rolling highlands     2974 cells   1.0 %
+    savanna   x canyonlands           2424 cells   0.8 %
+    forest    x high plateau          2348 cells   0.8 %
+    snow      x alpine range          2116 cells   0.7 %
+    savanna   x volcanic              1999 cells   0.7 %
+    desert    x rolling highlands     1373 cells   0.5 %
+    badlands  x alpine range          1207 cells   0.4 %
+    badlands  x breaks                1074 cells   0.4 %
+    savanna   x rolling highlands      523 cells   0.2 %
+    badlands  x volcanic               461 cells   0.2 %
+    savanna   x river plains           406 cells   0.1 %
+    jungle    x alpine range           366 cells   0.1 %
+    forest    x canyonlands            143 cells   0.0 %
+    jungle    x volcanic                76 cells   0.0 %
+    snow      x wetland basin           31 cells   0.0 %
+    savanna   x high plateau            27 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  52 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1299/863/8  s3 0/2001/0  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3469, missing 4529, pending 0; requested 4047, generated 4039 (58 ms each on a worker), dropped stale 8, over-budget frames 2 (of 1054)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 40394/40394/150016 210/210/1540 r0  s2 28459/28459/119296 102/102/1392 r0  s3 0/0/102400 0/0/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 483,093 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,399 refused 120 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2378.5 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_oak_spacecol native: settle frames mean 149.1 ms, p50 149.0 ms, max 157.5 ms (skyfill 0)
+  [refused] now 120, total 120, in use 254,399 of 254,400 | box chunks int3(203, 41, 254)..int3(218, 56, 269) | shell 1 cam chunk int3(105, 24, 131) hole +-1 (25.6 m chunks: tier-0 x/z 208..213 / 260..265) [native]
+  [refused] chunk int3(217, 47, 256) world x 2777.6..2790.4 y 601.6..614.4 z 3276.8..3289.6 | dist 107 m | dense 18 | below dense | shell 1 STORES it | top centre at px (87, 936) [native]
+  [refused] chunk int3(217, 49, 256) world x 2777.6..2790.4 y 627.2..640.0 z 3276.8..3289.6 | dist 107 m | dense 807 | below dense | shell 1 STORES it | top centre at px (113, 624) [native]
+  [refused] chunk int3(217, 48, 256) world x 2777.6..2790.4 y 614.4..627.2 z 3276.8..3289.6 | dist 107 m | dense 22 | below dense | shell 1 STORES it | top centre at px (100, 777) [native]
+  [refused] chunk int3(216, 48, 255) world x 2764.8..2777.6 y 614.4..627.2 z 3264.0..3276.8 | dist 110 m | dense 333 | below dense | shell 1 STORES it | top centre at px (352, 756) [native]
+  [refused] chunk int3(216, 47, 255) world x 2764.8..2777.6 y 601.6..614.4 z 3264.0..3276.8 | dist 110 m | dense 336 | below dense | shell 1 STORES it | top centre at px (344, 892) [native]
+  [refused] chunk int3(216, 46, 255) world x 2764.8..2777.6 y 588.8..601.6 z 3264.0..3276.8 | dist 110 m | dense 339 | below absent | shell 1 STORES it | top centre at px (335, 1031) [native]
+  [refused] chunk int3(216, 49, 255) world x 2764.8..2777.6 y 627.2..640.0 z 3264.0..3276.8 | dist 110 m | dense 908 | below dense | shell 1 STORES it | top centre at px (360, 624) [native]
+  [refused] chunk int3(215, 46, 254) world x 2752.0..2764.8 y 588.8..601.6 z 3251.2..3264.0 | dist 115 m | dense 22 | below absent | shell 1 STORES it | top centre at px (532, 980) [native]
+  [refused] chunk int3(215, 48, 254) world x 2752.0..2764.8 y 614.4..627.2 z 3251.2..3264.0 | dist 115 m | dense 14 | below dense | shell 1 STORES it | top centre at px (542, 740) [native]
+  [refused] chunk int3(215, 47, 254) world x 2752.0..2764.8 y 601.6..614.4 z 3251.2..3264.0 | dist 115 m | dense 26 | below dense | shell 1 STORES it | top centre at px (537, 859) [native]
+  [refused] chunk int3(215, 49, 254) world x 2752.0..2764.8 y 627.2..640.0 z 3251.2..3264.0 | dist 115 m | dense 768 | below dense | shell 1 STORES it | top centre at px (547, 625) [native]
+  [refused] chunk int3(217, 49, 255) world x 2777.6..2790.4 y 627.2..640.0 z 3264.0..3276.8 | dist 117 m | dense 915 | below dense | shell 1 STORES it | top centre at px (230, 624) [native]
+  [refused] chunk int3(217, 48, 255) world x 2777.6..2790.4 y 614.4..627.2 z 3264.0..3276.8 | dist 117 m | dense 316 | below dense | shell 1 STORES it | top centre at px (220, 756) [native]
+  [refused] chunk int3(217, 47, 255) world x 2777.6..2790.4 y 601.6..614.4 z 3264.0..3276.8 | dist 117 m | dense 313 | below dense | shell 1 STORES it | top centre at px (210, 892) [native]
+  [refused] chunk int3(217, 46, 255) world x 2777.6..2790.4 y 588.8..601.6 z 3264.0..3276.8 | dist 117 m | dense 327 | below absent | shell 1 STORES it | top centre at px (200, 1031) [native]
+  [refused] chunk int3(216, 46, 254) world x 2764.8..2777.6 y 588.8..601.6 z 3251.2..3264.0 | dist 121 m | dense 39 | below absent | shell 1 STORES it | top centre at px (414, 980) [native]
+  [refused] chunk int3(216, 48, 254) world x 2764.8..2777.6 y 614.4..627.2 z 3251.2..3264.0 | dist 121 m | dense 16 | below dense | shell 1 STORES it | top centre at px (426, 740) [native]
+  [refused] chunk int3(216, 49, 254) world x 2764.8..2777.6 y 627.2..640.0 z 3251.2..3264.0 | dist 121 m | dense 768 | below dense | shell 1 STORES it | top centre at px (433, 625) [native]
+  [refused] chunk int3(216, 47, 254) world x 2764.8..2777.6 y 601.6..614.4 z 3251.2..3264.0 | dist 121 m | dense 30 | below dense | shell 1 STORES it | top centre at px (420, 859) [native]
+  [refused] chunk int3(218, 49, 255) world x 2790.4..2803.2 y 627.2..640.0 z 3264.0..3276.8 | dist 126 m | dense 842 | below dense | shell 1 STORES it | top centre at px (100, 624) [native]
+  [refused] chunk int3(218, 46, 255) world x 2790.4..2803.2 y 588.8..601.6 z 3264.0..3276.8 | dist 126 m | dense 15 | below absent | shell 1 STORES it | top centre at px (65, 1031) [native]
+  [refused] chunk int3(218, 47, 255) world x 2790.4..2803.2 y 601.6..614.4 z 3264.0..3276.8 | dist 126 m | dense 23 | below dense | shell 1 STORES it | top centre at px (77, 892) [native]
+  [refused] chunk int3(218, 48, 255) world x 2790.4..2803.2 y 614.4..627.2 z 3264.0..3276.8 | dist 126 m | dense 19 | below dense | shell 1 STORES it | top centre at px (89, 756) [native]
+  [refused] chunk int3(217, 46, 254) world x 2777.6..2790.4 y 588.8..601.6 z 3251.2..3264.0 | dist 128 m | dense 115 | below absent | shell 1 STORES it | top centre at px (296, 980) [native]
+  [refused] of 120: on screen 38, in shell 1's hole 0, chunk below drawn solid by tier 0 1 [native]
+WSPOSE fixed_m_oak_spacecol|2712.0,639.7,3363.0|2712.0,646.7,3288.0|fixed pose m_oak_spacecol (-wsfixed)
+  fixed_m_oak_spacecol: yaw 180 pitch 5 deg, distance 75 m, 95 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2096/72/2  s3 805/1190/6  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 5071, missing 2927, pending 0; requested 6007, generated 5999 (83 ms each on a worker), dropped stale 8, over-budget frames 2 (of 1765)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 40607/40607/150016 203/210/1540 r0  s2 46445/46445/119296 188/188/1392 r0  s3 20426/20426/102400 82/82/320 r0  s4 0/0/102400 0/0/320 r0  s5 0/0/102400 0/0/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 491,296 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 1,042 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2389.1 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_oak_spacecol native: settle frames mean 133.7 ms, p50 133.8 ms, max 142.9 ms (skyfill 0)
+  [refused] now 32, total 1,042, in use 254,270 of 254,400 | box chunks int3(203, 41, 256)..int3(218, 56, 271) | shell 1 cam chunk int3(105, 25, 132) hole +-1 (25.6 m chunks: tier-0 x/z 208..213 / 262..267) [native]
+  [refused] chunk int3(216, 49, 256) world x 2764.8..2777.6 y 627.2..640.0 z 3276.8..3289.6 | dist 116 m | dense 768 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (391, 754) [native]
+  [refused] chunk int3(218, 49, 257) world x 2790.4..2803.2 y 627.2..640.0 z 3289.6..3302.4 | dist 121 m | dense 879 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (25, 756) [native]
+  [refused] chunk int3(218, 49, 256) world x 2790.4..2803.2 y 627.2..640.0 z 3276.8..3289.6 | dist 131 m | dense 808 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (145, 754) [native]
+  [refused] of 32: on screen 3, in shell 1's hole 0, chunk below drawn solid by tier 0 32 [native]
+WSPOSE fixed_s_oak_spacecol|2712.0,641.7,3383.0|2712.0,661.7,3288.0|fixed pose s_oak_spacecol (-wsfixed)
+  fixed_s_oak_spacecol: yaw 180 pitch 12 deg, distance 97 m, 90 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 925/56/6  s5 137/341/2  s6 0/182/0  s7 0/16/0   total stored 7403, missing 595, pending 0; requested 9498, generated 9490 (123 ms each on a worker), dropped stale 9, over-budget frames 4 (of 3233)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 41313/41313/150016 209/210/1540 r0  s2 49210/49210/119296 173/193/1392 r0  s3 53435/53435/102400 218/218/320 r0  s4 51898/51898/102400 224/224/320 r0  s5 15695/15695/102400 55/55/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 492,338 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 7,473 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2376.0 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_c_oak_spacecol native: settle frames mean 176.6 ms, p50 176.7 ms, max 191.2 ms (skyfill 0)
+  [refused] now 43, total 7,800, in use 254,397 of 254,400 | box chunks int3(204, 41, 250)..int3(219, 56, 265) | shell 1 cam chunk int3(106, 25, 129) hole +-1 (25.6 m chunks: tier-0 x/z 210..215 / 256..261) [native]
+  [refused] chunk int3(212, 49, 251) world x 2713.6..2726.4 y 627.2..640.0 z 3212.8..3225.6 | dist 86 m | dense 768 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (358, 665) [native]
+  [refused] chunk int3(213, 49, 251) world x 2726.4..2739.2 y 627.2..640.0 z 3212.8..3225.6 | dist 86 m | dense 768 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (138, 669) [native]
+  [refused] chunk int3(213, 47, 250) world x 2726.4..2739.2 y 601.6..614.4 z 3200.0..3212.8 | dist 99 m | dense 426 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (133, 997) [native]
+  [refused] chunk int3(213, 49, 250) world x 2726.4..2739.2 y 627.2..640.0 z 3200.0..3212.8 | dist 99 m | dense 780 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (160, 664) [native]
+  [refused] chunk int3(205, 49, 255) world x 2624.0..2636.8 y 627.2..640.0 z 3264.0..3276.8 | dist 100 m | dense 968 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1608, 661) [native]
+  [refused] chunk int3(210, 49, 250) world x 2688.0..2700.8 y 627.2..640.0 z 3200.0..3212.8 | dist 103 m | dense 813 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (645, 656) [native]
+  [refused] chunk int3(209, 49, 250) world x 2675.2..2688.0 y 627.2..640.0 z 3200.0..3212.8 | dist 107 m | dense 877 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (761, 654) [native]
+  [refused] chunk int3(204, 49, 256) world x 2611.2..2624.0 y 627.2..640.0 z 3276.8..3289.6 | dist 109 m | dense 838 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1845, 662) [native]
+  [refused] chunk int3(207, 49, 251) world x 2649.6..2662.4 y 627.2..640.0 z 3212.8..3225.6 | dist 109 m | dense 952 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1012, 653) [native]
+  [refused] chunk int3(205, 47, 253) world x 2624.0..2636.8 y 601.6..614.4 z 3238.4..3251.2 | dist 111 m | dense 548 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1351, 896) [native]
+  [refused] chunk int3(204, 49, 255) world x 2611.2..2624.0 y 627.2..640.0 z 3264.0..3276.8 | dist 112 m | dense 886 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1664, 658) [native]
+  [refused] chunk int3(208, 49, 250) world x 2662.4..2675.2 y 627.2..640.0 z 3200.0..3212.8 | dist 113 m | dense 877 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (861, 653) [native]
+  [refused] chunk int3(206, 49, 251) world x 2636.8..2649.6 y 627.2..640.0 z 3212.8..3225.6 | dist 118 m | dense 983 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1093, 652) [native]
+  [refused] chunk int3(205, 49, 252) world x 2624.0..2636.8 y 627.2..640.0 z 3225.6..3238.4 | dist 119 m | dense 819 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1245, 652) [native]
+  [refused] chunk int3(205, 49, 251) world x 2624.0..2636.8 y 627.2..640.0 z 3212.8..3225.6 | dist 127 m | dense 839 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1165, 650) [native]
+  [refused] chunk int3(206, 49, 250) world x 2636.8..2649.6 y 627.2..640.0 z 3200.0..3212.8 | dist 127 m | dense 842 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1028, 650) [native]
+  [refused] chunk int3(204, 49, 252) world x 2611.2..2624.0 y 627.2..640.0 z 3225.6..3238.4 | dist 129 m | dense 904 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1309, 651) [native]
+  [refused] chunk int3(205, 49, 250) world x 2624.0..2636.8 y 627.2..640.0 z 3200.0..3212.8 | dist 136 m | dense 835 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1097, 649) [native]
+  [refused] chunk int3(204, 49, 251) world x 2611.2..2624.0 y 627.2..640.0 z 3212.8..3225.6 | dist 137 m | dense 832 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1228, 649) [native]
+  [refused] chunk int3(204, 49, 250) world x 2611.2..2624.0 y 627.2..640.0 z 3200.0..3212.8 | dist 145 m | dense 1111 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1159, 648) [native]
+  [refused] chunk int3(204, 47, 250) world x 2611.2..2624.0 y 601.6..614.4 z 3200.0..3212.8 | dist 145 m | dense 8 | below dense | shell 1 STORES it | top centre at px (1163, 822) [native]
+  [refused] chunk int3(204, 50, 250) world x 2611.2..2624.0 y 640.0..652.8 z 3200.0..3212.8 | dist 145 m | dense 126 | below dense | shell 1 STORES it | top centre at px (1158, 563) [native]
+  [refused] chunk int3(204, 46, 250) world x 2611.2..2624.0 y 588.8..601.6 z 3200.0..3212.8 | dist 145 m | dense 6 | below absent | shell 1 STORES it | top centre at px (1165, 911) [native]
+  [refused] of 43: on screen 23, in shell 1's hole 0, chunk below drawn solid by tier 0 37 [native]
+WSPOSE fixed_c_oak_spacecol|2724.0,642.7,3305.0|2712.0,644.7,3288.0|fixed pose c_oak_spacecol (-wsfixed)
+  fixed_c_oak_spacecol: yaw 215 pitch 5 deg, distance 21 m, 237 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1357/637/7  s4 278/708/1  s5 99/381/0  s6 0/182/0  s7 0/16/0   total stored 6074, missing 1924, pending 0; requested 15523, generated 15515 (117 ms each on a worker), dropped stale 13, over-budget frames 4 (of 5277)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 47197/47197/150016 279/279/1540 r0  s2 57040/57040/119296 296/296/1392 r0  s3 43430/53435/102400 151/218/320 r0  s4 13956/55083/102400 63/235/320 r0  s5 10290/22876/102400 43/78/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 492,338 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 16,513 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2403.0 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_oak_lsystem native: settle frames mean 132.7 ms, p50 131.2 ms, max 145.3 ms (skyfill 0)
+  [refused] now 16, total 16,936, in use 253,933 of 254,400 | box chunks int3(375, 44, 387)..int3(390, 59, 402) | shell 1 cam chunk int3(191, 27, 197) hole +-1 (25.6 m chunks: tier-0 x/z 380..385 / 392..397) [native]
+  [refused] chunk int3(383, 55, 389) world x 4902.4..4915.2 y 704.0..716.8 z 4979.2..4992.0 | dist 74 m | dense 745 | below dense | shell 1 STORES it | top centre at px (899, 522) [native]
+  [refused] chunk int3(383, 54, 389) world x 4902.4..4915.2 y 691.2..704.0 z 4979.2..4992.0 | dist 74 m | dense 1265 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (898, 685) [native]
+  [refused] chunk int3(382, 54, 389) world x 4889.6..4902.4 y 691.2..704.0 z 4979.2..4992.0 | dist 74 m | dense 846 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1063, 685) [native]
+  [refused] chunk int3(381, 54, 389) world x 4876.8..4889.6 y 691.2..704.0 z 4979.2..4992.0 | dist 76 m | dense 772 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1228, 685) [native]
+  [refused] chunk int3(379, 54, 390) world x 4851.2..4864.0 y 691.2..704.0 z 4992.0..5004.8 | dist 76 m | dense 851 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1684, 698) [native]
+  [refused] chunk int3(386, 55, 389) world x 4940.8..4953.6 y 704.0..716.8 z 4979.2..4992.0 | dist 85 m | dense 1190 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (413, 522) [native]
+  [refused] chunk int3(387, 54, 389) world x 4953.6..4966.4 y 691.2..704.0 z 4979.2..4992.0 | dist 92 m | dense 771 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (239, 685) [native]
+  [refused] chunk int3(388, 54, 389) world x 4966.4..4979.2 y 691.2..704.0 z 4979.2..4992.0 | dist 101 m | dense 648 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (74, 685) [native]
+  [refused] of 16: on screen 8, in shell 1's hole 0, chunk below drawn solid by tier 0 15 [native]
+WSPOSE fixed_m_oak_lsystem|4904.0,708.5,5059.0|4904.0,715.5,4984.0|fixed pose m_oak_lsystem (-wsfixed)
+  fixed_m_oak_lsystem: yaw 180 pitch 5 deg, distance 75 m, 227 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 690/290/7  s5 81/398/1  s6 0/182/0  s7 0/16/0   total stored 7112, missing 886, pending 0; requested 21339, generated 21331 (115 ms each on a worker), dropped stale 17, over-budget frames 10 (of 6857)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 56837/56837/150016 237/279/1540 r0  s2 55488/57040/119296 195/296/1392 r0  s3 59181/59181/102400 206/218/320 r0  s4 42001/55083/102400 149/235/320 r0  s5 8169/22876/102400 37/78/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,150 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 18,396 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2408.5 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_oak_template native: settle frames mean 181.3 ms, p50 181.3 ms, max 205.1 ms (skyfill 0)
+  [refused] now 0, total 18,396, in use 251,023 of 254,400 | box chunks int3(345, 33, 419)..int3(360, 48, 434) | shell 1 cam chunk int3(176, 20, 213) hole +-1 (25.6 m chunks: tier-0 x/z 350..355 / 424..429) [native]
+WSPOSE fixed_m_oak_template|4520.0,531.9,5475.0|4520.0,538.9,5400.0|fixed pose m_oak_template (-wsfixed)
+  fixed_m_oak_template: yaw 180 pitch 5 deg, distance 75 m, 234 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1484/512/5  s4 227/757/3  s5 105/375/0  s6 0/182/0  s7 0/16/0   total stored 6156, missing 1842, pending 0; requested 27506, generated 27498 (111 ms each on a worker), dropped stale 25, over-budget frames 26 (of 8303)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 52529/56837/150016 278/279/1540 r0  s2 55722/57040/119296 206/296/1392 r0  s3 42812/59181/102400 192/218/320 r0  s4 11925/55083/102400 53/235/320 r0  s5 11098/22876/102400 45/78/320 r0  s6 0/0/71680 0/0/224 r0  s7 0/0/17280 0/0/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 493,982 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 20,858 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2421.3 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_banyan_spacecol native: settle frames mean 186.5 ms, p50 184.5 ms, max 209.3 ms (skyfill 0)
+  [refused] now 57, total 21,312, in use 254,392 of 254,400 | box chunks int3(191, 41, 224)..int3(206, 56, 239) | shell 1 cam chunk int3(99, 24, 116) hole +-1 (25.6 m chunks: tier-0 x/z 196..201 / 230..235) [native]
+  [refused] chunk int3(199, 46, 224) world x 2547.2..2560.0 y 588.8..601.6 z 2867.2..2880.0 | dist 105 m | dense 362 | below absent | shell 1 STORES it | top centre at px (945, 978) [native]
+  [refused] chunk int3(199, 48, 224) world x 2547.2..2560.0 y 614.4..627.2 z 2867.2..2880.0 | dist 105 m | dense 364 | below dense | shell 1 STORES it | top centre at px (946, 739) [native]
+  [refused] chunk int3(199, 47, 224) world x 2547.2..2560.0 y 601.6..614.4 z 2867.2..2880.0 | dist 105 m | dense 357 | below dense | shell 1 STORES it | top centre at px (945, 857) [native]
+  [refused] chunk int3(198, 49, 224) world x 2534.4..2547.2 y 627.2..640.0 z 2867.2..2880.0 | dist 106 m | dense 888 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1060, 623) [native]
+  [refused] chunk int3(200, 49, 224) world x 2560.0..2572.8 y 627.2..640.0 z 2867.2..2880.0 | dist 106 m | dense 810 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (832, 623) [native]
+  [refused] chunk int3(197, 49, 224) world x 2521.6..2534.4 y 627.2..640.0 z 2867.2..2880.0 | dist 108 m | dense 824 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1174, 623) [native]
+  [refused] chunk int3(196, 49, 224) world x 2508.8..2521.6 y 627.2..640.0 z 2867.2..2880.0 | dist 112 m | dense 843 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1288, 623) [native]
+  [refused] chunk int3(205, 49, 226) world x 2624.0..2636.8 y 627.2..640.0 z 2892.8..2905.6 | dist 112 m | dense 893 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (38, 621) [native]
+  [refused] chunk int3(202, 49, 224) world x 2585.6..2598.4 y 627.2..640.0 z 2867.2..2880.0 | dist 113 m | dense 772 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (604, 623) [native]
+  [refused] chunk int3(195, 49, 224) world x 2496.0..2508.8 y 627.2..640.0 z 2867.2..2880.0 | dist 116 m | dense 858 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1402, 623) [native]
+  [refused] chunk int3(203, 49, 224) world x 2598.4..2611.2 y 627.2..640.0 z 2867.2..2880.0 | dist 118 m | dense 572 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (490, 623) [native]
+  [refused] chunk int3(193, 49, 225) world x 2470.4..2483.2 y 627.2..640.0 z 2880.0..2892.8 | dist 119 m | dense 828 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1722, 622) [native]
+  [refused] chunk int3(205, 49, 225) world x 2624.0..2636.8 y 627.2..640.0 z 2880.0..2892.8 | dist 121 m | dense 834 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (165, 622) [native]
+  [refused] chunk int3(194, 49, 224) world x 2483.2..2496.0 y 627.2..640.0 z 2867.2..2880.0 | dist 122 m | dense 861 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1516, 623) [native]
+  [refused] chunk int3(204, 46, 224) world x 2611.2..2624.0 y 588.8..601.6 z 2867.2..2880.0 | dist 124 m | dense 277 | below absent | shell 1 STORES it | top centre at px (355, 978) [native]
+  [refused] chunk int3(204, 47, 224) world x 2611.2..2624.0 y 601.6..614.4 z 2867.2..2880.0 | dist 124 m | dense 278 | below dense | shell 1 STORES it | top centre at px (362, 857) [native]
+  [refused] chunk int3(204, 49, 224) world x 2611.2..2624.0 y 627.2..640.0 z 2867.2..2880.0 | dist 124 m | dense 840 | below dense | shell 1 STORES it | top centre at px (376, 623) [native]
+  [refused] chunk int3(204, 48, 224) world x 2611.2..2624.0 y 614.4..627.2 z 2867.2..2880.0 | dist 124 m | dense 282 | below dense | shell 1 STORES it | top centre at px (369, 739) [native]
+  [refused] chunk int3(192, 49, 225) world x 2457.6..2470.4 y 627.2..640.0 z 2880.0..2892.8 | dist 128 m | dense 794 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1852, 622) [native]
+  [refused] chunk int3(193, 49, 224) world x 2470.4..2483.2 y 627.2..640.0 z 2867.2..2880.0 | dist 129 m | dense 847 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1630, 623) [native]
+  [refused] chunk int3(206, 49, 225) world x 2636.8..2649.6 y 627.2..640.0 z 2880.0..2892.8 | dist 130 m | dense 852 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (35, 622) [native]
+  [refused] chunk int3(205, 46, 224) world x 2624.0..2636.8 y 588.8..601.6 z 2867.2..2880.0 | dist 131 m | dense 358 | below absent | shell 1 STORES it | top centre at px (237, 978) [native]
+  [refused] chunk int3(205, 48, 224) world x 2624.0..2636.8 y 614.4..627.2 z 2867.2..2880.0 | dist 131 m | dense 303 | below dense | shell 1 STORES it | top centre at px (254, 739) [native]
+  [refused] chunk int3(205, 49, 224) world x 2624.0..2636.8 y 627.2..640.0 z 2867.2..2880.0 | dist 131 m | dense 905 | below dense | shell 1 STORES it | top centre at px (262, 623) [native]
+  [refused] of 57: on screen 28, in shell 1's hole 0, chunk below drawn solid by tier 0 42 [native]
+WSPOSE fixed_m_banyan_spacecol|2552.0,639.5,2979.0|2552.0,646.5,2904.0|fixed pose m_banyan_spacecol (-wsfixed)
+  fixed_m_banyan_spacecol: yaw 180 pitch 5 deg, distance 75 m, 235 s
+  [shells] waited 0 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 29688, generated 29688 (120 ms each on a worker), dropped stale 25, over-budget frames 30 (of 9568)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 52762/56837/150016 279/279/1540 r0  s2 55722/57040/119296 206/296/1392 r0  s3 57392/59181/102400 251/251/320 r0  s4 57090/57090/102400 212/235/320 r0  s5 50348/50348/102400 170/170/320 r0  s6 26584/26584/71680 94/94/224 r0  s7 2546/2546/17280 16/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 25,189 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2427.9 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_banyan_spacecol native: settle frames mean 143.9 ms, p50 139.2 ms, max 186.5 ms (skyfill 0)
+  [refused] now 4, total 25,487, in use 253,589 of 254,400 | box chunks int3(191, 41, 226)..int3(206, 56, 241) | shell 1 cam chunk int3(99, 25, 117) hole +-1 (25.6 m chunks: tier-0 x/z 196..201 / 232..237) [native]
+  [refused] of 4: on screen 0, in shell 1's hole 0, chunk below drawn solid by tier 0 4 [native]
+WSPOSE fixed_s_banyan_spacecol|2552.0,641.5,2999.0|2552.0,661.5,2904.0|fixed pose s_banyan_spacecol (-wsfixed)
+  fixed_s_banyan_spacecol: yaw 180 pitch 12 deg, distance 97 m, 201 s
+  [shells] waited 0 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 33983, generated 33983 (118 ms each on a worker), dropped stale 25, over-budget frames 39 (of 10930)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 52814/56837/150016 269/279/1540 r0  s2 49977/57040/119296 185/296/1392 r0  s3 55128/59181/102400 246/251/320 r0  s4 56246/57090/102400 228/235/320 r0  s5 51488/51488/102400 169/170/320 r0  s6 26584/26584/71680 94/94/224 r0  s7 2546/2546/17280 16/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 30,176 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2433.9 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_banyan_lsystem native: settle frames mean 152.4 ms, p50 147.4 ms, max 188.6 ms (skyfill 0)
+  [refused] now 14, total 30,469, in use 254,228 of 254,400 | box chunks int3(216, 41, 228)..int3(231, 56, 243) | shell 1 cam chunk int3(112, 24, 118) hole +-1 (25.6 m chunks: tier-0 x/z 222..227 / 234..239) [native]
+  [refused] chunk int3(223, 49, 230) world x 2854.4..2867.2 y 627.2..640.0 z 2944.0..2956.8 | dist 77 m | dense 891 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1097, 595) [native]
+  [refused] chunk int3(228, 49, 230) world x 2918.4..2931.2 y 627.2..640.0 z 2944.0..2956.8 | dist 93 m | dense 1466 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (315, 595) [native]
+  [refused] chunk int3(229, 49, 230) world x 2931.2..2944.0 y 627.2..640.0 z 2944.0..2956.8 | dist 101 m | dense 886 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (158, 595) [native]
+  [refused] chunk int3(230, 49, 230) world x 2944.0..2956.8 y 627.2..640.0 z 2944.0..2956.8 | dist 110 m | dense 875 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (2, 595) [native]
+  [refused] of 14: on screen 4, in shell 1's hole 0, chunk below drawn solid by tier 0 14 [native]
+WSPOSE fixed_m_banyan_lsystem|2872.0,637.4,3027.0|2872.0,644.4,2952.0|fixed pose m_banyan_lsystem (-wsfixed)
+  fixed_m_banyan_lsystem: yaw 180 pitch 5 deg, distance 75 m, 201 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1066/1096/8  s3 0/2001/0  s4 360/627/0  s5 297/183/0  s6 170/12/0  s7 13/3/0   total stored 4076, missing 3922, pending 0; requested 37227, generated 37219 (114 ms each on a worker), dropped stale 25, over-budget frames 39 (of 11778)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 39532/56837/150016 252/279/1540 r0  s2 20931/57040/119296 116/296/1392 r0  s3 0/59181/102400 0/251/320 r0  s4 18852/57090/102400 98/235/320 r0  s5 32467/51488/102400 107/170/320 r0  s6 24437/26584/71680 87/94/224 r0  s7 1766/2546/17280 13/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 30,534 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2434.1 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_banyan_template native: settle frames mean 141.2 ms, p50 141.7 ms, max 150.7 ms (skyfill 0)
+  [refused] now 52, total 30,534, in use 254,400 of 254,400 | box chunks int3(348, 45, 244)..int3(363, 60, 259) | shell 1 cam chunk int3(178, 26, 126) hole +-1 (25.6 m chunks: tier-0 x/z 354..359 / 250..255) [native]
+  [refused] chunk int3(351, 53, 244) world x 4492.8..4505.6 y 678.4..691.2 z 3123.2..3136.0 | dist 126 m | dense 1025 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1573, 623) [native]
+  [refused] chunk int3(349, 53, 245) world x 4467.2..4480.0 y 678.4..691.2 z 3136.0..3148.8 | dist 132 m | dense 749 | below dense | shell 1 STORES it | top centre at px (1917, 622) [native]
+  [refused] chunk int3(350, 50, 244) world x 4480.0..4492.8 y 640.0..652.8 z 3123.2..3136.0 | dist 133 m | dense 11 | below absent | shell 1 STORES it | top centre at px (1713, 978) [native]
+  [refused] chunk int3(350, 51, 244) world x 4480.0..4492.8 y 652.8..665.6 z 3123.2..3136.0 | dist 133 m | dense 13 | below dense | shell 1 STORES it | top centre at px (1704, 857) [native]
+  [refused] chunk int3(350, 52, 244) world x 4480.0..4492.8 y 665.6..678.4 z 3123.2..3136.0 | dist 133 m | dense 348 | below dense | shell 1 STORES it | top centre at px (1695, 739) [native]
+  [refused] chunk int3(350, 53, 244) world x 4480.0..4492.8 y 678.4..691.2 z 3123.2..3136.0 | dist 133 m | dense 926 | below dense | shell 1 STORES it | top centre at px (1687, 623) [native]
+  [refused] chunk int3(349, 53, 244) world x 4467.2..4480.0 y 678.4..691.2 z 3123.2..3136.0 | dist 141 m | dense 1001 | below dense | shell 1 STORES it | top centre at px (1801, 623) [native]
+  [refused] chunk int3(349, 52, 244) world x 4467.2..4480.0 y 665.6..678.4 z 3123.2..3136.0 | dist 141 m | dense 79 | below dense | shell 1 STORES it | top centre at px (1811, 739) [native]
+  [refused] chunk int3(349, 51, 244) world x 4467.2..4480.0 y 652.8..665.6 z 3123.2..3136.0 | dist 141 m | dense 15 | below dense | shell 1 STORES it | top centre at px (1820, 857) [native]
+  [refused] chunk int3(349, 50, 244) world x 4467.2..4480.0 y 640.0..652.8 z 3123.2..3136.0 | dist 141 m | dense 13 | below absent | shell 1 STORES it | top centre at px (1831, 978) [native]
+  [refused] chunk int3(348, 53, 244) world x 4454.4..4467.2 y 678.4..691.2 z 3123.2..3136.0 | dist 150 m | dense 879 | below dense | shell 1 STORES it | top centre at px (1915, 623) [native]
+  [refused] of 52: on screen 11, in shell 1's hole 0, chunk below drawn solid by tier 0 3 [native]
+WSPOSE fixed_m_banyan_template|4568.0,690.7,3235.0|4568.0,697.7,3160.0|fixed pose m_banyan_template (-wsfixed)
+  fixed_m_banyan_template: yaw 180 pitch 5 deg, distance 75 m, 96 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1309/690/2  s4 32/949/6  s5 105/375/0  s6 152/30/0  s7 6/10/0   total stored 5944, missing 2054, pending 0; requested 43285, generated 43277 (112 ms each on a worker), dropped stale 33, over-budget frames 59 (of 13489)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 61108/61108/150016 284/284/1540 r0  s2 74006/74006/119296 219/296/1392 r0  s3 47243/59181/102400 157/251/320 r0  s4 2407/57090/102400 12/235/320 r0  s5 11370/51488/102400 43/170/320 r0  s6 21460/26584/71680 77/94/224 r0  s7 676/2546/17280 6/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 34,866 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2435.3 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_redwood_spacecol native: settle frames mean 168.3 ms, p50 169.7 ms, max 186.4 ms (skyfill 0)
+  [refused] now 16, total 35,283, in use 254,185 of 254,400 | box chunks int3(410, 34, 396)..int3(425, 49, 411) | shell 1 cam chunk int3(209, 21, 202) hole +-1 (25.6 m chunks: tier-0 x/z 416..421 / 402..407) [native]
+  [refused] chunk int3(415, 41, 398) world x 5312.0..5324.8 y 524.8..537.6 z 5094.4..5107.2 | dist 81 m | dense 1115 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1395, 759) [native]
+  [refused] chunk int3(421, 41, 398) world x 5388.8..5401.6 y 524.8..537.6 z 5094.4..5107.2 | dist 86 m | dense 803 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (401, 759) [native]
+  [refused] chunk int3(418, 41, 397) world x 5350.4..5363.2 y 524.8..537.6 z 5081.6..5094.4 | dist 87 m | dense 685 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (907, 756) [native]
+  [refused] chunk int3(414, 41, 398) world x 5299.2..5312.0 y 524.8..537.6 z 5094.4..5107.2 | dist 88 m | dense 1161 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1561, 759) [native]
+  [refused] chunk int3(416, 41, 397) world x 5324.8..5337.6 y 524.8..537.6 z 5081.6..5094.4 | dist 89 m | dense 1046 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1189, 756) [native]
+  [refused] chunk int3(420, 44, 397) world x 5376.0..5388.8 y 563.2..576.0 z 5081.6..5094.4 | dist 92 m | dense 621 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (653, 358) [native]
+  [refused] chunk int3(420, 41, 397) world x 5376.0..5388.8 y 524.8..537.6 z 5081.6..5094.4 | dist 92 m | dense 829 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (625, 756) [native]
+  [refused] chunk int3(415, 41, 397) world x 5312.0..5324.8 y 524.8..537.6 z 5081.6..5094.4 | dist 93 m | dense 1012 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1331, 756) [native]
+  [refused] chunk int3(413, 41, 398) world x 5286.4..5299.2 y 524.8..537.6 z 5094.4..5107.2 | dist 95 m | dense 693 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1726, 759) [native]
+  [refused] of 16: on screen 9, in shell 1's hole 0, chunk below drawn solid by tier 0 16 [native]
+WSPOSE fixed_s_redwood_spacecol|5352.0,539.3,5175.0|5352.0,559.3,5080.0|fixed pose s_redwood_spacecol (-wsfixed)
+  fixed_s_redwood_spacecol: yaw 180 pitch 12 deg, distance 97 m, 232 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1035/958/8  s4 0/987/0  s5 72/369/0  s6 126/36/0  s7 6/10/0   total stored 5579, missing 2360, pending 0; requested 48793, generated 48785 (113 ms each on a worker), dropped stale 41, over-budget frames 70 (of 15309)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 58886/61108/150016 252/284/1540 r0  s2 61332/74006/119296 179/296/1392 r0  s3 33564/59181/102400 98/251/320 r0  s4 0/57090/102400 0/235/320 r0  s5 7609/51488/102400 32/170/320 r0  s6 17930/26584/71680 64/94/224 r0  s7 676/2546/17280 6/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 39,662 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2437.1 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_birch_spacecol native: settle frames mean 143.7 ms, p50 143.9 ms, max 155.6 ms (skyfill 0)
+  [refused] now 14, total 40,050, in use 254,240 of 254,400 | box chunks int3(288, 34, 176)..int3(303, 49, 191) | shell 1 cam chunk int3(148, 21, 92) hole +-1 (25.6 m chunks: tier-0 x/z 294..299 / 182..187) [native]
+  [refused] chunk int3(302, 41, 178) world x 3865.6..3878.4 y 524.8..537.6 z 2278.4..2291.2 | dist 103 m | dense 777 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (5, 875) [native]
+  [refused] chunk int3(302, 41, 177) world x 3865.6..3878.4 y 524.8..537.6 z 2265.6..2278.4 | dist 113 m | dense 849 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (149, 854) [native]
+  [refused] of 14: on screen 2, in shell 1's hole 6, chunk below drawn solid by tier 0 13 [native]
+WSPOSE fixed_s_birch_spacecol|3800.0,547.8,2359.0|3800.0,567.8,2264.0|fixed pose s_birch_spacecol (-wsfixed)
+  fixed_s_birch_spacecol: yaw 180 pitch 12 deg, distance 97 m, 230 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 511/468/8  s5 72/369/0  s6 126/36/0  s7 6/10/0   total stored 7056, missing 883, pending 0; requested 53861, generated 53853 (115 ms each on a worker), dropped stale 45, over-budget frames 89 (of 16967)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 69750/69750/150016 251/284/1540 r0  s2 71647/74006/119296 184/296/1392 r0  s3 67081/67081/102400 222/251/320 r0  s4 31265/57090/102400 107/235/320 r0  s5 7609/51488/102400 32/170/320 r0  s6 17930/26584/71680 64/94/224 r0  s7 676/2546/17280 6/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 44,887 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2441.6 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_spruce_spacecol native: settle frames mean 148.6 ms, p50 148.4 ms, max 163.0 ms (skyfill 0)
+  [refused] now 15, total 45,319, in use 254,188 of 254,400 | box chunks int3(267, 34, 162)..int3(282, 49, 177) | shell 1 cam chunk int3(137, 21, 85) hole +-1 (25.6 m chunks: tier-0 x/z 272..277 / 168..173) [native]
+  [refused] chunk int3(273, 42, 164) world x 3494.4..3507.2 y 537.6..550.4 z 2099.2..2112.0 | dist 82 m | dense 653 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1294, 708) [native]
+  [refused] chunk int3(280, 42, 164) world x 3584.0..3596.8 y 537.6..550.4 z 2099.2..2112.0 | dist 99 m | dense 613 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (194, 708) [native]
+  [refused] chunk int3(270, 42, 164) world x 3456.0..3468.8 y 537.6..550.4 z 2099.2..2112.0 | dist 101 m | dense 502 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1765, 708) [native]
+  [refused] of 15: on screen 3, in shell 1's hole 0, chunk below drawn solid by tier 0 13 [native]
+WSPOSE fixed_s_spruce_spacecol|3528.0,548.1,2183.0|3528.0,568.1,2088.0|fixed pose s_spruce_spacecol (-wsfixed)
+  fixed_s_spruce_spacecol: yaw 180 pitch 12 deg, distance 97 m, 231 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1704/293/4  s4 237/746/4  s5 57/345/0  s6 96/66/0  s7 4/12/0   total stored 6438, missing 1462, pending 0; requested 60255, generated 60247 (114 ms each on a worker), dropped stale 53, over-budget frames 91 (of 18880)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 51360/69750/150016 223/284/1540 r0  s2 55053/74006/119296 232/296/1392 r0  s3 51981/67081/102400 189/251/320 r0  s4 13140/57090/102400 36/235/320 r0  s5 6144/51488/102400 25/170/320 r0  s6 13792/26584/71680 49/94/224 r0  s7 278/2546/17280 4/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 50,791 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2444.1 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_acacia_spacecol native: settle frames mean 151.9 ms, p50 151.3 ms, max 163.5 ms (skyfill 0)
+  [refused] now 26, total 51,143, in use 254,267 of 254,400 | box chunks int3(373, 34, 473)..int3(388, 49, 488) | shell 1 cam chunk int3(190, 20, 240) hole +-1 (25.6 m chunks: tier-0 x/z 378..383 / 478..483) [native]
+  [refused] chunk int3(381, 39, 474) world x 4876.8..4889.6 y 499.2..512.0 z 6067.2..6080.0 | dist 94 m | dense 380 | below absent | shell 1 STORES it | top centre at px (1012, 985) [native]
+  [refused] chunk int3(382, 41, 474) world x 4889.6..4902.4 y 524.8..537.6 z 6067.2..6080.0 | dist 94 m | dense 678 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (879, 705) [native]
+  [refused] chunk int3(383, 41, 474) world x 4902.4..4915.2 y 524.8..537.6 z 6067.2..6080.0 | dist 96 m | dense 564 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (749, 705) [native]
+  [refused] chunk int3(379, 41, 474) world x 4851.2..4864.0 y 524.8..537.6 z 6067.2..6080.0 | dist 98 m | dense 1014 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1269, 705) [native]
+  [refused] chunk int3(384, 41, 474) world x 4915.2..4928.0 y 524.8..537.6 z 6067.2..6080.0 | dist 99 m | dense 702 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (619, 705) [native]
+  [refused] chunk int3(387, 40, 475) world x 4953.6..4966.4 y 512.0..524.8 z 6080.0..6092.8 | dist 108 m | dense 718 | below absent | shell 1 STORES it | top centre at px (84, 858) [native]
+  [refused] chunk int3(377, 40, 474) world x 4825.6..4838.4 y 512.0..524.8 z 6067.2..6080.0 | dist 109 m | dense 519 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1546, 841) [native]
+  [refused] chunk int3(377, 41, 474) world x 4825.6..4838.4 y 524.8..537.6 z 6067.2..6080.0 | dist 109 m | dense 319 | below dense | shell 1 STORES it | top centre at px (1529, 705) [native]
+  [refused] chunk int3(376, 40, 474) world x 4812.8..4825.6 y 512.0..524.8 z 6067.2..6080.0 | dist 116 m | dense 796 | below absent | shell 1 STORES it | top centre at px (1680, 841) [native]
+  [refused] of 26: on screen 9, in shell 1's hole 0, chunk below drawn solid by tier 0 18 [native]
+WSPOSE fixed_s_acacia_spacecol|4888.0,534.5,6167.0|4888.0,554.5,6072.0|fixed pose s_acacia_spacecol (-wsfixed)
+  fixed_s_acacia_spacecol: yaw 180 pitch 12 deg, distance 97 m, 231 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 651/336/0  s5 98/374/8  s6 94/88/0  s7 4/12/0   total stored 7188, missing 810, pending 0; requested 65605, generated 65597 (114 ms each on a worker), dropped stale 56, over-budget frames 93 (of 20516)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 57206/69750/150016 237/284/1540 r0  s2 60115/74006/119296 180/296/1392 r0  s3 61270/67081/102400 225/251/320 r0  s4 39425/57090/102400 123/235/320 r0  s5 11461/51488/102400 40/170/320 r0  s6 13454/26584/71680 47/94/224 r0  s7 278/2546/17280 4/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 53,027 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2452.5 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_m_today native: settle frames mean 177.9 ms, p50 178.0 ms, max 188.6 ms (skyfill 0)
+  [refused] now 12, total 53,117, in use 254,277 of 254,400 | box chunks int3(368, 34, 434)..int3(383, 49, 449) | shell 1 cam chunk int3(188, 20, 221) hole +-1 (25.6 m chunks: tier-0 x/z 374..379 / 440..445) [native]
+  [refused] chunk int3(379, 40, 434) world x 4851.2..4864.0 y 512.0..524.8 z 5555.2..5568.0 | dist 111 m | dense 275 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (659, 692) [native]
+  [refused] chunk int3(379, 41, 434) world x 4851.2..4864.0 y 524.8..537.6 z 5555.2..5568.0 | dist 111 m | dense 561 | below dense | shell 1 STORES it | top centre at px (662, 577) [native]
+  [refused] chunk int3(373, 41, 434) world x 4774.4..4787.2 y 524.8..537.6 z 5555.2..5568.0 | dist 114 m | dense 390 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1343, 577) [native]
+  [refused] chunk int3(370, 41, 434) world x 4736.0..4748.8 y 524.8..537.6 z 5555.2..5568.0 | dist 133 m | dense 609 | below dense (tier 0 draws it) | shell 1 STORES it | top centre at px (1684, 577) [native]
+  [refused] of 12: on screen 4, in shell 1's hole 0, chunk below drawn solid by tier 0 8 [native]
+WSPOSE fixed_m_today|4824.0,532.0,5667.0|4824.0,539.0,5592.0|fixed pose m_today (-wsfixed)
+  fixed_m_today: yaw 180 pitch 5 deg, distance 75 m, 235 s
+  [shells] waited 0 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 66771, generated 66771 (117 ms each on a worker), dropped stale 56, over-budget frames 97 (of 21740)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 57747/69750/150016 230/284/1540 r0  s2 59419/74006/119296 178/296/1392 r0  s3 61270/67081/102400 225/251/320 r0  s4 59465/59465/102400 192/235/320 r0  s5 50153/51488/102400 170/170/320 r0  s6 26655/26655/71680 94/94/224 r0  s7 2214/2546/17280 16/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 56,139 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2450.8 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_s_today native: settle frames mean 158.3 ms, p50 157.7 ms, max 177.2 ms (skyfill 0)
+  [refused] now 0, total 56,151, in use 242,466 of 254,400 | box chunks int3(368, 34, 436)..int3(383, 49, 451) | shell 1 cam chunk int3(188, 20, 222) hole +-1 (25.6 m chunks: tier-0 x/z 374..379 / 442..447) [native]
+WSPOSE fixed_s_today|4824.0,534.0,5687.0|4824.0,554.0,5592.0|fixed pose s_today (-wsfixed)
+  fixed_s_today: yaw 180 pitch 12 deg, distance 97 m, 204 s
+  [shells] waited 0 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 67826, generated 67826 (116 ms each on a worker), dropped stale 56, over-budget frames 98 (of 22928)
+  [pools] shell pack ON; bodies used/peak/cap, pages used/peak/cap, refusals:  s1 55709/69750/150016 235/284/1540 r0  s2 60376/74006/119296 187/296/1392 r0  s3 61800/67081/102400 219/251/320 r0  s4 59465/59465/102400 192/235/320 r0  s5 50153/51488/102400 170/170/320 r0  s6 26655/26655/71680 94/94/224 r0  s7 2214/2546/17280 16/16/54 r0
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 494,252 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,400 refused 57,624 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2448.9 MB, peak 2711.9 MB of the 3,000 MB cap
+  [frame] fixed_c_today native: settle frames mean 174.4 ms, p50 174.3 ms, max 191.8 ms (skyfill 0)
+  [refused] now 0, total 57,639, in use 251,998 of 254,400 | box chunks int3(369, 34, 430)..int3(384, 49, 445) | shell 1 cam chunk int3(188, 20, 219) hole +-1 (25.6 m chunks: tier-0 x/z 374..379 / 436..441) [native]
+WSPOSE fixed_c_today|4836.0,535.0,5609.0|4824.0,537.0,5592.0|fixed pose c_today (-wsfixed)
+  fixed_c_today: yaw 215 pitch 5 deg, distance 21 m, 207 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-14_061703_high

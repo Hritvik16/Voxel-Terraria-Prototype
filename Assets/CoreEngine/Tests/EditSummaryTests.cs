@@ -180,6 +180,7 @@ public class EditSummaryTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Summary_EveryShellLevel_EqualsGeneratorPlusMajorityVoteOfTheResidentChunk()
     {
         int3 site = Site();
@@ -309,6 +310,7 @@ public class EditSummaryTests
     }
 
     [Test, Timeout(600000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Streamer_EditedChunkRedrawsItsShellChunk_ByteExact_IntervalCapEviction()
     {
         const int BUDGET = 3 * 1024 * 1024;
@@ -334,8 +336,13 @@ public class EditSummaryTests
         // Shell 1 is a fill shell since task 93b2; the reference writes the summary over
         // the generator, the streamer fills after it (summary boxes as seeds). This test
         // checks the redraw pipeline, so the fill is off on both sides (ShellFillTests).
+        // Task 178c: the fill also flattens buried mixed bricks; without it the cliff
+        // layers' per-brick rock mix makes buried shell bricks dense and shell 1's
+        // Low pool filled after 96 chunks, before the covers. The mix is a texture,
+        // not part of the redraw pipeline: off here, restored below.
         bool fill = _src.ShellFill;
         _src.ShellFill = false;
+        _src.SetRockMix(false);
         try
         {
             var store = new ChunkStore(pool, alloc);
@@ -438,6 +445,7 @@ public class EditSummaryTests
         {
             ShellStore.ShadowUploads = false;
             _src.ShellFill = fill;
+            _src.SetRockMix(true);
             s.Dispose(); want.Dispose(); pool.Dispose();
             Debug.Log("[93a] streamer\n" + string.Join("\n", lines));
         }

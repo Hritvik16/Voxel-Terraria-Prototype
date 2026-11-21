@@ -153,6 +153,7 @@ public class StreamingTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void EverySingleBitCorruption_IsRejected()
     {
         var meta = Meta();

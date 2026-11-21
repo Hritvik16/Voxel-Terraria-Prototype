@@ -22,6 +22,18 @@ using VoxelEngine.Rendering;
 public partial class PlaygroundCapture
 {
     /// Per shell: stored chunks / missing / in flight (FULL = page cap hit).
+    /// Task 188: each shell's brick pool (512 B bodies) and page table: used / peak / cap, refusals.
+    private static string ShellPoolLine(ShellStreamer sh)
+    {
+        var sb = new StringBuilder($"shell pack {(VoxelEngine.Mirror.ShellBrickPack.Disabled ? "OFF (-shellpack 0)" : "ON")}; bodies used/peak/cap, pages used/peak/cap, refusals:");
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+        {
+            var st = sh.Store(k);
+            sb.Append($"  s{k} {st.BricksUsed}/{st.PeakBricks}/{st.PoolCap} {st.PagesUsed}/{st.PeakPages}/{st.PageCap} r{st.Refusals}");
+        }
+        return sb.ToString();
+    }
+
     private static string ShellCountsLine(ShellStreamer sh)
     {
         var sb = new StringBuilder();

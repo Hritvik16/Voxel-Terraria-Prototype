@@ -40,8 +40,11 @@ namespace TerrainGen.Tests
         private static World Get(uint seed)
         {
             var w = new World { spec = TerrainSpec.SizeClass2(seed) };
+            w.map = SharedMaps.Get(w.spec);   // the default spec's map: the rules never change it
+            // Task 186: the material rules (GroundRules) are the default and replace this
+            // task-177 cover paint; these tests pin the path they describe, -matrules 0.
+            w.spec.matRulesOff = 1;
             w.o = Offsets.For(in w.spec);
-            w.map = SharedMaps.Get(w.spec);
             w.off = w.spec; w.off.coverSlotsOff = 1;   // same map: the cover never changes it
             return w;
         }
@@ -102,7 +105,7 @@ namespace TerrainGen.Tests
                 byte top = DetailField.TopMaterial(in w.spec, in c, st, in w.o, p.x, p.y);
                 byte cell = Cover.Material(Cover.Row(c.surfBiome), c.cover);
                 byte expect = cell == Cover.BARE || st > DetailField.SHEER_STEP
-                    ? DetailField.Strata(in w.spec, in w.o, c.surfBiome, p.x, c.height, p.y)
+                    ? DetailField.Strata(in w.spec, in w.o, in c, p.x, c.height, p.y)
                     : Cover.Settle(cell, st);
                 Assert.AreEqual(expect, top, $"top at {p} (biome {BIOME[c.surfBiome]}, slot {Cover.SlotName(Cover.Slot(c.cover))})");
                 checkedN++;

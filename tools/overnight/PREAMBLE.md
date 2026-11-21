@@ -82,3 +82,33 @@ You are running UNATTENDED in a fresh headless session started by
    reports and screenshots -- no stream probe, acceptance rig or frame-time arms, even if
    its file asks for a "re-measure" (older task files do). Performance is checked at
    milestones by a dedicated task. Rule 9 applies only when a timed measurement runs.
+11. **Efficient by construction** (owner, 2026-11-14: "We cant keep leaving everything up to the performance stage. Every
+   task has to make sure it is doing stuff in a way that prevents further work ... straight away building the most memory and
+   performance efficient way of doing things"). Every task that adds or changes content, data or drawing:
+   (a) chooses the most memory- and performance-efficient design it can find FIRST (shared / deduplicated data, nothing
+   stored that is never drawn, heavy builds on worker threads, nothing per frame that can be done once) and says in HANDOFF
+   why that design is the efficient one;
+   (b) reports its memory cost from the launches it already does, against its switch OFF: memory peak, GPU body pool peak and
+   refusals, CPU pool peak and valve evictions (ledger lines; no extra launch);
+   (c) must not make any of those worse beyond its task file's budget (default: refusals not up, memory peak at most +50 MB).
+   Over budget = fix it inside the task or STOP_FOR_OWNER. "Leave it for the performance stage" is not an option.
+   This is not frame timing: rule 10 still forbids frame-time arms outside performance tasks.
+12. **Keep the budget: cost proxies** (owner, 2026-11-16, task 220; full plan `PERF_BUDGET_GUARD.md`, numbers `PERF_BUDGET.json`).
+   Every task that adds or changes drawing or content reports in HANDOFF, from the launches it already does (no extra launch,
+   no frame-time arm; rule 10 stands): P1 memory (rule 11); P2 a "pass card" for each GPU pass added or changed (resolution:
+   render rows / output 1080p / fixed; every frame or 1 in K; rays, march step cap, texture taps per pixel; GPU bytes added;
+   the AMENDMENT_8_17 step it belongs to and the share it takes); P3 `step <name>: +a ms (cold capture, est.) vs share b ms`
+   ONLY if its launch already prints frame time at a pose (`OVER SHARE` when a > b); P4 for content, instance / tree / body
+   counts at its poses vs OFF (limit +10 % unless density is the task); P5 when a ray march changes, the rays/steps-per-frame
+   counter lines vs OFF (flag at +25 %). A new pass gets its own switch AND a capture-only `-costarms <name>_off` arm.
+   Without approval in the task file: no new pass at OUTPUT resolution, no new per-pixel ray march. Write `HEAVY` in HANDOFF
+   if the task adds either, prints `OVER SHARE`, or crosses a P1/P4 limit: the supervisor then runs the budget check next.
+   **Report worst-case poses, not only noon / no torches** (owner 2026-11-17, task 235): P3 and any perf claim quote the low sun (16 deg) and torches-at-night poses where the task's launch has them.
+13. **Budget check counter** (owner Q-AO (b), N = 5, task 230): the supervisor adds 1 to `tools/overnight/BUDGET_COUNT` (line 1)
+   for each drawing/content task it marks done, and queues `tools/overnight/run-budget-check.sh` next when it reaches 5, at once
+   after a `HEAVY` task, and before any merge to `main`; an accepted check (PASS or `--rebaseline`) sets it to 0, WARN to 2.
+14. **Slice declaration** (owner Q-AT D1-D6, 2026-11-19; `PERF_SLICE_BUDGETS.md`, task 241). The M1 Air 8 GB is tier A (minimum spec):
+   30 fps typical, the dense forest at dawn/dusk may drop to 20 fps (50 ms), memory under 3,000 MB, view range High. A task that adds or
+   changes drawing or content names, in its HANDOFF, the slice it fits (sec. 2 of that doc) with ms and MB for tier A, or what it takes from.
+   Tier A gives up, in order: long low-sun shadows, the bounce sun ray at low sun, render rows 360 then 288 in heavy views, tree density LAST.
+   Tiers B and C are labelled estimates, never promises. Slice numbers are est./guess unless measured; no extra timing launch for this (rule 10).

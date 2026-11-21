@@ -1,0 +1,1 @@
+seed 7 savanna: 30 trees, side view along +z, rejected framed red (0)

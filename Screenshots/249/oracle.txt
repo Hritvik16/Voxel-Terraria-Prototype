@@ -1,0 +1,289 @@
+TASK 249 -- SunCacheReference vs ShadowRayReference.Trace (AMENDMENT 8.18 sec. 6, 247a). DRAFT amendment, CPU only.
+Sections are written by SunCacheOracleTests (one file each, joined here); a section older than this run is marked by its own date.
+Written 2026-11-20 16:41
+
+################ oracle_00_step_proxy.txt  (2026-11-20 16:41)
+== Step-count proxy (this run's cases; raw 0.1 m DDA cells inside each scene box, no leaps, both sides) ==
+reference (Trace from the face's origin, to the box exit): 616082 faces, 74.0 steps/face
+contact ray (<= 8 cells):                                   12.4 steps/face
+N0 (0.05 m) line build: 1862066 lines, 59.3 steps/line
+N1 (0.10 m) line build: 612144 lines, 81.9 steps/line
+N2 (0.20 m) line build: 240076 lines, 125.9 steps/line
+N3 (0.40 m) line build: 96903 lines, 177.2 steps/line
+
+################ oracle_0_line_selfcheck.txt  (2026-11-20 16:41)
+face int3(124, 31, 40) Q float3(125.7031f, 40.37846f, 41.19459f) uv float2(53.60195f, -241.7119f) tap (53,-242) P float3(125.6755f, 40.3534f, 41.52619f) entry 1963.625 exit 1963.813 dq 1985.755 lineLit False exactLit False vis 0.4285075
+face int3(124, 31, 40) Q float3(125.7031f, 40.37846f, 41.19459f) uv float2(53.60195f, -241.7119f) tap (54,-242) P float3(125.9255f, 40.3534f, 41.09318f) entry 1994.188 exit 2002.25 dq 1985.755 lineLit True exactLit True vis 0.4285075
+face int3(124, 31, 40) Q float3(125.7031f, 40.37846f, 41.19459f) uv float2(53.60195f, -241.7119f) tap (53,-241) P float3(125.249f, 40.44022f, 41.27999f) entry 1962.813 exit 1963.875 dq 1985.755 lineLit False exactLit False vis 0.4285075
+face int3(124, 31, 40) Q float3(125.7031f, 40.37846f, 41.19459f) uv float2(53.60195f, -241.7119f) tap (54,-241) P float3(125.499f, 40.44022f, 40.84697f) entry 1962.813 exit 1963.875 dq 1985.755 lineLit False exactLit False vis 0.4285075
+face int3(56, 31, 41) Q float3(57.70307f, 40.37846f, 42.19459f) uv float2(-16.1301f, -126.7065f) tap (-17,-127) P float3(57.61076f, 40.35305f, 42.64353f) entry 1973.313 exit 1973.938 dq 1995.894 lineLit False exactLit False vis 0.6146188
+face int3(56, 31, 41) Q float3(57.70307f, 40.37846f, 42.19459f) uv float2(-16.1301f, -126.7065f) tap (-16,-127) P float3(57.86076f, 40.35305f, 42.21052f) entry 2004.375 exit 2012.438 dq 1995.894 lineLit True exactLit True vis 0.6146188
+face int3(56, 31, 41) Q float3(57.70307f, 40.37846f, 42.19459f) uv float2(-16.1301f, -126.7065f) tap (-17,-126) P float3(57.18433f, 40.43987f, 42.39733f) entry 1972.938 exit 1974.063 dq 1995.894 lineLit False exactLit False vis 0.6146188
+face int3(56, 31, 41) Q float3(57.70307f, 40.37846f, 42.19459f) uv float2(-16.1301f, -126.7065f) tap (-16,-126) P float3(57.43433f, 40.43987f, 41.96431f) entry 1972.938 exit 1974.063 dq 1995.894 lineLit False exactLit False vis 0.6146188
+face int3(147, 31, 42) Q float3(148.7031f, 40.37846f, 43.19459f) uv float2(73.13784f, -282.9134f) tap (73,-283) P float3(148.7056f, 40.371f, 43.27561f) entry 1990.563 exit 1998.625 dq 1982.122 lineLit True exactLit True vis 0.7875153
+face int3(147, 31, 42) Q float3(148.7031f, 40.37846f, 43.19459f) uv float2(73.13784f, -282.9134f) tap (74,-283) P float3(148.9556f, 40.371f, 42.8426f) entry 1959.125 exit 1960.188 dq 1982.122 lineLit False exactLit False vis 0.7875153
+face int3(147, 31, 42) Q float3(148.7031f, 40.37846f, 43.19459f) uv float2(73.13784f, -282.9134f) tap (73,-282) P float3(148.2791f, 40.45782f, 43.02941f) entry 1959.188 exit 1960.25 dq 1982.122 lineLit False exactLit False vis 0.7875153
+face int3(147, 31, 42) Q float3(148.7031f, 40.37846f, 43.19459f) uv float2(73.13784f, -282.9134f) tap (74,-282) P float3(148.5291f, 40.45782f, 42.5964f) entry 1959.188 exit 1960.25 dq 1982.122 lineLit False exactLit False vis 0.7875153
+taps 200704, line != exact at the tap point: 0
+
+################ oracle_1_slope_sweep.txt  (2026-11-20 16:37)
+== (1) Slope sweep: procedural planes 10-85 deg (uphill az 20 deg), suns 8/16/30/60 deg x 8 azimuths (0 = sun facing the slope), 256 sampled faces per config ==
+beta = sun angle above the slope plane (negative = slope faces away). Kill: false shadow out of band > 0.5 % of lit-out faces, |beta| > 3.6 deg.
+-- N0 (0.05 m) --
+slope 10 deg (|beta|>3.6)          faces   7424  refLit   6855  litOut   6855  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+slope 20 deg (|beta|>3.6)          faces   7680  refLit   6143  litOut   6143  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+slope 30 deg (|beta|>3.6)          faces   7936  refLit   5769  litOut   5769  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+slope 45 deg (|beta|>3.6)          faces   8192  refLit   5255  litOut   5255  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+slope 60 deg (|beta|>3.6)          faces   7936  refLit   4511  litOut   4450  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band    61  incons 0
+slope 75 deg (|beta|>3.6)          faces   7680  refLit   3820  litOut   3820  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+slope 85 deg (|beta|>3.6)          faces   6656  refLit   3255  litOut   3233  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band    22  incons 0
+grazing configs (|beta|<=3.6)      faces   3840  refLit   1060  litOut    367  FS     8 (out    0 =  0.000 %)  FL    64 (out    0 =  0.000 %)  band   763  incons 0
+worst single config (>= 20 lit-out faces): 0.000 %  
+-- N1 (0.10 m) --
+slope 10 deg (|beta|>3.6)          faces   7424  refLit   6855  litOut   6684  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   171  incons 0
+slope 20 deg (|beta|>3.6)          faces   7680  refLit   6143  litOut   5960  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   195  incons 0
+slope 30 deg (|beta|>3.6)          faces   7936  refLit   5769  litOut   5370  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   399  incons 0
+slope 45 deg (|beta|>3.6)          faces   8192  refLit   5255  litOut   5099  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   156  incons 0
+slope 60 deg (|beta|>3.6)          faces   7936  refLit   4511  litOut   4018  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   493  incons 0
+slope 75 deg (|beta|>3.6)          faces   7680  refLit   3820  litOut   3632  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   188  incons 0
+slope 85 deg (|beta|>3.6)          faces   6656  refLit   3255  litOut   3139  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   116  incons 0
+grazing configs (|beta|<=3.6)      faces   3840  refLit   1060  litOut      0  FS    72 (out    0 =  0.000 %)  FL    61 (out    0 =  0.000 %)  band  1221  incons 0
+worst single config (>= 20 lit-out faces): 0.000 %  
+-- N2 (0.20 m) --
+slope 10 deg (|beta|>3.6)          faces   7424  refLit   6855  litOut   6166  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   689  incons 0
+slope 20 deg (|beta|>3.6)          faces   7680  refLit   6143  litOut   5491  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   664  incons 0
+slope 30 deg (|beta|>3.6)          faces   7936  refLit   5769  litOut   5120  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   649  incons 0
+slope 45 deg (|beta|>3.6)          faces   8192  refLit   5255  litOut   4687  FS     2 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   568  incons 0
+slope 60 deg (|beta|>3.6)          faces   7936  refLit   4511  litOut   3724  FS     7 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   787  incons 0
+slope 75 deg (|beta|>3.6)          faces   7680  refLit   3820  litOut   3221  FS     3 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   599  incons 0
+slope 85 deg (|beta|>3.6)          faces   6656  refLit   3255  litOut   3072  FS     2 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   183  incons 0
+grazing configs (|beta|<=3.6)      faces   3840  refLit   1060  litOut      0  FS   245 (out    0 =  0.000 %)  FL    64 (out    0 =  0.000 %)  band  1239  incons 0
+worst single config (>= 20 lit-out faces): 0.000 %  
+-- N3 (0.40 m) --
+slope 10 deg (|beta|>3.6)          faces   7424  refLit   6855  litOut   5411  FS    32 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band  1444  incons 0
+slope 20 deg (|beta|>3.6)          faces   7680  refLit   6143  litOut   4804  FS    10 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band  1351  incons 0
+slope 30 deg (|beta|>3.6)          faces   7936  refLit   5769  litOut   4533  FS    25 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band  1236  incons 0
+slope 45 deg (|beta|>3.6)          faces   8192  refLit   5255  litOut   3730  FS    27 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band  1525  incons 0
+slope 60 deg (|beta|>3.6)          faces   7936  refLit   4511  litOut   3266  FS    62 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band  1245  incons 0
+slope 75 deg (|beta|>3.6)          faces   7680  refLit   3820  litOut   3072  FS    44 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   748  incons 0
+slope 85 deg (|beta|>3.6)          faces   6656  refLit   3255  litOut   2986  FS    35 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   269  incons 0
+grazing configs (|beta|<=3.6)      faces   3840  refLit   1060  litOut     35  FS   411 (out    0 =  0.000 %)  FL    25 (out    0 =  0.000 %)  band  1204  incons 0
+worst single config (>= 20 lit-out faces): 0.000 %  
+KILL CHECK (1): worst per-slope false-shadow-out rate 0.000 % at  -> pass (limit 0.5 %)
+most mismatches (in band included, one non-grazing config): slope 75 sun 16 az 470 N3 (0.40 m): 39
+
+################ oracle_2_flat_ground.txt  (2026-11-20 16:37)
+== (2) Flat ground (y < 64), sun 2-90 deg at azimuth 37 deg, 400 sampled top faces ==
+sun  2 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  2 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  2 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  2 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  4 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  4 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  4 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  4 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  8 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  8 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  8 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun  8 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 16 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 16 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 16 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 16 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 30 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 30 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 30 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 30 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 45 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 45 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 45 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 45 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 60 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 60 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 60 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 60 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 90 deg N0 (0.05 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 90 deg N1 (0.10 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 90 deg N2 (0.20 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+sun 90 deg N3 (0.40 m)             faces    400  refLit    400  litOut    400  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band     0  incons 0
+false shadows (acne) at suns > 3.6 deg, all maps: 0; incl. grazing suns: 0
+
+################ oracle_3_pole_wall.txt  (2026-11-20 16:37)
+== (3) 1x1 pole (4 m) and a 1-thick wall (2.4 m tall, 4 m long) on a floor; 6 suns ==
+foot gap = a floor face touching the caster's base that the reference shades and the cache lights (peter-panning).
+sun 30 az 0 N0 (0.05 m)            faces  14359  refLit  14275  litOut  14205  FS     0 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   140  incons 0
+sun 30 az 0 N1 (0.10 m)            faces  14359  refLit  14275  litOut  14131  FS     0 (out    0 =  0.000 %)  FL     1 (out    0 =  0.000 %)  band   214  incons 0
+sun 30 az 0 N2 (0.20 m)            faces  14359  refLit  14275  litOut  13987  FS    81 (out   11 =  0.079 %)  FL     1 (out    0 =  0.000 %)  band   358  incons 0
+sun 30 az 0 N3 (0.40 m)            faces  14359  refLit  14275  litOut  14127  FS     0 (out    0 =  0.000 %)  FL    70 (out    0 =  0.000 %)  band   218  incons 0
+sun 30 az 60 N0 (0.05 m)           faces  14359  refLit  12846  litOut  12707  FS     8 (out    0 =  0.000 %)  FL     8 (out    1 =  0.073 %)  band   274  incons 0
+sun 30 az 60 N1 (0.10 m)           faces  14359  refLit  12846  litOut  12566  FS    26 (out    0 =  0.000 %)  FL    58 (out    0 =  0.000 %)  band   546  incons 0
+sun 30 az 60 N2 (0.20 m)           faces  14359  refLit  12846  litOut  12234  FS    54 (out    0 =  0.000 %)  FL    65 (out    0 =  0.000 %)  band  1045  incons 0
+sun 30 az 60 N3 (0.40 m)           faces  14359  refLit  12846  litOut  11975  FS    70 (out    0 =  0.000 %)  FL   154 (out    0 =  0.000 %)  band  1630  incons 0
+sun 30 az 135 N0 (0.05 m)          faces  14359  refLit  13085  litOut  12978  FS     1 (out    0 =  0.000 %)  FL     6 (out    0 =  0.000 %)  band   213  incons 22
+sun 30 az 135 N1 (0.10 m)          faces  14359  refLit  13085  litOut  12802  FS     1 (out    0 =  0.000 %)  FL    59 (out    0 =  0.000 %)  band   551  incons 22
+sun 30 az 135 N2 (0.20 m)          faces  14359  refLit  13085  litOut  12582  FS    98 (out    0 =  0.000 %)  FL   103 (out    0 =  0.000 %)  band   916  incons 22
+sun 30 az 135 N3 (0.40 m)          faces  14359  refLit  13085  litOut  12258  FS    21 (out    0 =  0.000 %)  FL   165 (out    0 =  0.000 %)  band  1555  incons 22
+sun 30 az 200 N0 (0.05 m)          faces  14359  refLit  13680  litOut  13548  FS     0 (out    0 =  0.000 %)  FL    46 (out    0 =  0.000 %)  band   301  incons 0
+sun 30 az 200 N1 (0.10 m)          faces  14359  refLit  13680  litOut  13410  FS    15 (out    0 =  0.000 %)  FL    40 (out    0 =  0.000 %)  band   523  incons 0
+sun 30 az 200 N2 (0.20 m)          faces  14359  refLit  13680  litOut  13179  FS   102 (out    0 =  0.000 %)  FL    36 (out    0 =  0.000 %)  band   895  incons 0
+sun 30 az 200 N3 (0.40 m)          faces  14359  refLit  13680  litOut  12619  FS   157 (out    0 =  0.000 %)  FL   138 (out    0 =  0.000 %)  band  1642  incons 0
+sun 16 az 60 N0 (0.05 m)           faces  14359  refLit  11651  litOut  11486  FS    13 (out    0 =  0.000 %)  FL     9 (out    0 =  0.000 %)  band   330  incons 0
+sun 16 az 60 N1 (0.10 m)           faces  14359  refLit  11651  litOut  11321  FS    28 (out    0 =  0.000 %)  FL    72 (out    0 =  0.000 %)  band   620  incons 0
+sun 16 az 60 N2 (0.20 m)           faces  14359  refLit  11651  litOut  11012  FS    54 (out    0 =  0.000 %)  FL    76 (out    0 =  0.000 %)  band  1147  incons 0
+sun 16 az 60 N3 (0.40 m)           faces  14359  refLit  11651  litOut  10723  FS   116 (out    0 =  0.000 %)  FL   168 (out    0 =  0.000 %)  band  2010  incons 0
+sun 60 az 100 N0 (0.05 m)          faces  14359  refLit  13811  litOut  13739  FS    13 (out    0 =  0.000 %)  FL     6 (out    0 =  0.000 %)  band    98  incons 0
+sun 60 az 100 N1 (0.10 m)          faces  14359  refLit  13811  litOut  13663  FS    14 (out    0 =  0.000 %)  FL    12 (out    0 =  0.000 %)  band   264  incons 0
+sun 60 az 100 N2 (0.20 m)          faces  14359  refLit  13811  litOut  13582  FS    24 (out    0 =  0.000 %)  FL    37 (out    0 =  0.000 %)  band   431  incons 0
+sun 60 az 100 N3 (0.40 m)          faces  14359  refLit  13811  litOut  13362  FS    28 (out    0 =  0.000 %)  FL    58 (out    0 =  0.000 %)  band   831  incons 0
+ALL N0 (0.05 m)                    faces  86154  refLit  79348  litOut  78663  FS    35 (out    0 =  0.000 %)  FL    75 (out    1 =  0.016 %)  band  1356  incons 22
+ALL N1 (0.10 m)                    faces  86154  refLit  79348  litOut  77893  FS    84 (out    0 =  0.000 %)  FL   242 (out    0 =  0.000 %)  band  2718  incons 22
+ALL N2 (0.20 m)                    faces  86154  refLit  79348  litOut  76576  FS   413 (out   11 =  0.014 %)  FL   318 (out    0 =  0.000 %)  band  4792  incons 22
+ALL N3 (0.40 m)                    faces  86154  refLit  79348  litOut  75064  FS   392 (out    0 =  0.000 %)  FL   753 (out    0 =  0.000 %)  band  7886  incons 22
+foot gaps: 0; mismatches outside the 1-texel edge band (all maps): 12; worst map 0.013 % of faces (8.18 sec. 3.3 residual budget: < 0.5 %)
+
+################ oracle_4_canopy_dapples.txt  (2026-11-20 16:38)
+== (4) Canopy: 1-thick slab 3 m over the ground, one g x g hole per 8 x 8 voxels (random place), ground top faces under it ==
+strength = mean cache visibility on the faces the reference lights through a hole (a dapple); seen = share of them with vis >= 0.5.
+map pick by receiver distance: 5 m -> N0, 20 m -> N1, 40 m -> N2 (asserted); N3 shown for reference.
+each row sums 8 sun azimuths (30 + 45 k deg): the faces and the holes share one voxel grid, so at ONE sun every hole is crossed
+at the same sub-voxel spot; the azimuth sweep averages that phase out.
+gap 1 sun 80 N0 (0.05 m): dapple faces   784  strength   49.4 %  seen   48.7 %  | false lit faces (cache lights a face the slab shades) 52 (out of band 0)
+gap 1 sun 80 N1 (0.10 m): dapple faces   784  strength   32.4 %  seen   27.2 %  | false lit faces (cache lights a face the slab shades) 146 (out of band 0)
+gap 1 sun 80 N2 (0.20 m): dapple faces   784  strength   12.1 %  seen   16.3 %  | false lit faces (cache lights a face the slab shades) 178 (out of band 0)
+gap 1 sun 80 N3 (0.40 m): dapple faces   784  strength    4.4 %  seen    4.6 %  | false lit faces (cache lights a face the slab shades) 327 (out of band 0)
+gap 1 sun 60 N0 (0.05 m): dapple faces   396  strength   37.8 %  seen   34.3 %  | false lit faces (cache lights a face the slab shades) 54 (out of band 0)
+gap 1 sun 60 N1 (0.10 m): dapple faces   396  strength   18.3 %  seen   18.7 %  | false lit faces (cache lights a face the slab shades) 111 (out of band 0)
+gap 1 sun 60 N2 (0.20 m): dapple faces   396  strength   10.8 %  seen   13.9 %  | false lit faces (cache lights a face the slab shades) 191 (out of band 0)
+gap 1 sun 60 N3 (0.40 m): dapple faces   396  strength    0.0 %  seen    0.0 %  | false lit faces (cache lights a face the slab shades) 123 (out of band 0)
+gap 1 sun 45 N0 (0.05 m): dapple faces   392  strength   13.0 %  seen   17.9 %  | false lit faces (cache lights a face the slab shades) 17 (out of band 0)
+gap 1 sun 45 N1 (0.10 m): dapple faces   392  strength    4.0 %  seen    4.6 %  | false lit faces (cache lights a face the slab shades) 5 (out of band 0)
+gap 1 sun 45 N2 (0.20 m): dapple faces   392  strength    1.4 %  seen    1.5 %  | false lit faces (cache lights a face the slab shades) 14 (out of band 0)
+gap 1 sun 45 N3 (0.40 m): dapple faces   392  strength    0.0 %  seen    0.0 %  | false lit faces (cache lights a face the slab shades) 16 (out of band 0)
+gap 2 sun 80 N0 (0.05 m): dapple faces  3265  strength   72.5 %  seen   76.4 %  | false lit faces (cache lights a face the slab shades) 141 (out of band 0)
+gap 2 sun 80 N1 (0.10 m): dapple faces  3265  strength   61.5 %  seen   64.5 %  | false lit faces (cache lights a face the slab shades) 432 (out of band 0)
+gap 2 sun 80 N2 (0.20 m): dapple faces  3265  strength   40.3 %  seen   38.2 %  | false lit faces (cache lights a face the slab shades) 639 (out of band 0)
+gap 2 sun 80 N3 (0.40 m): dapple faces  3265  strength   15.7 %  seen   20.2 %  | false lit faces (cache lights a face the slab shades) 1204 (out of band 0)
+gap 2 sun 60 N0 (0.05 m): dapple faces  2010  strength   72.1 %  seen   76.1 %  | false lit faces (cache lights a face the slab shades) 444 (out of band 0)
+gap 2 sun 60 N1 (0.10 m): dapple faces  2010  strength   57.3 %  seen   62.0 %  | false lit faces (cache lights a face the slab shades) 561 (out of band 0)
+gap 2 sun 60 N2 (0.20 m): dapple faces  2010  strength   35.5 %  seen   34.5 %  | false lit faces (cache lights a face the slab shades) 751 (out of band 0)
+gap 2 sun 60 N3 (0.40 m): dapple faces  2010  strength    7.6 %  seen    9.4 %  | false lit faces (cache lights a face the slab shades) 862 (out of band 0)
+gap 2 sun 45 N0 (0.05 m): dapple faces  2386  strength   49.2 %  seen   48.5 %  | false lit faces (cache lights a face the slab shades) 327 (out of band 0)
+gap 2 sun 45 N1 (0.10 m): dapple faces  2386  strength   36.4 %  seen   33.6 %  | false lit faces (cache lights a face the slab shades) 261 (out of band 0)
+gap 2 sun 45 N2 (0.20 m): dapple faces  2386  strength   18.5 %  seen   20.8 %  | false lit faces (cache lights a face the slab shades) 348 (out of band 0)
+gap 2 sun 45 N3 (0.40 m): dapple faces  2386  strength    5.5 %  seen    6.5 %  | false lit faces (cache lights a face the slab shades) 505 (out of band 0)
+gap 3 sun 80 N0 (0.05 m): dapple faces  7197  strength   81.0 %  seen   84.5 %  | false lit faces (cache lights a face the slab shades) 214 (out of band 0)
+gap 3 sun 80 N1 (0.10 m): dapple faces  7197  strength   73.5 %  seen   77.4 %  | false lit faces (cache lights a face the slab shades) 712 (out of band 0)
+gap 3 sun 80 N2 (0.20 m): dapple faces  7197  strength   56.2 %  seen   59.8 %  | false lit faces (cache lights a face the slab shades) 1061 (out of band 0)
+gap 3 sun 80 N3 (0.40 m): dapple faces  7197  strength   27.7 %  seen   30.6 %  | false lit faces (cache lights a face the slab shades) 1911 (out of band 0)
+gap 3 sun 60 N0 (0.05 m): dapple faces  5175  strength   83.1 %  seen   87.1 %  | false lit faces (cache lights a face the slab shades) 853 (out of band 0)
+gap 3 sun 60 N1 (0.10 m): dapple faces  5175  strength   73.5 %  seen   80.5 %  | false lit faces (cache lights a face the slab shades) 1079 (out of band 0)
+gap 3 sun 60 N2 (0.20 m): dapple faces  5175  strength   57.0 %  seen   60.0 %  | false lit faces (cache lights a face the slab shades) 1475 (out of band 0)
+gap 3 sun 60 N3 (0.40 m): dapple faces  5175  strength   20.1 %  seen   25.1 %  | false lit faces (cache lights a face the slab shades) 1865 (out of band 0)
+gap 3 sun 45 N0 (0.05 m): dapple faces  6000  strength   67.8 %  seen   71.4 %  | false lit faces (cache lights a face the slab shades) 557 (out of band 0)
+gap 3 sun 45 N1 (0.10 m): dapple faces  6000  strength   58.0 %  seen   61.5 %  | false lit faces (cache lights a face the slab shades) 500 (out of band 0)
+gap 3 sun 45 N2 (0.20 m): dapple faces  6000  strength   36.0 %  seen   35.7 %  | false lit faces (cache lights a face the slab shades) 725 (out of band 0)
+gap 3 sun 45 N3 (0.40 m): dapple faces  6000  strength   16.2 %  seen   19.5 %  | false lit faces (cache lights a face the slab shades) 1548 (out of band 0)
+KILL CHECK (4): 1-voxel dapples in N0, all suns: strength 37.4 % over 1572 dapple faces -> KILL FIRES (limit 75 %)
+picture: Screenshots/249/dapples_gap1_sun60.png (sun 60 az 30; 5 panels: reference, then cache N0 N1 N2 N3; brightness = visibility)
+
+################ oracle_5_ridge_cave.txt  (2026-11-20 16:38)
+== (5) Ridge block x 24-232, y 32-160, z 16-144 on a floor; sun from -x; an air room inside ==
+leak = a room face the reference shades that the cache lights (vis >= 0.5); partial = 0 < vis < 0.5.
+RUN_CAP in voxels: N0 8, N1 16, N2 32, N3 64.
+5a deep room (>= 88 vox of rock, > every cap) sun 16 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 16 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 16 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 16 N3 (0.40 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 30 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 30 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 30 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 30 N3 (0.40 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 60 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 60 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 60 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial    0
+5a deep room (>= 88 vox of rock, > every cap) sun 60 N3 (0.40 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 16 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 16 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 16 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial    2
+5b thin roof (10 vox of rock above) sun 16 N3 (0.40 m): room faces  600 refLit 0 | leaks   35  partial   26
+5b thin roof (10 vox of rock above) sun 30 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 30 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 30 N2 (0.20 m): room faces  600 refLit 0 | leaks    3  partial    8
+5b thin roof (10 vox of rock above) sun 30 N3 (0.40 m): room faces  600 refLit 0 | leaks    8  partial   14
+5b thin roof (10 vox of rock above) sun 60 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5b thin roof (10 vox of rock above) sun 60 N1 (0.10 m): room faces  600 refLit 0 | leaks    2  partial    3
+5b thin roof (10 vox of rock above) sun 60 N2 (0.20 m): room faces  600 refLit 0 | leaks    6  partial    4
+5b thin roof (10 vox of rock above) sun 60 N3 (0.40 m): room faces  600 refLit 0 | leaks   10  partial   41
+5c room 20 vox behind the sunward wall sun 16 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 16 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 16 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial   31
+5c room 20 vox behind the sunward wall sun 16 N3 (0.40 m): room faces  600 refLit 0 | leaks  116  partial   37
+5c room 20 vox behind the sunward wall sun 30 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 30 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 30 N2 (0.20 m): room faces  600 refLit 0 | leaks    4  partial    6
+5c room 20 vox behind the sunward wall sun 30 N3 (0.40 m): room faces  600 refLit 0 | leaks   10  partial   22
+5c room 20 vox behind the sunward wall sun 60 N0 (0.05 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 60 N1 (0.10 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 60 N2 (0.20 m): room faces  600 refLit 0 | leaks    0  partial    0
+5c room 20 vox behind the sunward wall sun 60 N3 (0.40 m): room faces  600 refLit 0 | leaks    3  partial   13
+KILL CHECK (5): 5a leaks + partial leaks: 0 -> pass
+
+################ oracle_6_crack.txt  (2026-11-20 16:38)
+== (6) 1-voxel crack (x = 80) in a block y < 120, floor faces z 60-140; receivers at 60 m -> N3 (0.4 m texels) ==
+depth  40 vox, sun 60 tilt  0: N0 (0.05 m) floor faces  80 refLit  80 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  0: N1 (0.10 m) floor faces  80 refLit  80 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  0: N2 (0.20 m) floor faces  80 refLit  80 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  0: N3 (0.40 m) floor faces  80 refLit  80 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  5: N0 (0.05 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  5: N1 (0.10 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  5: N2 (0.20 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt  5: N3 (0.40 m) floor faces  80 refLit   0 | false shadow   0  false lit  46
+depth  40 vox, sun 60 tilt 20: N0 (0.05 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt 20: N1 (0.10 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt 20: N2 (0.20 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth  40 vox, sun 60 tilt 20: N3 (0.40 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt  0: N0 (0.05 m) floor faces  80 refLit  53 | false shadow   1  false lit   0
+depth 100 vox, sun 60 tilt  0: N1 (0.10 m) floor faces  80 refLit  53 | false shadow   1  false lit   0
+depth 100 vox, sun 60 tilt  0: N2 (0.20 m) floor faces  80 refLit  53 | false shadow   1  false lit   0
+depth 100 vox, sun 60 tilt  0: N3 (0.40 m) floor faces  80 refLit  53 | false shadow  53  false lit   0
+depth 100 vox, sun 60 tilt  5: N0 (0.05 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt  5: N1 (0.10 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt  5: N2 (0.20 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt  5: N3 (0.40 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt 20: N0 (0.05 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt 20: N1 (0.10 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt 20: N2 (0.20 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+depth 100 vox, sun 60 tilt 20: N3 (0.40 m) floor faces  80 refLit   0 | false shadow   0  false lit   0
+(report only: the amendment lists this residual; the N3 rows are the 60 m case)
+
+################ oracle_7_edit.txt  (2026-11-20 16:38)
+== (7) Edit: canopy (gap 2), sun 60 az 30; remove one slab voxel over the receivers ==
+N0 (0.05 m): dirty rect   48 lines, lines that changed   4 | after:                                    faces   2704  refLit    159  litOut      0  FS    43 (out    0 =  0.000 %)  FL     0 (out    0 =  0.000 %)  band   279  incons 0
+N1 (0.10 m): dirty rect   30 lines, lines that changed   2 | after:                                    faces   2704  refLit    159  litOut      0  FS    86 (out    0 =  0.000 %)  FL     5 (out    0 =  0.000 %)  band   538  incons 0
+N2 (0.20 m): dirty rect   25 lines, lines that changed   1 | after:                                    faces   2704  refLit    159  litOut      0  FS    96 (out    0 =  0.000 %)  FL    37 (out    0 =  0.000 %)  band  1310  incons 0
+N3 (0.40 m): dirty rect   16 lines, lines that changed   0 | after:                                    faces   2704  refLit    159  litOut      0  FS   155 (out    0 =  0.000 %)  FL    11 (out    0 =  0.000 %)  band  1203  incons 0
+voxel int3(96, 62, 96): lines queued (built ones in all maps) 114, rebuilt 114; changed outside the dirty rect: 0; stale lines after the pass: 0
+one 0.8 m brick at sun 16 deg, dirty rect per map: N0 650 N1 225 N2 100 N3 49 (amendment est. ~500 / 130 / 35 / 10)
+lookups after the dirty pass that differ from a from-scratch cache: 0
+
+################ oracle_8_frames.txt  (2026-11-20 16:41)
+== (8) Frames: canopy (gap 2), 300 ground receivers, camera 5 m/s along x at 7 m height from 50 m outside the box to its far side (receivers 0-70 m: all maps), sun 0.3 deg/s (play clock), 30 fps, 360 frames, budget 15 k lines/frame ==
+as written = a new slot takes the sun of the moment it starts building (8.18 sec. 2.2); predicted = the sun 2 periods ahead (its display centre).
+staleness = angle between the displayed sun (prev->cur crossfade) and the true sun; C.10 soft spread = kSoft 0.03 rad = 30 mrad, amendment target < 1/3 of it.
+-- as written: lookups 108000, contact-only fallbacks 0, lines/frame mean 1372 max 4864
+   N0 (0.05 m) period 16: staleness mean   5.6 mrad max   5.6 mrad (19 % of the soft spread) | vs exact (frames 64+, every 8th): faces  2382 FS out    0/31    FL out    0/2082
+   N1 (0.10 m) period 32: staleness mean  11.2 mrad max  11.2 mrad (37 % of the soft spread) | vs exact (frames 64+, every 8th): faces  3032 FS out    0/129   FL out    0/2238
+   N2 (0.20 m) period 64: staleness mean  21.1 mrad max  22.4 mrad (75 % of the soft spread) | vs exact (frames 64+, every 8th): faces  5305 FS out    0/215   FL out   10/3082
+   N3 (0.40 m) period 64: staleness mean  21.1 mrad max  22.4 mrad (75 % of the soft spread) | vs exact (frames 64+, every 8th): faces   381 FS out    0/36    FL out    0/148
+-- predicted: lookups 108000, contact-only fallbacks 0, lines/frame mean 1382 max 5120
+   N0 (0.05 m) period 16: staleness mean   0.0 mrad max   0.3 mrad (1 % of the soft spread) | vs exact (frames 64+, every 8th): faces  2382 FS out    0/31    FL out    0/2081
+   N1 (0.10 m) period 32: staleness mean   0.0 mrad max   0.0 mrad (0 % of the soft spread) | vs exact (frames 64+, every 8th): faces  3032 FS out    0/129   FL out    0/2234
+   N2 (0.20 m) period 64: staleness mean   1.2 mrad max  11.2 mrad (37 % of the soft spread) | vs exact (frames 64+, every 8th): faces  5305 FS out    0/215   FL out   14/3058
+   N3 (0.40 m) period 64: staleness mean   1.2 mrad max  11.2 mrad (37 % of the soft spread) | vs exact (frames 64+, every 8th): faces   381 FS out    0/36    FL out    0/155
+sentinel texels weighted into a visibility (both runs): 0
+
+################ oracle_9_toroid.txt  (2026-11-20 16:41)
+== (9) Toroidal addressing: the same receivers with the map's storage offset moved so their texels straddle 511 -> 0 ==
+receivers 1024, N0 taps at storage >= 480: 238, < 32: 581; answers that differ from the unwrapped map: 0
+alias check: tile (35,5) before it is built reads SENTINEL; after building it, tile (3,5) reads SENTINEL (evicted)
+

@@ -1,0 +1,52 @@
+seed 42. LOD 0: a 3 x 3 chunk-column patch round the densest tree spot of each biome; every layer from the lowest ground - 1 to the top.
+Dense = non-uniform 8^3 bricks (a 512-byte body each on CPU + GPU). Times: this test's own Generate calls, ON and OFF interleaved (not a warm rig).
+== task 180's trees (-treestyle 0)
+forest   LOD 0 patch at chunk column int2(320, 97) (4 roots in the centre column): dense bricks OFF 8387 -> ON 18114 (+116 %), +4.75 MB bodies per 9 columns; non-empty chunks 18 -> 30; tree voxels 4226765; gen time OFF 1696 ms -> ON 1919 ms (+13 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 332 -> ON 1248 (+276 %), gen OFF 150 -> ON 165 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 336 -> ON 958 (+185 %), gen OFF 170 -> ON 177 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 366 -> ON 630 (+72 %), gen OFF 338 -> ON 343 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 368 -> ON 495 (+35 %), gen OFF 427 -> ON 425 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 392 -> ON 411 (+5 %), gen OFF 468 -> ON 462 ms
+jungle   LOD 0 patch at chunk column int2(355, 388) (4 roots in the centre column): dense bricks OFF 9840 -> ON 12288 (+25 %), +1.20 MB bodies per 9 columns; non-empty chunks 23 -> 31; tree voxels 870981; gen time OFF 1818 ms -> ON 1874 ms (+3 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 419 -> ON 938 (+124 %), gen OFF 192 -> ON 198 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 374 -> ON 624 (+67 %), gen OFF 227 -> ON 219 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 378 -> ON 516 (+37 %), gen OFF 383 -> ON 385 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 501 -> ON 598 (+19 %), gen OFF 543 -> ON 551 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 447 -> ON 493 (+10 %), gen OFF 679 -> ON 675 ms
+snow     LOD 0 patch at chunk column int2(486, 359) (4 roots in the centre column): dense bricks OFF 8350 -> ON 10531 (+26 %), +1.06 MB bodies per 9 columns; non-empty chunks 18 -> 25; tree voxels 643464; gen time OFF 1932 ms -> ON 1983 ms (+3 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 381 -> ON 640 (+68 %), gen OFF 182 -> ON 192 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 360 -> ON 519 (+44 %), gen OFF 213 -> ON 222 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 350 -> ON 440 (+26 %), gen OFF 408 -> ON 409 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 377 -> ON 517 (+37 %), gen OFF 523 -> ON 529 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 400 -> ON 474 (+19 %), gen OFF 483 -> ON 498 ms
+savanna  LOD 0 patch at chunk column int2(160, 384) (3 roots in the centre column): dense bricks OFF 7524 -> ON 9400 (+25 %), +0.92 MB bodies per 9 columns; non-empty chunks 17 -> 23; tree voxels 467047; gen time OFF 2006 ms -> ON 2038 ms (+2 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 301 -> ON 609 (+102 %), gen OFF 195 -> ON 196 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 309 -> ON 476 (+54 %), gen OFF 210 -> ON 224 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 322 -> ON 400 (+24 %), gen OFF 397 -> ON 397 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 324 -> ON 346 (+7 %), gen OFF 408 -> ON 411 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 395 -> ON 402 (+2 %), gen OFF 476 -> ON 488 ms
+== task 192's trees (default, leaf fill 45)
+forest   LOD 0 patch at chunk column int2(320, 97) (4 roots in the centre column): dense bricks OFF 8387 -> ON 16396 (+95 %), +3.91 MB bodies per 9 columns; non-empty chunks 18 -> 27; tree voxels 1989115; gen time OFF 1678 ms -> ON 1874 ms (+12 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 332 -> ON 1069 (+222 %), gen OFF 147 -> ON 158 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 336 -> ON 770 (+129 %), gen OFF 171 -> ON 176 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 366 -> ON 578 (+58 %), gen OFF 338 -> ON 342 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 368 -> ON 485 (+32 %), gen OFF 409 -> ON 417 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 392 -> ON 392 (+0 %), gen OFF 450 -> ON 463 ms
+jungle   LOD 0 patch at chunk column int2(355, 388) (4 roots in the centre column): dense bricks OFF 9840 -> ON 11441 (+16 %), +0.78 MB bodies per 9 columns; non-empty chunks 23 -> 28; tree voxels 313376; gen time OFF 1821 ms -> ON 1856 ms (+2 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 419 -> ON 750 (+79 %), gen OFF 191 -> ON 196 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 374 -> ON 557 (+49 %), gen OFF 216 -> ON 218 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 378 -> ON 477 (+26 %), gen OFF 398 -> ON 385 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 501 -> ON 567 (+13 %), gen OFF 536 -> ON 541 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 447 -> ON 486 (+9 %), gen OFF 665 -> ON 674 ms
+snow     LOD 0 patch at chunk column int2(486, 359) (4 roots in the centre column): dense bricks OFF 8350 -> ON 9981 (+20 %), +0.80 MB bodies per 9 columns; non-empty chunks 18 -> 24; tree voxels 296370; gen time OFF 1926 ms -> ON 1969 ms (+2 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 381 -> ON 503 (+32 %), gen OFF 181 -> ON 189 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 360 -> ON 474 (+32 %), gen OFF 213 -> ON 226 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 350 -> ON 446 (+27 %), gen OFF 408 -> ON 409 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 377 -> ON 477 (+27 %), gen OFF 522 -> ON 528 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 400 -> ON 450 (+13 %), gen OFF 505 -> ON 497 ms
+savanna  LOD 0 patch at chunk column int2(160, 384) (3 roots in the centre column): dense bricks OFF 7524 -> ON 8969 (+19 %), +0.71 MB bodies per 9 columns; non-empty chunks 17 -> 18; tree voxels 264401; gen time OFF 2028 ms -> ON 2045 ms (+1 %)
+           shell 1 (0.2 m voxels), 3 layers: dense OFF 301 -> ON 556 (+85 %), gen OFF 193 -> ON 196 ms
+           shell 2 (0.4 m voxels), 3 layers: dense OFF 309 -> ON 444 (+44 %), gen OFF 210 -> ON 211 ms
+           shell 3 (0.8 m voxels), 3 layers: dense OFF 322 -> ON 370 (+15 %), gen OFF 397 -> ON 398 ms
+           shell 4 (1.6 m voxels), 3 layers: dense OFF 324 -> ON 324 (+0 %), gen OFF 411 -> ON 411 ms
+           shell 5 (3.2 m voxels), 3 layers: dense OFF 395 -> ON 400 (+1 %), gen OFF 483 -> ON 485 ms

@@ -134,6 +134,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// and the far band keep following the camera. Builds the 0.1 m reference patch
     /// round a distant point. Off by default.
     internal static Vector3? RefTier0Centre;
+    private readonly Plane[] _valvePlanes = new Plane[6];   // task 208: the camera frustum for the CPU valve
 
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
@@ -354,9 +355,16 @@ public class Phase4Bootstrapper : MonoBehaviour
             if (gpuBrickCap <= 0) gpuBrickCap = EngineConfig.GpuBrickCapFor(mirrorChunks.x, mirrorChunks.y, mirrorChunks.z);
             gpuBrickCap = Math.Min(gpuBrickCap, _pool.Capacity);
         }
+        TerrainClipmap.SealHiddenBricks = ArgInt("-gpuseal", 1) == 1;   // task 201a: sealed bricks take no GPU body (pool on only)
+        TerrainClipmap.RetryOnlyWhatFits = ArgInt("-retryfit", 1) == 1;   // task 207: 0 = the old retry (whole refused set per freed slot)
+        StreamManager.ValveViewOrder = ArgInt("-valveview", 1) == 1;   // task 208: 0 = the old valve order (pure LRU, in-view chunks too)
+        // Task 216: 1 = the GPU body pool drops out-of-view chunks for in-view ones. Default ON since task 218b
+        // (its launch pair: refusals 81 -> 70 at walk1/walk2); 0 = 207's path.
+        TerrainClipmap.ViewEvict = ArgInt("-gpuviewevict", 1) == 1;
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
         if (gpuBrickCap > 0)
-            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f");
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f; " +
+                                  $"sealed bricks {(TerrainClipmap.SealHiddenBricks ? "take no body (task 201a)" : "OFF (-gpuseal 0)")}");
         if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
         if (IsTg2World && ShellsOn)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
@@ -530,6 +538,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         // -farband 1, so every existing rig and scene is unchanged by default.
         // The TerrainGen world ALWAYS has it: outside the voxel band (above,
         // below, beyond) the far band is the only thing that draws the island.
+        // Task 198 (diagnostic, -dashprobe 1): keep the far texels' CPU copy (FarField.Shadow, 20 MB) for the dash oracle.
+        if (ArgInt("-dashprobe", 0) == 1) VoxelEngine.Rendering.FarField.ShadowTexels = true;
         if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
             _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null,
                                                       Streamer.Ops,    // task 82: the far band draws the save's edit ops
@@ -575,6 +585,7 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     void LateUpdate()
     {
+        MemWatch.Tick();   // task 218: -memwatch <MB> (diagnostic, default off)
         if (Streamer == null) return;
         Vector3 camPos = DebugStreamCentre ?? (Camera.main != null ? Camera.main.transform.position : transform.position);
 
@@ -591,6 +602,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // world.state is only written when the run saves terrain (WorldState header).
         Streamer.AdvanceClock(Time.deltaTime);
         UploadRing.TickShared();   // task 168e: poll the staging slots' GPU guards (once per frame)
+        // Task 208: the valve evicts out-of-view chunks first (the camera frustum, no alloc).
+        if (Camera.main != null) { GeometryUtility.CalculateFrustumPlanes(Camera.main, _valvePlanes); Streamer.SetViewFrustum(_valvePlanes); }
+        else Streamer.ClearViewFrustum();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(RefTier0Centre ?? camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;
@@ -606,7 +620,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
         FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
-        if (Shells != null)
+        if (Shells != null && !DebugHoldShellsFar)
         {
             // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
             // mirror and the cascades left of it this frame.
@@ -619,14 +633,23 @@ public class Phase4Bootstrapper : MonoBehaviour
         double farT0 = sw.Elapsed.TotalMilliseconds;
         if (_far != null)
         {
-            _far.Update(camPos);
+            if (!DebugHoldShellsFar) _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
+            // Task 197: the shells take every column tier 0 lacks -- refused, resident but not yet (re)uploaded, or
+            // not resident (valve-evicted / streaming) where shell 1's published directory holds it.
+            _shellHolds ??= c => Shells != null && Shells.PublishedHolds(Shells.FirstShell, c >> Shells.FirstShell);
             _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi,
-                                 Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null);
+                                 Shells != null || Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null, Shells != null ? _shellHolds : null);
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
     }
+
+    private static Func<int3, bool> _shellHolds;   // task 197: cached (no per-frame delegate allocation)
+
+    /// Task 201a (capture only, `-gpusealcmp 1`): the shell streamer and the far band stop updating, so a
+    /// pose's stills differ only by what the arms change (tier 0 still streams and uploads).
+    internal static bool DebugHoldShellsFar;
 
     /// `-quality low|medium|high|ultra` (default High: rigs pin High, row 16).
     private static QualityPreset ShellPresetFromArgs()

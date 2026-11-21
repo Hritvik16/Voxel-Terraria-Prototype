@@ -1,0 +1,266 @@
+UPSCALER CLIPS -- 2026-11-17_004908
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+COST SPLIT (task 57): 12.00 h, sun elevation 78 deg; FULL = fsr3 432 rows pinned, HUD + minimap on, fluid on; roof skip OFF; shadow res full; shadow rung 0, torch rays override -1 (config 4), temporal shadows ON (1 in 4), far shadows ON, cascade True
+order: F, then per arm X X F; each run 3 s settle + 1 s timed, real time, no capture
+walk_open: arc start candidates (angle on the circle: median free distance): 90:4m 113:160m 135:28m 158:4m 180:68m 203:8m 225:4m 248:4m 270:1500m -> 270 deg
+
+== walk_near: MODE=walk circle centre (4016, 860, 4000) r 150 m, arc from -180 deg, 5 m/s, heading yaw 180 -> 165 (sun yaw 0)  (sun 78 deg at 12.00 h)
+  streaming pinned at the middle pose (3866.9, 944.2, 3979.7): resident 3138, deficit 0
+  [shells] fill wait 60 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 1663/333/5  s3 342/1149/3  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4175, missing 3156, pending 0; requested 4739, generated 4731 (63 ms each on a worker), dropped stale 4, over-budget frames 0 (of 1449)
+  [shells] complete at (s; - = not within the wait):  s1 14  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far full] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell full] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell full] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   1 full      pass 1  frames    9  p50 118.9  p95  143.2  p99  143.2 ms  >33ms 100.0%  cpu main p50 119.9 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+    [sun lotl_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far lotl_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell lotl_off] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell lotl_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell lotl_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell lotl_off] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell lotl_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh lotl_off] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh lotl_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   2 lotl_off  pass 1  frames   10  p50 106.8  p95  157.9  p99  157.9 ms  >33ms 100.0%  cpu main p50 106.8 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+   3 lotl_off  pass 2  frames   10  p50 119.0  p95  158.9  p99  158.9 ms  >33ms 100.0%  cpu main p50 119.0 (present wait   0.0)  render thr   1.2  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+   4 full      pass 2  frames   10  p50 106.9  p95  167.6  p99  167.6 ms  >33ms 100.0%  cpu main p50 114.2 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+    [sun vary_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far vary_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell vary_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell vary_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell vary_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell vary_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell vary_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh vary_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh vary_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   5 vary_only pass 1  frames    9  p50 119.6  p95  146.2  p99  146.2 ms  >33ms 100.0%  cpu main p50 119.4 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+   6 vary_only pass 2  frames   10  p50 114.0  p95  163.8  p99  163.8 ms  >33ms 100.0%  cpu main p50 114.0 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+   7 full      pass 3  frames   10  p50  96.1  p95  170.3  p99  170.3 ms  >33ms 100.0%  cpu main p50  96.1 (present wait   0.0)  render thr   1.2  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+    [sun crevice_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far crevice_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell crevice_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell crevice_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell crevice_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell crevice_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell crevice_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh crevice_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh crevice_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   8 crevice_only pass 1  frames    9  p50 122.8  p95  150.7  p99  150.7 ms  >33ms 100.0%  cpu main p50 122.7 (present wait   0.0)  render thr   1.2  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+   9 crevice_only pass 2  frames   10  p50 125.8  p95  147.7  p99  147.7 ms  >33ms 100.0%  cpu main p50 125.8 (present wait   0.0)  render thr   1.2  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  10 full      pass 4  frames   10  p50 117.5  p95  148.5  p99  148.5 ms  >33ms 100.0%  cpu main p50 117.8 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+    [sun aerial_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far aerial_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell aerial_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell aerial_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell aerial_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell aerial_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell aerial_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh aerial_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh aerial_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  11 aerial_only pass 1  frames    8  p50 126.9  p95  329.0  p99  329.0 ms  >33ms 100.0%  cpu main p50 108.1 (present wait   0.0)  render thr   2.5  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  12 aerial_only pass 2  frames    9  p50 131.3  p95  166.2  p99  166.2 ms  >33ms 100.0%  cpu main p50 131.3 (present wait   0.0)  render thr   3.5  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  13 full      pass 5  frames   10  p50 107.8  p95  173.8  p99  173.8 ms  >33ms 100.0%  cpu main p50 107.8 (present wait   0.0)  render thr   3.6  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+    [sun bloom_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far bloom_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell bloom_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell bloom_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell bloom_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell bloom_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1100.8 m, far max h 1099.3 m
+    [shell bloom_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh bloom_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh bloom_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  14 bloom_only pass 1  frames    9  p50 128.5  p95  138.5  p99  138.5 ms  >33ms 100.0%  cpu main p50 119.9 (present wait   0.0)  render thr   3.5  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  15 bloom_only pass 2  frames    9  p50 113.1  p95  153.1  p99  153.1 ms  >33ms 100.0%  cpu main p50 120.9 (present wait   0.0)  render thr   2.6  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  16 full      pass 6  frames    9  p50 117.5  p95  176.2  p99  176.2 ms  >33ms 100.0%  cpu main p50 111.7 (present wait   0.0)  render thr   3.8  gpu*   0.0  deficit frames 0  far busy 0  resident 3138  kernel lean
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 237,484 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 137,204 refused 0 (124.2 MB), in use 137,204, sealed 27,043 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2294.7 MB, peak 2547.9 MB of the 3,000 MB cap
+
+== forest_eye: still pose (-costfixed), eye (3366.4, 532.5, 4950.0) looking at (3366.4, 529.7, 4928.0), yaw 180, pitch -7 up  (sun 78 deg at 12.00 h)
+  streaming pinned at the middle pose (3366.4, 532.5, 4950.0): resident 2506, deficit 581
+  [shells] fill wait 60 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1549/445/7  s4 521/465/1  s5 315/165/0  s6 170/12/0  s7 13/3/0   total stored 6908, missing 1090, pending 0; requested 13574, generated 13566 (124 ms each on a worker), dropped stale 4, over-budget frames 1 (of 6531)
+  [shells] complete at (s; - = not within the wait):  s1 0  s2 0  s3 -  s4 -  s5 -  s6 -  s7 -
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far full] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell full] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell full] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   1 full      pass 1  frames    8  p50 132.9  p95  407.0  p99  407.0 ms  >33ms  75.0%  cpu main p50 132.9 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 8  far busy 0  resident 2507  kernel lean
+    [sun lotl_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far lotl_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell lotl_off] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell lotl_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell lotl_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell lotl_off] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell lotl_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh lotl_off] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh lotl_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   2 lotl_off  pass 1  frames    8  p50 140.4  p95  198.7  p99  198.7 ms  >33ms 100.0%  cpu main p50 139.2 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2497  kernel lean
+   3 lotl_off  pass 2  frames    8  p50 132.1  p95  204.6  p99  204.6 ms  >33ms 100.0%  cpu main p50 137.1 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2557  kernel lean
+   4 full      pass 2  frames    8  p50 138.6  p95  184.3  p99  184.3 ms  >33ms 100.0%  cpu main p50 137.9 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2512  kernel lean
+    [sun vary_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far vary_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell vary_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell vary_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell vary_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell vary_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell vary_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh vary_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh vary_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   5 vary_only pass 1  frames    9  p50 135.0  p95  198.3  p99  198.3 ms  >33ms 100.0%  cpu main p50 142.8 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 9  far busy 0  resident 2511  kernel lean
+   6 vary_only pass 2  frames    8  p50 137.7  p95  174.0  p99  174.0 ms  >33ms 100.0%  cpu main p50 136.6 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2539  kernel lean
+   7 full      pass 3  frames    9  p50 143.4  p95  167.3  p99  167.3 ms  >33ms 100.0%  cpu main p50 143.4 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 9  far busy 0  resident 2483  kernel lean
+    [sun crevice_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far crevice_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell crevice_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell crevice_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell crevice_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell crevice_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell crevice_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh crevice_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh crevice_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   8 crevice_only pass 1  frames    8  p50 142.9  p95  170.2  p99  170.2 ms  >33ms 100.0%  cpu main p50 132.1 (present wait   0.0)  render thr   0.9  gpu*   0.0  deficit frames 8  far busy 0  resident 2540  kernel lean
+   9 crevice_only pass 2  frames    8  p50 131.3  p95  400.8  p99  400.8 ms  >33ms  87.5%  cpu main p50 133.4 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2539  kernel lean
+  10 full      pass 4  frames    8  p50 135.6  p95  183.7  p99  183.7 ms  >33ms 100.0%  cpu main p50 138.0 (present wait   0.0)  render thr   0.8  gpu*   0.0  deficit frames 8  far busy 0  resident 2493  kernel lean
+    [sun aerial_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far aerial_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell aerial_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell aerial_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell aerial_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell aerial_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell aerial_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh aerial_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh aerial_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  11 aerial_only pass 1  frames    8  p50 137.2  p95  190.2  p99  190.2 ms  >33ms 100.0%  cpu main p50 137.1 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2564  kernel lean
+  12 aerial_only pass 2  frames    8  p50 133.1  p95  199.8  p99  199.8 ms  >33ms 100.0%  cpu main p50 132.5 (present wait   0.0)  render thr   0.9  gpu*   0.0  deficit frames 8  far busy 0  resident 2505  kernel lean
+  13 full      pass 5  frames    8  p50 136.3  p95  196.2  p99  196.2 ms  >33ms 100.0%  cpu main p50 138.1 (present wait   0.0)  render thr   0.9  gpu*   0.0  deficit frames 8  far busy 0  resident 2514  kernel lean
+    [sun bloom_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far bloom_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell bloom_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell bloom_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell bloom_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell bloom_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell bloom_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh bloom_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh bloom_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  14 bloom_only pass 1  frames    7  p50 133.0  p95  549.0  p99  549.0 ms  >33ms  71.4%  cpu main p50 138.4 (present wait   0.0)  render thr   1.1  gpu*   0.0  deficit frames 7  far busy 0  resident 2545  kernel lean
+  15 bloom_only pass 2  frames    8  p50 133.3  p95  184.2  p99  184.2 ms  >33ms 100.0%  cpu main p50 137.8 (present wait   0.0)  render thr   0.9  gpu*   0.0  deficit frames 8  far busy 0  resident 2572  kernel lean
+  16 full      pass 6  frames    8  p50 133.8  p95  188.0  p99  188.0 ms  >33ms 100.0%  cpu main p50 143.2 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 8  far busy 0  resident 2507  kernel lean
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 496,663 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 245,704 refused 0 (124.2 MB), in use 245,704, sealed 100,415 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2348.4 MB, peak 2547.9 MB of the 3,000 MB cap
+
+== jungle_eye: still pose (-costfixed), eye (5772.8, 530.4, 5001.2) looking at (5772.8, 535.3, 4979.2), yaw 180, pitch 13 up  (sun 78 deg at 12.00 h)
+  streaming pinned at the middle pose (5772.8, 530.4, 5001.2): resident 2155, deficit 932
+  [shells] fill wait 60 s (cap 60 s); stored/missing/in flight:  s1 2170/0/0  s2 2108/59/3  s3 669/1327/5  s4 78/909/0  s5 237/204/0  s6 144/18/0  s7 13/3/0   total stored 5419, missing 2520, pending 0; requested 19619, generated 19611 (137 ms each on a worker), dropped stale 4, over-budget frames 1 (of 32484)
+  [shells] complete at (s; - = not within the wait):  s1 0  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+    [sun full] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far full] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell full] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell full] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell full] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell full] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh full] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh full] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   1 full      pass 1  frames   10  p50 114.0  p95  142.6  p99  142.6 ms  >33ms 100.0%  cpu main p50 109.2 (present wait   0.0)  render thr   1.0  gpu*   0.0  deficit frames 10  far busy 0  resident 2108  kernel lean
+    [sun lotl_off] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far lotl_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell lotl_off] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell lotl_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell lotl_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell lotl_off] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell lotl_off] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh lotl_off] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh lotl_off] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   2 lotl_off  pass 1  frames   10  p50  94.9  p95  154.1  p99  154.1 ms  >33ms 100.0%  cpu main p50  94.9 (present wait   0.0)  render thr   0.9  gpu* 217.2  deficit frames 10  far busy 0  resident 2148  kernel lean
+   3 lotl_off  pass 2  frames   10  p50 106.3  p95  157.5  p99  157.5 ms  >33ms 100.0%  cpu main p50 106.3 (present wait   0.0)  render thr   1.0  gpu* 217.8  deficit frames 10  far busy 0  resident 2132  kernel lean
+   4 full      pass 2  frames   10  p50 110.1  p95  145.7  p99  145.7 ms  >33ms 100.0%  cpu main p50 110.4 (present wait   0.0)  render thr   1.0  gpu* 235.8  deficit frames 10  far busy 0  resident 2149  kernel lean
+    [sun vary_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far vary_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell vary_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell vary_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell vary_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell vary_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell vary_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh vary_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh vary_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   5 vary_only pass 1  frames   10  p50 102.2  p95  128.3  p99  128.3 ms  >33ms 100.0%  cpu main p50 102.2 (present wait   0.0)  render thr   1.2  gpu* 218.0  deficit frames 10  far busy 0  resident 2142  kernel lean
+   6 vary_only pass 2  frames   10  p50 108.4  p95  137.8  p99  137.8 ms  >33ms 100.0%  cpu main p50 107.6 (present wait   0.0)  render thr   1.1  gpu* 316.1  deficit frames 10  far busy 0  resident 2154  kernel lean
+   7 full      pass 3  frames    9  p50 128.5  p95  158.3  p99  158.3 ms  >33ms 100.0%  cpu main p50 118.6 (present wait   0.0)  render thr   1.0  gpu* 244.7  deficit frames 9  far busy 0  resident 2140  kernel lean
+    [sun crevice_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far crevice_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell crevice_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell crevice_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell crevice_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell crevice_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell crevice_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh crevice_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh crevice_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+   8 crevice_only pass 1  frames   11  p50 108.8  p95  161.2  p99  161.2 ms  >33ms 100.0%  cpu main p50 108.8 (present wait   0.0)  render thr   1.0  gpu* 223.4  deficit frames 11  far busy 0  resident 2147  kernel lean
+   9 crevice_only pass 2  frames    9  p50 120.3  p95  147.5  p99  147.5 ms  >33ms 100.0%  cpu main p50 120.3 (present wait   0.0)  render thr   1.2  gpu* 238.4  deficit frames 9  far busy 0  resident 2148  kernel lean
+  10 full      pass 4  frames    9  p50 114.1  p95  134.7  p99  134.7 ms  >33ms 100.0%  cpu main p50 113.8 (present wait   0.0)  render thr   1.0  gpu* 221.1  deficit frames 9  far busy 0  resident 2141  kernel lean
+    [sun aerial_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far aerial_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell aerial_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell aerial_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell aerial_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell aerial_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell aerial_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh aerial_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh aerial_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  11 aerial_only pass 1  frames   10  p50 116.0  p95  140.8  p99  140.8 ms  >33ms 100.0%  cpu main p50 109.8 (present wait   0.0)  render thr   1.1  gpu* 233.9  deficit frames 10  far busy 0  resident 2145  kernel lean
+  12 aerial_only pass 2  frames   10  p50 108.1  p95  159.3  p99  159.3 ms  >33ms 100.0%  cpu main p50 106.2 (present wait   0.0)  render thr   0.9  gpu* 324.3  deficit frames 10  far busy 0  resident 2152  kernel lean
+  13 full      pass 5  frames    9  p50 120.6  p95  152.3  p99  152.3 ms  >33ms 100.0%  cpu main p50 119.0 (present wait   0.0)  render thr   1.0  gpu* 362.4  deficit frames 9  far busy 0  resident 2143  kernel lean
+    [sun bloom_only] reuse 1 in 4; clamp inherit (primary ray's 0 m); voxel shadow rays traced/frame 0, steps/frame 0 (0.0/ray)
+    [far bloom_only] far rays/frame 0 (from shells: past-last 0, absent 0, cap / sky exit 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell bloom_only] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell bloom_only] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell bloom_only] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+    [shell bloom_only] sky rays 0/frame (0.0% of pixels), shell iters 0 (0.0/sky ray); ended by the sky exit 0 (0%); exit ON, shell top y 1126.4 m, far max h 1099.3 m
+    [shell bloom_only] column sky leaps 0/frame (0% of primary iters), whole chunk 0; leap OFF; pre-pass ON (9.9 MB scratch)
+    [nearsh bloom_only] ON: near sun rays handed on to the shells 0/frame (0% of traced), shell iters 0 (0.0/ray), blocked by the shells 0 (0.0%)
+    [nearsh bloom_only] tier-0 chunk leaps 0/frame (0% of their iters, 0.0/ray), of them in the hole box 0 (0%); hole leap OFF; height bound OFF
+  14 bloom_only pass 1  frames    9  p50 131.9  p95  161.9  p99  161.9 ms  >33ms 100.0%  cpu main p50 112.5 (present wait   0.0)  render thr   1.0  gpu* 246.7  deficit frames 9  far busy 0  resident 2152  kernel lean
+  15 bloom_only pass 2  frames   10  p50 110.4  p95  159.0  p99  159.0 ms  >33ms 100.0%  cpu main p50 110.4 (present wait   0.0)  render thr   0.9  gpu* 236.2  deficit frames 10  far busy 0  resident 2123  kernel lean
+  16 full      pass 6  frames   10  p50  95.9  p95  157.7  p99  157.7 ms  >33ms 100.0%  cpu main p50  95.9 (present wait   0.0)  render thr   1.1  gpu* 218.4  deficit frames 10  far busy 0  resident 2139  kernel lean
+  [mem] STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 496,935 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 254,398 refused 7,979 (124.2 MB), in use 254,398, sealed 79,778 | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2362.1 MB, peak 2547.9 MB of the 3,000 MB cap
+
+COST SPLIT TABLES (gpu* = FrameTimingManager gpuFrameTime, inflated ~2.6x on this Mac: relative only)
+walk_near
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full      117.5  170.3  176.2   100.0    6 runs: 118.9 106.9 96.1 117.5 107.8 117.5   (range 22.8)   cpu 117.8 / 0.0   gpu* 0.0
+lotl_off  119.0  157.9  158.9   100.0     106.8 / 119.0      118.9 / 106.9              -6.1         12.0                 119.0 /   0.0            0.0
+vary_only 119.6  163.8  163.8   100.0     119.6 / 114.0      106.9 / 96.1              -18.1         10.8                 119.4 /   0.0            0.0
+crevice_only 125.8  150.7  150.7   100.0     122.8 / 125.8       96.1 / 117.5             -19.0         21.4                 125.8 /   0.0            0.0
+aerial_only 127.7  329.0  329.0   100.0     126.9 / 131.3      117.5 / 107.8             -15.0          9.7                 126.8 /   0.0            0.0
+bloom_only 113.1  153.1  153.1   100.0     128.5 / 113.1      107.8 / 117.5              -0.4          9.7                 119.9 /   0.0            0.0
+
+forest_eye
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full      137.9  188.0  407.0    95.9    6 runs: 132.9 138.6 143.4 135.6 136.3 133.8   (range 10.5)   cpu 141.5 / 0.0   gpu* 0.0
+lotl_off  140.4  204.6  204.6   100.0     140.4 / 132.1      132.9 / 138.6              -4.6          5.7                 139.2 /   0.0            0.0
+vary_only 137.7  198.3  198.3   100.0     135.0 / 137.7      138.6 / 143.4              +3.3          4.8                 137.7 /   0.0            0.0
+crevice_only 140.3  400.8  400.8    93.8     142.9 / 131.3      143.4 / 135.6              -0.8          7.8                 133.4 /   0.0            0.0
+aerial_only 137.2  199.8  199.8   100.0     137.2 / 133.1      135.6 / 136.3              -1.2          0.7                 134.6 /   0.0            0.0
+bloom_only 133.3  549.0  549.0    86.7     133.0 / 133.3      136.3 / 133.8              +1.7          2.5                 138.4 /   0.0            0.0
+
+jungle_eye
+arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full      118.6  152.3  158.3   100.0    6 runs: 114.0 110.1 128.5 114.1 120.6 95.9   (range 32.6)   cpu 116.5 / 0.0   gpu* 231.3
+lotl_off  106.3  154.1  157.5   100.0      94.9 / 106.3      114.0 / 110.1              +5.7          3.9                 106.3 /   0.0          217.8
+vary_only 107.6  135.9  137.8   100.0     102.2 / 108.4      110.1 / 128.5             +11.7         18.4                 106.7 /   0.0          290.3
+crevice_only 113.1  147.5  161.2   100.0     108.8 / 120.3      128.5 / 114.1              +8.2         14.4                 112.1 /   0.0          232.9
+aerial_only 109.8  142.9  159.3   100.0     116.0 / 108.1      114.1 / 120.6              +7.5          6.5                 109.8 /   0.0          317.5
+bloom_only 123.7  161.9  161.9   100.0     131.9 / 110.4      120.6 / 95.9              -15.5         24.6                 112.5 /   0.0          239.2
+
+

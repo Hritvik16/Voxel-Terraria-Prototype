@@ -12,6 +12,10 @@
 //   - on v4 face columns: the far-band footprints stay within the spec-aware
 //     band-limit bound, and the LOD-0 contract holds (the column's height is
 //     its top solid voxel, air or fluid above).
+// Task 178c (owner 2026-11-06, "rework it"): the rock's biome comes from the
+// border's smooth warp only (no patch-scale streaks on faces), layers interfinger
+// at borders, each layer mixes its partner rock per brick (~1/4), the layer
+// boundaries are nearly flat (RockBiome_*, Mix_*, Layers_NearlyFlat).
 // Report_Cliffs (REPORTS=1) dumps a section and a top view at 173's three cliff
 // poses, cliffs on and off, for tools/cliff178.py, plus mixed-brick counts and
 // the Sample cost (Mono, rough).
@@ -95,6 +99,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Layers_AreThickAndTheBiomesOwnRocks()
         {
             var w = Get(42);
@@ -124,6 +129,118 @@ namespace TerrainGen.Tests
                 sb.AppendLine($"biome {b}: rocks {seen.Count}, thinnest layer {shortest / 10f:F1} m (pre-178 {(pre == int.MaxValue ? "one rock" : (pre / 10f).ToString("F1") + " m")})");
             }
             Debug.Log("[Cliffs] layers seed 42\n" + sb);
+        }
+
+        /// 178c: along 200 m lines through border columns, the rock biome (rockA) switches
+        /// far less often than the surface biome (whose 10-40 m patches drew the drips)
+        /// and at most twice per line; and the two sides are biomes of the border.
+        [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
+        public void RockBiome_IsSmooth_NoPatchStreaks()
+        {
+            var w = Get(42);
+            var rng = new Unity.Mathematics.Random(0x178c1);
+            int lines = 0, surfSw = 0, rockSw = 0, worst = 0, split = 0, cols = 0, minRun = int.MaxValue;
+            var runs = new List<int>(); var sruns = new List<int>();
+            int n = w.spec.mapCells, cv = w.spec.mapCellVoxels;
+            for (int guard = 0; lines < 300 && guard < 200000; guard++)
+            {
+                var p0 = new int2(rng.NextInt(4 * cv, (n - 4) * cv), rng.NextInt(4 * cv, (n - 4) * cv));
+                var c0 = S(in w.spec, in w, p0.x, p0.y);
+                if (c0.height <= w.spec.seaLevelY || c0.rockA == c0.rockB && c0.surfBiome == c0.biome && c0.rockA == c0.biome + 1) continue;
+                float2 d = rng.NextFloat2Direction();
+                lines++;
+                byte ps = 255, pr = 255; int lineSw = 0, lastSw = int.MinValue, lastS = int.MinValue;
+                for (int i = -1000; i <= 1000; i += 10)
+                {
+                    var q = (int2)math.floor(new float2(p0) + d * i);
+                    var c = S(in w.spec, in w, q.x, q.y);
+                    cols++;
+                    if (c.rockA != c.rockB) split++;
+                    Assert.AreNotEqual(0, c.rockA, "cliffs on: every land column has a rock biome");
+                    if (ps != 255 && c.surfBiome != ps)
+                    {
+                        surfSw++;
+                        if (lastS != int.MinValue) sruns.Add(i - lastS);
+                        lastS = i;
+                    }
+                    if (pr != 255 && c.rockA != pr)
+                    {
+                        rockSw++; lineSw++;
+                        if (lastSw != int.MinValue) { minRun = math.min(minRun, i - lastSw); runs.Add(i - lastSw); }
+                        lastSw = i;
+                    }
+                    ps = c.surfBiome; pr = c.rockA;
+                }
+                worst = math.max(worst, lineSw);
+            }
+            string msg = $"{lines} lines of 200 m: surface-biome switches {surfSw}, rock-biome switches {rockSw}, worst line {worst}; " +
+                         $"columns with two rock sides {split} of {cols}; rock runs between switches: {runs.Count}, shortest {(minRun == int.MaxValue ? 0 : minRun) / 10} m, " +
+                         $"under 30 m {runs.FindAll(r => r < 300).Count}; surface-biome runs {sruns.Count}, under 30 m {sruns.FindAll(r => r < 300).Count}";
+            Debug.Log("[Cliffs] rock biome " + msg);
+            Assert.Greater(lines, 100, msg);
+            Assert.Greater(surfSw, 0, msg);
+            Assert.LessOrEqual(rockSw * 4, surfSw, msg);
+            // A streak is a patch narrow across the line (178's were 1-10 m, the surface
+            // biome's patch octave). The rock biome has no patch octave: its short runs are
+            // a line grazing one smooth border (seed 42: 7 of 65 under 30 m, shortest 13 m),
+            // at least 10x fewer than the surface biome's.
+            Assert.LessOrEqual(runs.FindAll(r => r < 300).Count * 10, sruns.FindAll(r => r < 300).Count, msg);
+            Assert.Greater(split, 0, "no interfingering at all: " + msg);
+            // Cliffs off: rock = the surface biome, as before 178.
+            var off = S(in w.off, in w, 40000, 40000);
+            Assert.AreEqual(0, off.rockA);
+        }
+
+        /// 178c: ~28 % of bricks wear the partner rock (the nearest-tone rock, not the
+        /// layer's own); a mixed brick is uniform; the mix is a pure function of the brick.
+        [Test]
+        public void Mix_ShareAndPartnerRock()
+        {
+            var w = Get(42);
+            var rng = new Unity.Mathematics.Random(0x178c2);
+            int mixed = 0, total = 20000;
+            for (int i = 0; i < total; i++)
+            {
+                int x = rng.NextInt(0, 80000), y = rng.NextInt(5000, 9000), z = rng.NextInt(0, 80000);
+                bool m = DetailField.MixBrick(w.spec.seed, x, y, z);
+                Assert.AreEqual(m, DetailField.MixBrick(w.spec.seed, (x & ~7) | ((x + 5) & 7), (y & ~7) | ((y + 3) & 7), (z & ~7) | ((z + 1) & 7)), "per brick");
+                if (m) mixed++;
+            }
+            float share = mixed / (float)total;
+            Debug.Log($"[Cliffs] mixed bricks {share:P1}");
+            Assert.That(share, Is.InRange(0.12f, 0.38f), $"mixed share {share:P1}");
+            for (byte b = 0; b < GenBiome.Count; b++)
+            {
+                for (int k = -40; k < 40; k++)
+                {
+                    byte pm = DetailField.LayerMaterial(w.spec.seed, b, k, true);
+                    Assert.AreNotEqual(DetailField.LayerMaterial(w.spec.seed, b, k), pm, $"biome {b} layer {k}: partner = itself");
+                    Assert.AreNotEqual(0, pm, $"biome {b} layer {k}: no partner rock");
+                }
+            }
+        }
+
+        /// 178c: layer boundaries are nearly flat: over 10 m the offset moves < 1 m at the
+        /// 99th percentile and never more than the Lipschitz bound.
+        [Test]
+        public void Layers_NearlyFlat()
+        {
+            var w = Get(42);
+            var rng = new Unity.Mathematics.Random(0x178c3);
+            var d = new List<float>();
+            for (int i = 0; i < 20000; i++)
+            {
+                var p = rng.NextFloat2(new float2(0f), new float2(80000f));
+                var q = p + rng.NextFloat2Direction() * 100f;
+                float dv = math.abs(DetailField.LayerWave(in w.o, p) - DetailField.LayerWave(in w.o, q));
+                Assert.LessOrEqual(dv, DetailField.LAYER_WAVE_LIP * 100f + 1e-3f);
+                d.Add(dv);
+            }
+            d.Sort();
+            float p99 = d[(int)(d.Count * 0.99f)];
+            Debug.Log($"[Cliffs] layer boundary rise over 10 m: p50 {d[d.Count / 2] / 10f:F2} m, p99 {p99 / 10f:F2} m, max {d[d.Count - 1] / 10f:F2} m");
+            Assert.Less(p99, 10f, "p99 boundary rise over 10 m >= 1 m");
         }
 
         [Test]
@@ -161,6 +278,7 @@ namespace TerrainGen.Tests
         /// Also probes the two scree steps that put Sheer on seed 42's routes:
         /// (3777, 5278) m [176d, route 0-1] and (4471, 2390) m [178, before Size 2].
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public unsafe void Relief_SkipsRouteCells_UnchangedBeyondTheBlend()
         {
             var w = Get(42);
@@ -360,7 +478,7 @@ namespace TerrainGen.Tests
                 sw.Stop();
                 log.AppendLine($"Sample (Mono, chunk footprint) {arm}: {sw.Elapsed.TotalMilliseconds * 1000.0 / pts.Count:F1} us/column ({acc & 1})");
             }
-            File.WriteAllText(Path.Combine(OUT_DIR, "cliffs178.txt"), log.ToString());
+            File.WriteAllText(Path.Combine(OUT_DIR, "cliffs178c.txt"), log.ToString());
             Debug.Log("[Cliffs] report\n" + log);
         }
 

@@ -1,0 +1,1 @@
+seed 42 desert fill30: the 12 trees nearest float2(37504f, 24704f), side view along +z

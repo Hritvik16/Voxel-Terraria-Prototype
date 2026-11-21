@@ -55,7 +55,14 @@ public partial class PlaygroundCapture
         LightingDriver.ClockPaused = true;
         Playground.DebugSuspendFluidSim = true;
         Playground.DebugHideUi = true;
-        float noon = SunCycle.NoonHours;
+        // Task 205: the fly camera writes its own yaw / pitch into the camera EVERY frame once a click on the
+        // player window captures the mouse (PlaygroundFlyCamera.Update), so a click while the survey runs turned
+        // later shots to the wrong view (205's first launch). The survey places the camera itself: switch it off.
+        var flyCam = cam != null ? cam.GetComponent<PlaygroundFlyCamera>() : null;
+        if (flyCam != null) flyCam.enabled = false;
+        // Task 243: -wshours H pins the survey's sun to H hours (e.g. 7.1 = 16 deg morning); default noon, as before.
+        float wsHours = ArgFloat("-wshours", -1f);
+        float noon = wsHours >= 0f ? wsHours : SunCycle.NoonHours;
         SunCycle.SetHours(noon);
         float3 sun = SunCycle.DirectionAt(noon);
         float2 shz = math.normalizesafe(new float2(sun.x, sun.z));
@@ -282,12 +289,22 @@ public partial class PlaygroundCapture
 
         // ---------------- cliff ----------------
         {
+            // Task 178c: also "cliff_<biome>" -- the same search kept to one biome's cells, shot from 110 m out.
+            for (int want = -1; want < 6; want++)
+            {
+            string cname = want < 0 ? "cliff" : "cliff_" + bn[want];
+            if (want >= 0 && (onlySet == null || !onlySet.Contains(cname))) continue;
             int fx = -1, fz = -1; float best = 0f; float2 down = 0f;
             for (int cz = 4; cz < cells - 4; cz += 2)
             for (int cx = 4; cx < cells - 4; cx += 2)
             {
                 var c = R(cx, cz);
                 if (c.IsSea || c.MoveBand != 3) continue;
+                if (want >= 0 && c.Biome != want) continue;
+                // 178c: a face INSIDE the biome (all 4 cells 32 m out too), not a border face --
+                // the first try's cliff_snow was the forest|desert|badlands 'cliff' face again.
+                if (want >= 0 && (R(cx - 4, cz).Biome != want || R(cx + 4, cz).Biome != want ||
+                                  R(cx, cz - 4).Biome != want || R(cx, cz + 4).Biome != want)) continue;
                 float2 g = new float2(MapH(cx + 1, cz) - MapH(cx - 1, cz), MapH(cx, cz + 1) - MapH(cx, cz - 1));
                 if (math.lengthsq(g) < 1e-4f) continue;
                 float2 dn = -math.normalize(g);           // downhill = where the camera stands
@@ -298,10 +315,12 @@ public partial class PlaygroundCapture
             if (fx >= 0)
             {
                 var at = CellM(fx, fz); at.y = Ground(at.x, at.z);
-                var e = at + new Vector3(down.x, 0f, down.y) * 70f;
+                float back = want < 0 ? 70f : 110f;
+                var e = at + new Vector3(down.x, 0f, down.y) * back;
                 float g0 = Ground(e.x, e.z);
                 e.y = math.max(g0 + 1.6f, g0 + best * 0.4f);
-                poses.Add(new WsPose { name = "cliff", eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from 70 m out" });
+                poses.Add(new WsPose { name = cname, eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from {back:F0} m out" });
+            }
             }
         }
 
@@ -317,6 +336,12 @@ public partial class PlaygroundCapture
                 if (!TerrainGen.Stamps.CellStamp(in o, gx, gz, out var s) || s.kind != TerrainGen.Stamps.CaveMouth) continue;
                 float gm = Ground(s.pos.x * 0.1f, s.pos.y * 0.1f);
                 if (gm < seaM + 3.5f) continue;   // Stamps: dry land only (seaLevel + 30 voxels)
+                if (spec.StampFit)   // task 185: only a cave the fit keeps, along its fitted axis
+                {
+                    var mv = map.View;
+                    TerrainGen.Stamps.SampleSiteHeight(in spec, in mv, s.pos, out int sg);
+                    if (TerrainGen.Stamps.NearSea(in spec, in mv, s.pos) || !TerrainGen.Stamps.FitCave(in spec, in mv, ref s, sg, out _)) continue;
+                }
                 float d = math.distance(s.pos, c0);
                 if (d < bestD) { bestD = d; bs = s; bg = (int)math.round(gm * 10f); found = true; }
             }
@@ -364,7 +389,14 @@ public partial class PlaygroundCapture
             float t0 = Time.realtimeSinceStartup;
             Phase4Bootstrapper.DebugStreamCentre = p.eye;
             cam.transform.SetPositionAndRotation(p.eye, Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up));
-            ApplyCompareArm(arms[arms.Length - 1]);
+            {   // task 193; task 205: also without "_dfN" (ApplyCompareArm read "native_df1"'s "df1" as rows and the survey died)
+                string a0 = arms[arms.Length - 1];
+                int dfi = a0.LastIndexOf("_df"); if (dfi >= 0) a0 = a0.Substring(0, dfi);
+                if (a0.EndsWith("_tf1")) a0 = a0.Substring(0, a0.Length - 4);                  // task 206
+                int dvi = a0.LastIndexOf("_dv"); if (dvi >= 0) a0 = a0.Substring(0, dvi);
+                if (a0.EndsWith("_px")) a0 = a0.Substring(0, a0.Length - 3);
+                int sfi = a0.LastIndexOf("_sf"); ApplyCompareArm(sfi >= 0 ? a0.Substring(0, sfi) : a0);
+            }
             cam.ResetProjectionMatrix();
             yield return NearSettle(far, sm);
             if (p.scan != 0)
@@ -385,25 +417,122 @@ public partial class PlaygroundCapture
                 }
             }
             yield return FsrLiveShellWait(sh, wait);
+            if (sh != null) L($"  [pools] {ShellPoolLine(sh)}");   // task 190: task 188's pool line in the survey too
+            L($"  [mem] {MemoryLedger.Step14Line().Trim()}");      // task 191: CPU / GPU pools + process footprint now / peak
+            if (ArgInt("-gpupoolprobe", 0) == 1)                   // task 201a: what fills the near GPU body pool at this pose
+                foreach (string gl in GpuPoolProbeLines(cam)) L(gl);
+            {   // task 201: fluid tiles at this pose (resting generated fluid takes no tile under awake-only, task 54; only a wake does)
+                var pgT = FindAnyObjectByType<Playground>();
+                var tl = pgT != null ? pgT.DebugTiles : null;
+                if (tl != null)
+                    L($"  [fluidtiles] awake-only {(tl.AwakeOnly ? "on" : "OFF")}, resident {tl.ResidentTiles} (peak {tl.PeakResidentTiles}), acquired total {tl.TilesAcquiredTotal}, " +
+                      $"unsettled {tl.UnsettledCount}, pool-full refusals {tl.PoolExhaustionsTotal} (CA dispatch suspended by the survey)");
+            }
             var rot = Quaternion.LookRotation((p.at - p.eye).normalized, Vector3.up);
             var poseArms = new List<string>(arms);
             if (p.scan == 2) poseArms.Add("native_lit");   // a sealed cave is black at noon: add a SHAPE light (capture only)
+            bool sealCmp = ArgInt("-gpusealcmp", 0) == 1;   // task 201a: shells / far band / river time held for the arms
+            if (sealCmp) { Phase4Bootstrapper.DebugHoldShellsFar = true; RaymarchFeature.DebugRiverTimeHold = Time.time; VoxelEngine.Streaming.StreamManager.DebugHoldResidency = true; }
             foreach (string arm in poseArms)
             {
                 bool lit = arm == "native_lit";
                 float floor0 = LightingConfig.Active.undergroundAmbientFloor;
                 if (lit) LightingConfig.Active.undergroundAmbientFloor = ArgFloat("-wsfloor", 1f);
-                ApplyCompareArm(lit ? "native" : arm);
+                // Task 193: an arm may end in "_sf0|1|2" = RaymarchFeature.SkyFill for that shot ("native_sf2").
+                string baseArm = lit ? "native" : arm;
+                // Task 194: an arm "native_rh0" = the refused-chunk hand-over OFF for that shot (the old pits).
+                bool rh0 = RaymarchFeature.RefusedHandOver;
+                if (baseArm.EndsWith("_rh0")) { RaymarchFeature.RefusedHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                // Task 197: "native_lh0" = task 194's hand-over only (lacking chunks not handed over) for that shot.
+                if (baseArm.EndsWith("_lh0")) { FarField.LackHandOver = false; baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                // Task 201a: "native_gs0" = sealed bricks OFF for that shot (every box chunk restaged, dense, then back).
+                // "_gs1" = restaged with the seal ON (the identity arms' first shot, after the same restage).
+                bool gs0 = baseArm.EndsWith("_gs0"), gs1 = baseArm.EndsWith("_gs1");
+                if (gs0 || gs1) { baseArm = baseArm.Substring(0, baseArm.Length - 4); yield return RestageBox(gs1, p.name); }
+                // Task 205: "_df0|1|2" = RaymarchFeature.DashFix for that shot (task 198's option 1; 2 = below the bracket only).
+                int df0 = RaymarchFeature.DashFix;
+                int dfAt = baseArm.LastIndexOf("_df");
+                if (dfAt >= 0 && int.TryParse(baseArm.Substring(dfAt + 3), out int dfv)) { RaymarchFeature.DashFix = RaymarchFeature.ValidDashFix(dfv); baseArm = baseArm.Substring(0, dfAt); }
+                // Task 206: "_tf1" = the torch flood ON for that shot (its far-shading twin, CSMainFarShadeFlood, draws once the
+                // pool is ready); "_dvN" = debug view N; "_px" = the debug pixel at the frame centre (debug view 0). _dvN / _px
+                // read the debug pixel after the shot. The pixel keeps diet 2 off for the rest of the run: put them LAST.
+                bool tf0 = VoxelEngine.Rendering.TorchFloodPool.Enabled, tfArm = false;
+                if (baseArm.EndsWith("_tf1")) { tfArm = true; VoxelEngine.Rendering.TorchFloodPool.SetEnabled(true); baseArm = baseArm.Substring(0, baseArm.Length - 4); }
+                int dvMode = -1;
+                int dvAt = baseArm.LastIndexOf("_dv");
+                if (dvAt >= 0 && int.TryParse(baseArm.Substring(dvAt + 3), out int dvv)) { dvMode = dvv; baseArm = baseArm.Substring(0, dvAt); }
+                bool pxArm = baseArm.EndsWith("_px");
+                if (pxArm) { dvMode = 0; baseArm = baseArm.Substring(0, baseArm.Length - 3); }
+                int sfAt = baseArm.LastIndexOf("_sf");
+                int sf0 = RaymarchFeature.SkyFill;
+                if (sfAt >= 0 && int.TryParse(baseArm.Substring(sfAt + 3), out int sfv))
+                { RaymarchFeature.SkyFill = RaymarchFeature.ValidSkyFill(sfv); baseArm = baseArm.Substring(0, sfAt); }
+                ApplyCompareArm(baseArm);
                 cam.ResetProjectionMatrix();
                 cam.transform.SetPositionAndRotation(p.eye, rot);
-                yield return Frames(60);
-                yield return CaptureTo($"ws_{p.name}_{arm}");
+                if (dvMode >= 0)
+                {
+                    var res = RaymarchFeature.LastDispatchResolution;
+                    RaymarchFeature.DebugPixel = new Vector2Int(Mathf.Max(0, res.x / 2), Mathf.Max(0, res.y / 2));
+                    RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)dvMode;
+                    RaymarchFeature.UseDebugViewOverride = dvMode != 0;
+                }
+                // The 60 settle frames (the sky-fill history needs 16+), timed: a ROUGH cost per arm, not a rig.
+                var ft = new List<float>(60);
+                for (int f = 0; f < 60; f++) { yield return null; ft.Add(Time.unscaledDeltaTime * 1000f); }
+                ft.Sort();
+                float ftMean = 0f; foreach (float x in ft) ftMean += x; ftMean /= ft.Count;
+                L($"  [frame] {p.name} {arm}: settle frames mean {ftMean:F1} ms, p50 {ft[ft.Count / 2]:F1} ms, max {ft[ft.Count - 1]:F1} ms (skyfill {RaymarchFeature.SkyFill})");
+                foreach (string rl in RefusedProbeLines(cam, sh)) L($"{rl} [{arm}]");   // task 194: refused near-pool chunks at this shot
+                // Task 197: what the mirror holds at the shot, and 5 s later. Streaming / uploads run in
+                // Phase4Bootstrapper.LateUpdate, AFTER this coroutine step: so the probe reads the state at the
+                // END of the frame (after that frame's uploads, which is what it drew) and captures that frame.
+                bool mprobe = ArgInt("-mirrorprobe", 0) == 1;
+                if (mprobe)
+                {
+                    yield return new WaitForEndOfFrame();
+                    foreach (string ml in MirrorProbeLines(cam, sh)) L($"{ml} [{arm}]");
+                    CaptureNow($"ws_{p.name}_{arm}");
+                }
+                else yield return CaptureTo($"ws_{p.name}_{arm}");
+                // Task 206: which kernel drew the shot, did it load, and the debug pixel (NaN = the kernel did not run).
+                L($"  [kernel] {p.name} {arm}: primary {RaymarchFeature.PrimaryKernelLastFrame ?? "?"}, " +
+                  $"{(RaymarchFeature.KernelFailedLastFrame == null ? "loaded" : "FAILED " + RaymarchFeature.KernelFailedLastFrame)}, " +
+                  $"failed frames so far {RaymarchFeature.KernelFailFrames}, flood ready {VoxelEngine.Rendering.TorchFloodPool.Ready}");
+                if (dvMode >= 0 && RaymarchFeature.DebugBuffer != null)
+                {
+                    var d = new float[32];
+                    RaymarchFeature.DebugBuffer.GetData(d, 0, 0, 32);
+                    var px = RaymarchFeature.DebugPixel;
+                    L($"  [dbgpx] {p.name} {arm} view {dvMode} px ({px.x},{px.y}) of {RaymarchFeature.LastDispatchResolution}: " +
+                      $"dir ({d[0]:F4},{d[1]:F4},{d[2]:F4}) steps {d[7]:F0} iters {d[8]:F0} mode {d[11]:F0} maxDist {d[16]:F0} tier {d[17]:F0} " +
+                      $"dist {d[19]:F1} end voxel ({d[21]:F0},{d[22]:F0},{d[23]:F0})" +
+                      (float.IsNaN(d[0]) ? "  <- NaN: the kernel did NOT write the debug pixel" : ""));
+                }
+                if (dvMode >= 0) RaymarchFeature.UseDebugViewOverride = false;
+                if (tfArm) VoxelEngine.Rendering.TorchFloodPool.SetEnabled(tf0);
+                // Task 198 (diagnostic): CPU oracle (generator shell cells) at the 1-px light lines.
+                if (ArgInt("-dashprobe", 0) == 1 && arm == poseArms[0]) yield return DashProbe(cam, sh, p.name);
+                else if (ArgInt("-dashprobe", 0) == 1) yield return DashCount(p.name, arm);   // task 205: later arms count only
+                if (mprobe)
+                {
+                    float tw = Time.realtimeSinceStartup;
+                    while (Time.realtimeSinceStartup - tw < 5f) yield return null;
+                    foreach (string ml in MirrorProbeAgain(5f)) L($"{ml} [{arm}]");
+                }
+                if (gs0) yield return RestageBox(true, p.name);
                 LightingConfig.Active.undergroundAmbientFloor = floor0;
+                RaymarchFeature.SkyFill = sf0;
+                RaymarchFeature.DashFix = df0;
+                RaymarchFeature.RefusedHandOver = rh0;
+                FarField.LackHandOver = true;
             }
+            if (sealCmp) { Phase4Bootstrapper.DebugHoldShellsFar = false; RaymarchFeature.DebugRiverTimeHold = -1f; VoxelEngine.Streaming.StreamManager.DebugHoldResidency = false; }
             float pitch = rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x;
             L($"WSPOSE {p.name}|{p.eye.x:F1},{p.eye.y:F1},{p.eye.z:F1}|{p.at.x:F1},{p.at.y:F1},{p.at.z:F1}|{p.note}");
             L($"  {p.name}: yaw {rot.eulerAngles.y:F0} pitch {-pitch:F0} deg, distance {Vector3.Distance(p.eye, p.at):F0} m, {Time.realtimeSinceStartup - t0:F0} s");
         }
+        L(VoxelEngine.Rendering.KernelHealth.Summary());   // task 206
         Phase4Bootstrapper.DebugStreamCentre = null;
     }
 
@@ -488,5 +617,20 @@ public partial class PlaygroundCapture
         var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
         try { tex.SetPixels32(px); tex.Apply(); File.WriteAllBytes(path, tex.EncodeToPNG()); }
         finally { UnityEngine.Object.Destroy(tex); }
+    }
+
+    /// Task 201a: SealHiddenBricks = on, every resident box chunk re-uploaded (waits for the dirty set to drain, 120 s cap).
+    private IEnumerator RestageBox(bool on, string pose)
+    {
+        var clip = Phase4Bootstrapper.Clipmap;
+        var store = Phase4Bootstrapper.Store;
+        if (clip == null || store == null) yield break;
+        TerrainClipmap.SealHiddenBricks = on;
+        int n = clip.DebugRedirtyBox(store);
+        float t0 = Time.realtimeSinceStartup;
+        while (clip.DirtyCount > 0 && Time.realtimeSinceStartup - t0 < 120f) yield return null;
+        yield return null; yield return null;
+        L($"  [gpuseal] {pose}: seal {(on ? "ON" : "OFF")}, {n} box chunks restaged in {Time.realtimeSinceStartup - t0:F1} s, still dirty {clip.DirtyCount}, " +
+          $"in use {clip.GpuPoolInUse:N0} of {clip.GpuPoolCapacity:N0}, sealed {clip.SealedBricksNow:N0}, refused now {clip.GpuPoolRefusedNow}, total {clip.GpuPoolRefusedTotal:N0}");
     }
 }

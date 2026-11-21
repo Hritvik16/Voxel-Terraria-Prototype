@@ -388,6 +388,7 @@ public class SkyVisReferenceTests
     private static int3 TunnelFloor(float dM) => new int3(331 - (int)math.round(dM * 10f), 204, 256);
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Site138_TunnelDarkensInward_SealedRoomZero_OpenFaceHalf()
     {
         BuildSite138();
@@ -411,6 +412,7 @@ public class SkyVisReferenceTests
 
     [Test]
     [Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Report_QuadratureTable()
     {
         if (Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

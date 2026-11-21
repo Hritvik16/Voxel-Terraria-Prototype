@@ -1,0 +1,9 @@
+<html><body style="background:#111;color:#ddd;font-family:sans-serif">
+<h3>Task 245 foliage light early-out: arrows = next / previous pose; Space = cycle OFF / ON 1/8 / diff / ON 1/2 / diff; S = other sun; Z = full size</h3>
+<p>Look at: the sunlit dapples on the ground under the crowns (do they go dark?), and the edges of the crown shadows.</p>
+<div id=t></div><img id=i style="max-width:100%"><script>
+var p=['walk_near', 'forest_eye', 'oak_under'],nm={"off_16": "OFF (shader early-out off) 16 deg", "on_16": "ON eps 1/8 16 deg", "diff4on_16": "4x difference OFF vs eps 1/8 16 deg", "e2_16": "ON eps 1/2 16 deg", "diff4e2_16": "4x difference OFF vs eps 1/2 16 deg", "off_noon": "OFF (shader early-out off) noon", "on_noon": "ON eps 1/8 noon", "diff4on_noon": "4x difference OFF vs eps 1/8 noon", "e2_noon": "ON eps 1/2 noon", "diff4e2_noon": "4x difference OFF vs eps 1/2 noon"},k=0,m=0,s=0,z=0;
+function f(){var a=['off','on','diff4on','e2','diff4e2'][m]+'_'+['16','noon'][s];var i=document.getElementById('i');i.src=p[k]+'_'+a+'.png';i.style.maxWidth=z?'none':'100%';
+document.getElementById('t').textContent=(k+1)+'/'+p.length+'  '+p[k]+'  --  '+nm[a];}
+document.onkeydown=function(e){if(e.key==' '){m=(m+1)%5;}else if(e.key=='s'||e.key=='S'){s=1-s;}else if(e.key=='ArrowRight'){k=(k+1)%p.length;}else if(e.key=='ArrowLeft'){k=(k+p.length-1)%p.length;}else if(e.key=='z'||e.key=='Z'){z=1-z;}f();e.preventDefault();};f();
+</script></body></html>

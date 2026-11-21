@@ -81,6 +81,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Lod0Oracle_TopSolidVoxelEqualsShapeHeight()
         {
             int checkedCols = 0;
@@ -244,7 +245,7 @@ namespace TerrainGen.Tests
                 if (flag[0] != 0) Assert.Inconclusive("Burst is disabled in this Editor.");
                 new ShapeParallelJob { h = hA, r = rA, spec = _spec, o = _o, x0 = x0, z0 = z0, n = n, stride = stride, texel = texel, outH = par }
                     .Schedule(n * n, 7).Complete();
-                for (int k = 0; k < n * n; k++) Assert.AreEqual(single[k], par[k], $"texel {texel}, column {k}: job shape changed the result");
+                for (int k = 0; k < n * n; k++) if (single[k] != par[k]) Assert.AreEqual(single[k], par[k], $"texel {texel}, column {k}: job shape changed the result");   // 184b: guarded, same check
             }
         }
 
@@ -370,6 +371,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Report_BurstVsEditorMono_DetailThroughCavesAndPockets()
         {
             // A column slab from the surface down through caverns into the underworld.

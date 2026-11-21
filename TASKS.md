@@ -1074,3 +1074,1207 @@ square; scree cover only where (1 - w) x fill >= SCREE_MIN). Map-only, so every 
 holds. Cliffs-off and v3 are untouched; the cliff LOOK off-route is bit-identical to 178. Test: `CliffTests.Relief_SkipsRouteCells_UnchangedBeyondTheBlend`
 (route-cell columns = cliffs off, land beyond the blend = 178's view without routes, blend columns between them, plus the 176d / 178 probes;
 log `Logs/TerrainGen/c4/routes178b.txt`). Result: HANDOFF 178b.
+
+**Task 178c (owner 2026-11-06 on 178's shots, "this looks horrible ... rework it"; GENERATOR CHANGE, cliffs on only): cliff look rework.**
+(1) THE DRIPS: the rock wore the column's `surfBiome`, whose border jitter has 40 m / 10 m patch octaves; projected onto a steep face
+each patch edge became a vertical streak (also in the plain pre-178 faces). The rock now has its own biomes `ColumnSample.rockA/rockB`
+(`ShapeField.RockBiomes`: the border's two SMOOTH warp octaves only, shifted +-29 m), and each layer takes A or B by a hash of its index
+(`DetailField.LayerBiome`), so layers interfinger at a border. (2) FLAT STRATA: `LayerWave` is +-1.2 m / 90 m + +-0.2 m / 26 m plus a DIP
+(+-25 m over ~4 km); p99 boundary rise 0.87 m per 10 m. (3) CLOSE TONES: `LAYER_ROCKS` rows are each biome's close rocks (CIE dE 7-22,
+was 22-62). (4) NO FLAT FIELDS: each 0.8 m brick whose 3-D value noise (12 m x 1.6 m lenses) is > 0.62 wears its rock's PARTNER,
+the nearest-tone rock in palette D (`LAYER_PARTNERS`, dE 5-18), 28 % of bricks; a brick stays uniform (brick proofs keep their
+`MixState` check). (5) Fluting is plain snoise 9 m x 0.5 m (was ridged 5 m: fine vertical hatching); the ledges are one bench at each
+layer's base. The far band / shell top colour is the layer rock without the mix. Tests: `CliffTests.RockBiome_IsSmooth_NoPatchStreaks`,
+`Mix_ShareAndPartnerRock`, `Layers_NearlyFlat`. Shots: `Screenshots/178c/viewer.html` (Space cycles before / 178 / rework) and
+`<pose>_compare.png`; `python3 -I tools/cliff178c.py shots|sheets|tones`. 178's black `viewer.html` (rows were arrays, the page read
+object fields) is fixed in `tools/cliff178.py`. World survey: `-wsposes cliff_<biome>` picks a face inside that biome. `-rockmix 0`
+(spec.rockMixOff, `TerrainGenChunkSource.SetRockMix`) = the reworked layers without the mix (4th panel `<pose>_4_nomix.png`). The mix makes BURIED
+bricks mixed in the coarser shells; the shell fill pass flattens them, but tests that run shells with the fill OFF fill their pools: the
+streamer redraw test (`Streamer_EditedChunk...`) now turns the mix off. ShellFill GOLDEN re-pinned (68 of 82 chunks, fast == reference). Result: HANDOFF 178c.
+
+**Task 179 (world gen C5, owner 2026-11-06 "queue C5"; GENERATOR + MAP CHANGE, shape only, the fluid simulation untouched): rivers that meander and carve.**
+`Rivers.cs`, on by default on v4 (`spec.RiverShape`; `-rivershape 0` = spec.riverShapeOff, the pre-179 rivers, map AND columns, read by
+`TerrainGenChunkSource` and `FarField`). (1) INCISED LEVELS (`Profile(..., incise)`): a river cell's water stands FREEBOARD (0.4-1 m by size)
+under its map height and under the lower of its two side cells (at most SIDE_DROP 2 m deeper), taken upstream first as the lowest of the
+cell and everything upstream, so humps are cut through instead of dips filled; a lake's OUTLET keeps the lake's level (else the lake's rim
+buried the river's start). (2) THE COURSE (`GatherShaped`, 9 x 9 cells): each river cell's NODE moves SIDEWAYS (across the flow two cells on)
+by `MEANDER_AMP` 2.5 half widths x sin(2 pi 0.75 snoise(p / max(24 W, 6 cells)) + seed offset), shrinking to 0 where the map ground there rises
+4-20 voxels or drops 2-8 below the cell's, at a lake/sea cell, and at a mouth; A + W <= one cell (the renderer's flow map and Gather's window).
+The course is the quadratic B-spline of the nodes (a Bezier round each node, 3 straight subsegments; level / width / depth / floodplain ride it).
+Overlapping channels take the NEAREST centre line's level (was the highest: steps inside bends). Section: 1.5 voxels of water at the edge,
++0.5 per voxel inward (was 3 + 0.6). (3) CARVED BANKS (`Column`): beside a channel the ground is cut to a 27 deg slope from the water's edge,
+by at most max(2 m, the river's incision + 0.8 m) <= 6 m, tapering linearly to 0 at 10 m; never below a lake's rim; the old bank RAISE stays
+for ground below the water. Test: `RiverShapeTests.Shaped_Rivers_FourSeeds` (Slow; seeds 42/7/2026/31337 shaped vs a `-rivershape 0` map,
+per class all / walled (canyon floor) / lake / biome border; report `Logs/TerrainGen/river_shape179.txt`). `FluidAtRestTests.RiverSeaLava_AreAtRest`
+now also runs seeds 2026 and 31337 (2026's sea is reported, not gated: KNOWN_ISSUES "seed 2026 fossil stamp beside the sea", predates 179).
+The route test is green on all four seeds (31337's ford). Shots: `python3 -I tools/river179.py Screenshots/179 <before dir> <after dir>`
+(`<pose>_compare.png`, `viewer.html`), poses via `-worldsurvey 1 ... -wsposes pair_snow_river-plains,river,pair_desert_canyonlands,feature_mesa-4,pair_badlands_high-plateau`.
+NOT changed: the renderer's flow map (`RiverFlow`, D8 directions per 8 m cell) -- ripples follow D8, not the curve. Result: HANDOFF 179.
+
+**Task 180 (placement, first test, owner 2026-11-06 "trees are voxels"; GENERATOR CHANGE behind a flag, DEFAULT OFF): generated voxel trees, `-trees 1`.**
+`Assets/TerrainGen/Trees.cs`: one tree per 6.4 m TREE CELL at most (`CELL_SHIFT` 6, root jittered to [8, 56) of the cell by an integer hash),
+decided by `Trees.Build` from data the generator already has: `TreeTable.DensityPlane` (one byte per 8 m map cell from the world record:
+landform x movement band, 0 on sea / route-corridor / signature-feature / Sheer cells; plumbed like the ore plane as `MapView.trees`), the root
+column's own LOD-0 `ShapeField.Sample` (biome = `surfBiome`; cover slot x `SLOT_MUL` flat 16 / steep 6 / hollow 10 / high 8 / shore 0, a patch
+variant x 10/16 = clearings; none in water, below the sea, on a stamp / ledge / lip), 4 height samples for the foot (> 45 deg across trunk + 2
+voxels = none) and 4 for crown clearance. Density per biome slot `DENSITY` (per mille per cell): forest 800, desert 60 (cactus), snow 300,
+jungle 950, savanna 110, badlands 0 -- no seed constant. FAMILIES (3 shapes per biome, every number from the cell hash, `Emit`): forest oak /
+poplar / bushy fork; jungle buttressed emergent with umbrella crown / curved palm / dense round; savanna umbrella acacia / baobab / two-tier
+acacia; snow spruce (4 cones) / tall pine / fir; desert saguaro / column / barrel. Primitives: tapered capsules (wood), ellipsoid BLOBs and
+CONEs (leaves) with star-shaped edge noise (noise read on the surface point in the voxel's direction: no detached crumbs). New GenMats (palette
+D, `tools/palette_defs.py` -> `gen-tg2-materials.py --write`; Items/Tools tier 0): leaves 55-58 (forest, jungle, savanna, pine needles; the
+biome's flat cover colour in shade, snow's dark blue-green), woods 76-79 (forest, jungle, acacia, pine), cactus 93; `GenMat.IsTreeTrunk` /
+`IsTreeLeaf` (chopping later: any trunk voxel cut -> rebuild the tree from its cell, drop the wood, remove top-down). RULE AT A VOXEL: trees
+overwrite AIR only; every trunk primitive first, then every leaf one, trees in cell order (z, x); the first containing one wins.
+WHERE (`TerrainGenChunkSource.Trees.cs`): ColumnJob / ShellColumnJob gather the trees of the cells round the footprint (`TreeScratch`, crowns
+raise the column top so the air fast paths stay exact); VoxelJob / ShellVoxelJob end with `OverlayTrees` (coarse voxels test their sample
+point: shell k = the 0.1 m voxel there); `PointVoxel` (FarQuery) applies the same rule. Shells > `Trees.MAX_SHELL` 5 (beyond 2.2 km on High)
+and the far band draw no trees. `-trees 1` -> `TerrainSpec.treesOn` (`Trees` = v4 && on); `TerrainGenChunkSource.SetTrees` for tests.
+Tests `TreeTests` (all Slow): `Chunks_Deterministic_Border_PointAndShellsAgree` (seed 42, a forest tree across a chunk border: ON twice same
+bytes, ON vs OFF only air -> tree material on both sides, FarQuery points = chunk, shell 0 = Generate, shells 1-3 tree voxels = the 0.1 m
+voxel at the sample; `Logs/TerrainGen/trees180/chunks.txt`), `FourSeeds_Rules_Sheets` (42 / 7 / 2026 / 31337, 1/16 of the world: record /
+water / badlands rules, reach; 30 trees per family + 30 steep-foot trees voxelised on the LOD-0 ground, rejected if any voxel floats (not
+6-connected to the ground), the trunk misses the ground or > 2 % of the crown / any trunk above its foot is in rock; sheets
+`Screenshots/180/sheet_<seed>_<biome>.png`, `Logs/TerrainGen/trees180/rules.txt`), `Cost_OnVsOff` (dense bricks + gen time, LOD 0 and
+shells 1-5, `cost.txt`), `Poses_DensestSpots` (Explicit: `-wsfixed` poses at the densest spots, `poses.txt`). Shots: `-lookreview
+-worldsurvey 1 -wsposes fixed,range -wsfixed "$(cat Logs/overnight/180_poses.txt)" -trees 1|0`; `python3 -I tools/trees180.py`. Result: HANDOFF 180.
+
+**Task 180b -- simple material rules, flag-off prototype (`-matrules 1`, default OFF).** Owner 2026-11-06 (memory simple-material-rules):
+BIOME PAINTS EVERYTHING -- one palette row per biome (skin, soil, subsoil, stone, deep stone, cavern rock + flat / steep / hollow / high /
+shore / rubble entries and their patch variants), the inputs only choose WHICH entry goes WHERE. `Assets/TerrainGen/GroundRules.cs` (header =
+the rule list, first match wins: shore -> water bed -> steep (bare on a crest or the sunny side) -> wet bank (fresh water within 12 m, ground
+<= 1 m over it) -> high (snow line, lower in shade) -> scree (ground > 40 deg within 20 m upslope; a route keeps its surface) -> dip -> crest
+-> flat). Per column once (`GroundRules.Column`, last in `ShapeField.Sample`): 6 m slope / curvature, height over sea, sun side (+Z), the
+map-baked shore field (`WorldMap.EnsureShoreField`, one pass per map), steepest ground upslope, route flag, one 300 m 2-D noise per biome;
+per voxel only the depth below the GENERATED top (`Band`: skin 0.3 m, soil, subsoil, stone to 11-19 m, deep stone; cavern rock / underworld
+stay absolute). Border: skin from the rock border warp in 25 m plan patches (a mud bank becomes a sand bank over ~60 m), stone from rockA.
+Non-water fluids own their shore (`FluidShore`: lava -> magma crust, oil -> shale, ...), lining the caldera bed and every sealed pocket's
+wall. Badlands: one red stone, no stripes. No LAYER_ROCKS / partner mix / rock A-B on this path (they stay for OFF). Ore hook for 181 noted
+in the header. Edits never feed the rules (pit = original surface's bands; regeneration = seed + edit log). Runtime regrowth (grass over
+exposed dirt, a new wet bank behind a dam) is out of scope: it would be one deterministic tick re-applying `ChooseSlot`'s skin to exposed soil.
+Far band (`FarField` FillTg2Job), shells, `PointVoxel` and `UniformSamples` (brick skip) follow the same rules when on. `-matrules 1` ->
+`TerrainSpec.matRulesOn` (`MatRules` = v4 && on); `TerrainGenChunkSource.SetMatRules` for tests. OFF = bit-identical (whole suite + goldens).
+Tests: `MaterialRuleTests` (palette is data, conflict pairs, OFF untouched / ON keeps the ground, near == far slots to texel 22, depth
+bands + pit, pocket lining, Slow `FourSeeds_AdversarialCases_AndTheTable` -> `Screenshots/180b/table180b.txt`), `MaterialRuleChunkTests`
+(Slow: chunks deterministic + air/fluid unchanged + dig never changes beneath, `Shells_And_SnowCliff_AirAndFluidUnchanged`, `Cost_OnVsOff`
+-> `cost180b.txt`, `CutAway_Pits` -> `Screenshots/180b/pit_*.png`; Explicit `Poses` -> `Logs/TerrainGen/180b/poses.txt`),
+`BrickSkipTests.*_MatRules`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed -wsfixed "$(cat Logs/overnight/180b_poses.txt)" -matrules 1|0`;
+`python3 -I tools/matrules180b.py Screenshots/180b <ON dir> <OFF dir>` -> `Screenshots/180b/viewer.html`. Result: HANDOFF 180b.
+
+**Task 181 -- resource deposits by rule (placement plan, owner-approved 2026-11-06 incl. batch 2; `-ores 1`, DEFAULT OFF).** `Assets/TerrainGen/OreRules.cs`
+(header = the rules). The five-tier ladder and host layers are step 3's (`Ores.cs`: copper in stone, iron above sea - 100 m, gold below, cobalt
+in cavern rock, emberstone in the underworld); OFF = step 3 byte for byte. Sources, all generator data, no seed constant: DEPTH (`Ores.BaseChance`);
+BIOME x LANDFORM (`PairMul`, favoured x2) scaled by HARSHNESS = Danger biome tier + `Regions.ClassOf` (0-4): copper / gold x 16 14 12 10 8 /16 and
+x1.25 on easy cells, x1.25 on mild biomes; iron x1; cobalt only harshness >= 3 (x 40 / 56 /16), emberstone only 4 (x 80/16); WALL VEINS: a column
+with spacing-1 step > 1.5 (56 deg) carries thin tilted lenses (one per 64^3 cell at most, 0.4-0.6 m thick, 3.6-5.6 m long) down to step + 2 m below
+its top, above the 5x5 cells' still water + 1 m, none on route cells; chance per biome (badlands x3), ore from a per-biome table (copper, gold,
+iron; never latent); RICH: x2 deposits / veins on signature-feature cells. START (owner R1 (b)): cells of either play start's easy area + 128 m
+round either start column: no veins, deposits only deeper than 6 m + step + 1 in a column with no opening / lip / stamp. LATENT (owner R2 (a)):
+cobalt / emberstone are written as a TWIN per host rock (GenMat 26-29, 38, 39 = cobalt in each biome's cavern rock; 59, 94, 95 = emberstone in
+magma crust / ash / obsidian); a twin's palette row IS its host's; `ContentModules/LatentOres.cs` resolves a twin to its host until
+`world.state`'s stage reaches 1 (cobalt) / 2 (emberstone), then to the ore -- in `Tools` (hardness, tier, cost), `Items` (drop, name),
+`MaterialPalette`, and the shader (`Raymarch.compute` `LatentResolve` on `_WorldStage`, a global set by `LatentOres.SetStage`, called by
+`StreamManager` on world load). No ground rewritten, no save change, no frozen API touched. Plane: `OreRulePlane.CellPlane` (one uint per 8 m
+cell) -> `MapView.oreCell` -> `ColumnDetail.oreCell` in ColumnJob / ShellColumnJob / PointVoxel (`TerrainGenChunkSource.Ores.cs`); brick-skip
+proofs: `OreMay` with the rule chance + `VeinColumn`. The far band's top never reaches rock and its dug floors see no plane: no rule ore there.
+DevMap / the ore and tool demos build their own columns: no rule ore there. Tests `OreRuleTests` (`Twins_ContentResolves`; Slow
+`Sites_OnVsOff_Deterministic_PointShellsSkipAgree_Images` -> `Logs/TerrainGen/ores181/sites.txt`, `poses.txt`, `Screenshots/181/face_*.png` /
+`cut_*.png`; Slow `FourSeeds_StartHidden_AndTable` -> `table.txt`), `BrickSkipTests.*_Ores`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed
+-wsfixed "$(cat Logs/TerrainGen/ores181/poses.txt)" -ores 1|0`. Result: HANDOFF 181.
+
+**Task 182 -- material rules: two fixes behind `-matrules 1` (default still OFF).** Fixes 180b's two defects; no new flag. (1) DEEP STONE
+BY ABSOLUTE HEIGHT: `GroundRules.Band` is now 0 skin / 1 soil / 2 subsoil / 3 rock, and WHICH rock is absolute (`GroundRules.RockAt` /
+`RockRange`): the biome's stone down to the generator's own stone / deep-stone line (`GroundRules.DeepTop` = sea -
+`DetailField.STONE_BOTTOM_BELOW_SEA` + the wavy deepOffset, the old path's `LayerRock` line), deep stone under it, then cavern rock and the
+underworld. `ColumnSample.mrDeep` and `DEEP_BASE/AMP` are gone; a tall face is one stone. (2) SHELL EXPOSURE: `ColumnSample.mrExpose`
+(ushort, 0 outside shells) = max(2^k, h - the lowest of the 4 coarse neighbours), set by `ShellColumnJob.Expose` (shift > 0, MatRules on;
+edge neighbours sampled); a coarse voxel shallower than it is bared on top or a side and is band 0 (skin); deeper voxels keep their own
+depth's band. At 2^k = 1 it would be a no-op (drop to a fine neighbour = stepAtTop <= SHEER_STEP = SKIN), so chunks are untouched. Material's
+brick zone and `GeologyRock` return the skin for band <= 2 (only an exposed coarse voxel gets there). Tests: `MaterialRuleTests.
+TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary` (sheer faces up to 41 m on 3 seeds -> `Logs/TerrainGen/180b/tallface182.txt`),
+Slow `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin` (shells 3 / 5 round the 9 sites; also pins mrExpose ->
+`shell_bared182.txt`); `ShellChunk.Column/ColumnStep` expose the voxel pass's own column to tests. Shots: `Logs/overnight/182_shots.sh`
+(180b's 8 poses, ON), viewer `Screenshots/182/viewer.html` (182 ON | 180b ON | OFF). Result: HANDOFF 182.
+
+**Task 183 -- fluid pockets at rest (placement plan step 4, owner-approved 2026-11-06 incl. batch 2; `-fluidpockets 1`, DEFAULT OFF).**
+`Assets/TerrainGen/FluidPockets.cs` (header = the rules). SURFACE pockets: one candidate per 51.2 m plane cell (512 voxels, `>> 9`), a small
+elliptical basin (integer ellipse, r 1.4-5.2 m, fluid 0.4-2 m deep) on dry flat ground; fluid by the world record + column sample: volcanic
+landform -> lava (1 in 4 acid), badlands -> oil (the tar seep), desert -> quicksand, jungle valley / wetland -> sludge (bog), other jungle ->
+honey, a valley (>= 4 m below the +-120 m regional mean) or wetland in forest / savanna / snow -> water. Keep-outs (every record cell under
+basin + rim): not sea, >= 32 m from lake / river cells, Walk band, no route corridor, no signature feature, not the start zone (either
+start rule's easy area + 128 m); 24 base samples on the rim: dry, stamp / lip / river-free, within 2.4 m; L = their lowest - 1. AT REST BY
+CONSTRUCTION in `ShapeField.Sample` (`FluidPockets.Apply`, every path: LOD 0, shells, FarQuery, far band): footprint height := L - depth,
+fluid (height, L]; rim (an 8-neighbour of the footprint) height := max(h, L + 1); a thin LINING the fluid never reacts with (water mud,
+acid sinter, lava magma crust, oil shale, sludge mud, honey ochre band, quicksand packed sand) on every solid voxel that can touch the fluid;
+caves capped under L - D - 0.8 m (`riverFloor`); stamp openings off. The fluid's code rides in `ColumnSample.waterKind` (0 water, 1 lava as
+before, else the GenMat; `FluidPockets.FluidOf`); far band, minimap and `DetailField` read it. DEEP pockets (the old sealed ellipsoids, same
+shape and place): rule fluid (`DeepFluid`: volcanic land -> lava; cavern deep half -> lava; cavern jungle sludge / desert + badlands acid /
+snow water / else mix; stone layers badlands oil, desert oil / water, jungle honey / water, snow water, else water / some oil) and a lining
+(`DeepLining`, acid -> sinter: the old acid pocket dissolved its wall). Steam: not generated (the lava + water reaction makes it). Plane:
+`WorldMap.EnsurePocketPlane` (~0.35 s per world) -> `MapView.pocket` in ColumnJob / ShellColumnJob / ShellFill / FarQuery / FarField
+(`TerrainGenChunkSource.Pockets.cs`). OFF = every byte as before. Tests `FluidPocketTests` (`Rules_LiningsDoNotReact`; Slow
+`FourSeeds_Plane_Table_KeepOuts` -> `Logs/TerrainGen/pockets183/table.txt`; Slow `Sites_AtRest_PathsAgree_Adversarial` -> `sites.txt`,
+`poses.txt`, `Screenshots/183/cut_*.png`: CPU fluid oracle settle 150 ticks + negative controls, FarQuery / shells / far texels / brick skip,
+forced sites on a cliff and a canyon side). Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed -wsarms native -wsfixed
+$(cat Logs/overnight/183_wsfixed.txt) -fluidpockets 1|0" ./run-look-review.sh`. Result: HANDOFF 183.
+
+**Task 184 -- town building kit, KIT ONLY (placement STOPPED FOR OWNER: no town / village sites exist).** `Assets/TerrainGen/BuildingKit.cs`:
+parts (stone foundation to the ground, floor, 0.2 m wall ring, 3x3 corner posts, door gap 1 x 2.1 m from the floor, windows with a 1 m sill,
+wood frames round every opening, 45 deg gable roof 0.2 m thick with 0.4 m eaves, gable-end walls) and 3 shapes from them: HUT 4 x 4 m (1 room),
+HOUSE 9 x 5 m (2 rooms + inner door), HALL 13 x 7 m (double door, wall posts at the thirds). A building is a pure integer function
+(shape, rot 0-3, biome, origin, floor y, foundation depth) -> part -> GenMat (`Role`/`Voxel`), ready for the Trees.cs overlay pattern
+(ColumnJob / ShellColumnJob / PointVoxel); `BuildingFootprint` (integer box + id) and an EMPTY `WorldRecord.BuildingList` hold footprints
+for NPCs (the record is never saved: no save-format change). Style by biome rule, existing GenMats only (header lists them: biome tree wood,
+the biome's own rock, timber / adobe / stone walls, thatch / slate / clay-tile roofs). NOT placed anywhere and no `-towns` flag yet: B7
+(the site planner) was never built, so nothing reserves town sites. Tests `BuildingKitTests` (6: sealed room + negative control, player
+walks from outside through the front door to every room and not through windows or a shut inner door, roof over every column, no floating
+voxel, rotations agree + footprint tight + door on FrontDir, every material solid / static / coloured / GenToEngine-mapped); report
+`Logs/TerrainGen/kit184/kit.txt`; sheets `Screenshots/184/kit_sheet.png` (rows hut/house/hall, columns forest snow jungle savanna desert
+badlands) and `kit_cutaway.png` (roofless, forest | desert). Result: HANDOFF 184.
+
+Task 184b (test-suite trim, owner 2026-11-07: fast <= 3 min, all <= 15 min): `run-editmode-tests.sh` has THREE tiers --
+`fast` = `!Slow` (every change), `SUITE=all` = `!Nightly` (every generator / rule test at least once; generator changes),
+`SUITE=nightly` = everything (~1 h, before a merge to main only; also copies `TestResults_nightly.xml`); `FILTER='<testFilter>'`
+runs only those tests (regex: write `(42)` as `\(42\)`), `EXTRA="<unity args>"` passes more. A `[Category("Nightly")]` test is
+always also Slow. Nightly holds the shell fills (EditOpRedraw Shells1to7 774 s, ShellFill, ColumnReuse WalkingTwin, BrickSkip
+Shells/Chunks, ShellChunk CoarseFirst ...), the long fuzzers, the two cost reports (`Cost_OnVsOff`), every engine test that took
+>= 2 s, and seeds 7 / 2026 of FluidAtRest / LakeShore / LakeLevel / OreRule (42 + 31337 stay in all). OreRuleTests.FourSeeds is one
+case per seed (`table_<seed>.txt`). Exact cuts: `FastAssert` (CoreEngine/Tests) and guarded per-voxel asserts (`if (x != y)
+Assert...` -- same check, same message, no NUnit call when it passes): MaterialRuleChunk Chunks_Deterministic 52.9 -> 6.2 s,
+OccupancyMask/AirMip 15-20 s -> 1.6-4.8 s (two AirMip tests back in fast), Tree Chunks 9.8 -> 6.3 s. The Editor already runs
+managed code in Release (EditorPrefs ScriptDebugInfoEnabled = 0): `-releaseCodeOptimization` measured no gain. Result: HANDOFF 184b.
+
+**Task 185 -- world gen C7, stamps that sit in the land (`TerrainSpec.StampFit`, v4 only; DEFAULT ON since task 187a,
+`-stampfit 0` = `stampFitOff` = every byte as before).** Rules in `Stamps.cs` (header "TASK 185") and `ShapeField.Ledge`, each exact on the stamp's own footprint:
+CAVE MOUTH placed only where its tube is under cover (`Stamps.FitCave`): stations every 5 m along the tube (axis and both sides), the
+lowest S can put the column (map - `DETAIL_AMP_SUM` 94.3 x rough - 1, minus `RELIEF_BAND_BOUND` on a face) stands `CAVE_ROOF` 2 m over the
+tube top from <= `CAVE_MOUTH_MAX` 40 m out to its end; the hashed axis first, then its 3 quarter turns (`ColumnSample.stampRot`, read by
+`Carve3D`), none -> no cave. LEDGES: the shelf top is a rock-layer boundary (`LedgeFitTop`, flat but for LayerWave) and 3.5 m thick
+(`LEDGE_FIT_THICK`). GEYSER BASIN: sinter terraces of 1.5 m (`GEYSER_STEP`) = the map ground rounded up below the vents' level, outline by
+the ground (<= 2 m over / <= 40 m under the vents, reach 90-120 m, longer downhill, +-12 % wobble); a pool keeps only columns whose 8
+neighbours share its terrace. HOOPS only on a rise (>= 5 m over the +-120 m ring mean) or in rugged rock (map rough >= 0.8). SEA KEEP-OUT
+(KNOWN_ISSUES seed 2026 fossil): no cave / fissure / skull cave / arch / hoop / rib opening within 2.5 cells of a sea cell (`NearSea`).
+Tests `StampFitTests` (Slow: caves 4 seeds + a forced downhill trench site; ledges 4 seeds + the tallest shelf's 64x64 window; geyser
+4 seeds + the basin moved onto a 56-degree slope, pools via FluidAtRestTests' tile job; fast: hoops 4 seeds + the flattest plain,
+DETAIL_AMP_SUM) and `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` (tile (190,545) OFF = negative control). Reports
+`Logs/TerrainGen/stampfit185/`. Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed,cave_in -wsarms native -wsfixed
+$(cat Logs/overnight/185_wsfixed.txt) -stampfit 1|0" ./run-look-review.sh`. Result: HANDOFF 185.
+
+**Task 186 -- the simple material rules are the DEFAULT (owner 2026-11-07, Q-M (a)).** `TerrainSpec.matRulesOn` became `matRulesOff`
+(the `riverShapeOff` pattern): 0 = `GroundRules` (tasks 180b + 182), so every v4 spec -- play, rigs, capture runs, tests -- paints by the
+rules; `-matrules 0` (`TerrainGenChunkSource.MatRulesArg` now defaults to true; chunk source + `FarField`) sets 1 = the 177-179 cover +
+layered rock, byte for byte. No SerializeField / scene-builder copy exists. Effective value in the player log:
+`[StreamManager] tg2 chunk source: map v4, material rules ON (default)` and the `[FarField] tg2 ...` line's `material rules ON`.
+Tests pinned to the path they describe (assertions unchanged): `CoverTests` and `BiomeBlendTests` (task 177 cover / task 122 surface)
+set `matRulesOff = 1`, taking the default spec's shared map (the rules never change the map, no extra build); `MaterialRuleTests` /
+`MaterialRuleChunkTests` arms use `matRulesOff`; `BrickSkipTests.*_MatRules` became `*_MatRulesOff` (the plain proofs now cover the rules).
+`FluidPocketTests.Sites_AtRest_PathsAgree_Adversarial` (183, `-fluidpockets 1`) told the lining by MATERIAL id; the rules paint the same
+ids beside a fluid (sludge shore = mud, quicksand = packed sand, wet bank = mud), so shells 1-2 vs the 0.1 m voxel failed at 3 sites on rule
+paint, not on the pocket. It now tells the lining by POSITION (the column's pkLineLo..pkLineHi, or DeepPocket's shell) -- stricter at every
+lining voxel; fluid voxels compared as before.
+Shots: `Logs/overnight/186_shots.sh` (3 of 180b's poses: `oasis_or_swamp` desert river, `cliff_snow`, `beach`; default vs `-matrules 0`).
+Result: HANDOFF 186.
+
+**Task 187 -- world gen B7, the town / village SITE PLANNER (`-sites 1` = `TerrainSpec.sitesOn` / `Sites`, v4 only, DEFAULT OFF; owner
+Q-S (a) 2026-11-07).** `Assets/TerrainGen/Sites.cs`: integer rules on the map + record (no seed constant, no place constant), records only --
+NO terrain change (the flatten rule is stored, not applied), so ON and OFF worlds are byte-identical and only `WorldRecord.SiteList` + the
+record's site bytes (ids >= 16 = SiteList index + 16, on each disc's cells) differ. `WorldMap.EnsureSites()` runs it once (chunk source,
+`[Sites] plan .. ms` + one `[Sites] #id` line per site in the player log); tests call `Sites.Plan(Sites.FromMap(map))` (never on a shared
+map). Every site is a disc (town R 64 m range <= 8 m, frontier 48 m / 8 m with <= 1/4 Scramble, village 32 m / 3 m, outpost 16 m / 2 m):
+all land, dry, >= 16 m from lake / river, 32 m clear of sea and signature features, not in the start zone (128 m round both PlayStart
+columns), not on a stamp keep-out disc, not on another site + 32 m; Walk band only. Towns: one per easy area, best disc; target land /
+90 k cells (3 on the medium island). Frontier: hard ground (Volcanic landform or Snow biome) within 256 m of its edge, higher danger scores
+better; 1 + towns / 4. Villages (fresh water <= 6 steps ~100 m, danger <= 3) and outposts (the rest, <= 16 steps) within 2 km of a route,
+route distance a score term; land / 27 k cells together (~10), villages up to 6 in 10. GROUND CHECK on the real columns (ShapeField, 2 m
+grid): range <= max + 3 m and THE STEP RULE (no 2 m neighbour step steeper than Scramble 30 deg, `StepTooSteep`: a canyon terrace's cliff
+edge is invisible on the 8 m map; it removed every terrace village). Each site records its biome x landform pair, nearest route + join point
++ spur length (no route re-searched: `RouteList` unchanged), pad level (median map height) / blend R/2 / cut / fill. Tests `SiteTests`
+(fast: `Adversarial_FewFlatCells_OnlyTheFlatPatches` -- a 4 km Climb island with four flat patches, no-flat and Scramble negative controls;
+`GroundCheck_StepRule_WallInDisc_NoVillage` -- a 3 m wall the map cannot see; Slow: `FourSeeds_EveryRule_CountsTable` -- an independent
+checker of every rule, `Logs/TerrainGen/sites187/table.txt`, `map_<seed>.png`, `sites_<seed>.txt`, `poses.txt`). Labels:
+`python3 tools/sites187.py` -> `Screenshots/187/sites_<seed>.png`, `sites_sheet.png`. Shots: `Logs/overnight/187_shots.sh` (seed 42 town /
+village / frontier, eye level, `-sites 1`). Next: BuildingKit on the sites behind `-towns 1`. Result: HANDOFF 187.
+
+**Task 187a -- stamps that sit in the land are the DEFAULT (owner 2026-11-12, Q-F (a); task 186's pattern).** `TerrainSpec.stampFitOn`
+became `stampFitOff`: 0 = task 185's fitted stamps (cave mouth under cover, cap-rock ledges, terraced geyser basin, hoops on a rise, sea
+keep-out), so every v4 spec -- play, rigs, capture runs, tests -- fits; `-stampfit 0` (`TerrainGenChunkSource.StampFitArg` now defaults
+to true; chunk source + `FarField`) sets 1 = the pre-185 stamps, byte for byte. No SerializeField / scene-builder copy exists. Effective
+value in the player log: `[StreamManager] tg2 chunk source: map v4, material rules ON (default), stamp fit ON (default)` and the
+`[FarField] tg2 ...` line's `stamp fit ON`. Tests: `StampFitTests` / `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` take the default spec
+as ON and pin OFF with `stampFitOff = 1` (assertions unchanged; the map ignores the flag, so they take the default spec's shared map);
+no other test encoded the old stamp shape. Site planner (187) unaffected by construction (map + record only) and its tests stay green.
+Shots: `Logs/overnight/187a_shots.sh` (185's cave42_over, wetland_basin ledge, river geyser basin; default vs `-stampfit 0`). Result: HANDOFF 187a.
+
+**Task 188 -- the shell pools no longer overflow with trees: COMPACT 2-value shell bricks (owner 2026-11-07 Q-T (a); trees stay `-trees 1`, default OFF).**
+CAUSE (`TreePoolTests.Pools_ForestPose` / `Pools_JunglePose`, Explicit: every chunk shells 1-5 store at 180's forest / jungle pose, seed 42 High,
+trees OFF / ON / ADVERSARIAL cover = `TerrainSpec.treesOn` 2 + biome, test-only, every tree cell passing the physical rules gets a tree;
+`Logs/TerrainGen/trees188/pools_<pose>.txt`): canopies are a second surface over the ground, so trees add dense bricks, and 92 % of those hold
+exactly two values (leaf or wood + air) yet took a full 512 B body. 180's FULL was at the JUNGLE pose (the `[shells]` line prints BEFORE its
+`WSPOSE` line): trees ON took shell 1 / 2 to 120 / 117 % of PoolCap. FIX (`Mirror/ShellBrickPack.cs`, an Appendix A addition, EXACT): a dense
+shell brick whose voxels take <= 2 values is stored as 17 uints (a | b << 8, then a 512-bit plane), 7 packed into one 128-uint body, handle
+bit 30 = COMPACT (low 30 bits = shell-local uint offset); full bricks unchanged. Decided per brick from its own voxels (terrain too), no cap or
+constant. `ShellStore.Store` classifies (Burst `ClassifyJob`) and stages (Burst `StageJob`, replaces the managed copy); the pool unit stays the
+body (`BricksUsed`, `PoolCap`, `UploadBytes`' `dense` = bodies; new overload returns full / compact bricks). Readers: `Raymarch.compute`
+`ShellBrickVoxel` (both shell lookups), `ShellRayReference.IView.VoxelOf` (default = plain body; shadow views use `ShellBrickPack.ShadowVoxel`),
+`ShellValidator.CompareShadow`. `-shellpack 0` (diagnostic) = every dense brick a full body, as before 188. Tests: `TreePoolTests.CompactBricks_
+StoreIsByteExact_PoolCountsBodies` (fast: 1-, 2-, 3+-value bricks byte-exact through a real store; refusal by bodies; redraw / alias / abort
+free them); `EditOpRedrawTests` replace test and `ShellSkyExitTests.Store_RaisesTheBound` now count bodies (the latter's refused chunk uses
+3-value bricks). Player: the capture `[pools]` line after each `[shells]` (bodies / pages used/peak/cap, refusals, pack ON/OFF). Shots:
+`Logs/overnight/188_shots.sh` (forest, jungle, forest_far, jungle_far; `-trees 1`, `-shellpack 0` vs default). Result: HANDOFF 188.
+
+**Task 188a -- `-matvariant 0|1`: the material rules without the random variant spray (owner 2026-11-12 (a): "just randomly spraying it is weird ... like blotches"; DEFAULT unchanged = 1, the owner picks from the pictures).**
+`TerrainSpec.matVariantOff` (read through `MatVariant`): 1 (`-matvariant 0`) = `GroundRules.Column` gives every column its slot's MAIN palette
+entry (`mrSlot` never carries VARIANT_BIT); 0 (default, `-matvariant 1`) = today's `VariantNoise > VARIANT_ABOVE - 0.15 x BiomeNoise` spray
+(~22 % of land columns), byte for byte. Rule-made materials (shaded-steep ice, frozen / mud / green banks, scree, bare sunny faces) are slot
+MAIN entries and stay. One switch point, so near voxels, `TopMaterial` (far band, minimap) and shells all agree; `FarField` sets the far
+band's own spec from the arg like `-matrules`. Rules path only (`-matrules 0` ignores it); the map and record ignore it; TREES are unchanged
+(`c.cover` keeps the noise patch's VARIANT bit, so tree density patches -- `Trees.VARIANT_MUL` -- are identical with either setting). Where a
+variant entry was BARE, the slot's patches lose bare rock (soil depth follows the main entry). Tests `MatVariantTests`: `-matvariant 1` FNV
+(height, slot, cover, soil depths, top material, top 4.8 m of Material; seeds 42, 7) == the pre-188a pin; `-matvariant 0` zero variant
+columns, same slot / cover / ground, skin == main entry; near == far slots at texel 4 / 16; Slow `FourSeeds_ShareOfGroundPerMaterial_
+BeforeAfter` writes `Logs/TerrainGen/188a/share188a.txt` (surface share per material per biome, 4 seeds, and the palette's variant-only
+materials). Shots: `Logs/overnight/188a_shots.sh` (187's frontier + town poses, 180's desert + savanna flats, two seed-42 forest river banks;
+default vs `-matvariant 0`). Result: HANDOFF 188a.
+
+**Task 189 -- world gen C6, landform signatures at walking scale (`-landsig 1` = `TerrainSpec.landSigOn` / `LandSig`, v4 only, DEFAULT OFF; the owner picks from the pictures).**
+`Assets/TerrainGen/LandSig.cs`, applied in `ShapeField.Sample` before the face relief: each landform gets a 20-200 m shape from the
+landform weight and the ground's own data, never the biome. DUNES: the map's own dune train (`WorldMap.DuneField`, 160 m, the seed's
+wind) sharpened IN PHASE at the column (`DUNE_GAIN` 0.5 of its height as a straight stoss, sharp brink and straight slip face); the 16 m /
+8 m generic octaves are damped in dune fields too (wind-sorted ground). CANYONLANDS: benches on the rock layers (`DetailField.LayerBoundary`,
+flat tread + `BENCH_RISER` riser) and slot canyons (zero lines of a noise stretched along the 200 m regional downslope, flat floor, steep
+walls, in patches, drawn at footprints <= 8 voxels). ALPINE: ridgelines and side valleys (a ridged noise stretched down the regional slope,
+scaled by the slope, mostly carved). Stretched noise uses 4 FIXED frames (0/45/90/135 deg) blended by orientation (no rotating frame, no
+shear). In every signature landform the 64 m / 32 m generic octaves give way (`MESO_GIVE` 0.75). WHERE: a per-cell weight plane
+(`WorldMap.EnsureLandSigPlane`, 3 bytes per map cell, built only when the flag is on): `Regions.Weights` x a fade (16-48 m chamfer) from sea,
+lake, river, easy areas and route corridors; bilinear, so heights stay continuous. Plumbed through every MapView (near chunks, point
+queries, shells, shell fill, FarField, FarQuery); `BandLimitBound` widened by `LandSig.BandBound`. Tests `LandSigTests` (12): OFF == the
+188a FNV pins with the plane built, and a landform-column FNV; dune slip face downwind, ~3x the stoss, < 45 deg; dune phase == the map's
+`DuneField` (to 1 mm); oriented noise continuous across bins and the 180-deg wrap; slots / ridges run down the slope; bench continuous at
+layers; plane 0 on keep-out; adversarial one-cell patch and biome border; Slow band limit, no new needle (`StampTests.NEEDLE_DROP`), and
+`ShapeStatistic_PerLandform_FourSeeds` -> `Logs/TerrainGen/189/shape189.txt` (OFF vs ON per landform, 4 seeds). Shots:
+`Logs/overnight/189_shots.sh` (task 173's `pair_jungle_dune-sea`, `pair_desert_canyonlands`, `range_200up`; default vs `-landsig 1`).
+Result: HANDOFF 189.
+
+**Task 190 -- TOWNS ON THE SITES (`-towns 1` = `TerrainSpec.townsOn` / `Towns`, also turns `-sites 1` on; v4 only, DEFAULT OFF; owner
+2026-11-12 (a)).** (1) SPACING (`Sites.TownSep2`, task 187's plan changes for `-sites 1` too): no town inside another town's FAIR SHARE of the
+land (a disc of area land / towns, radius sqrt(land / (pi towns)), integer, pi = 355/113; ~1.35 km on the 4 seeds); an easy-area town
+closer is dropped and the missing towns go on WALK ground anywhere (TIER 2: every town disc rule, whole disc Walk, ground check, within
+ROUTE_FAR of a route corridor); none fits = fewer towns (`Plan(.., spread: false)` = 187's plan). (2) THE FLATTEN (`Assets/TerrainGen/Towns.cs`,
+`Towns.Apply` in `ShapeField.Sample` after the pockets, so every path agrees): disc = the pad (187's stored median), ring R/2 blended back by
+an integer smoothstep on d^2 (rounded, so the ring edge IS the natural ground); the ring stops short of sea / lake / river / feature cells and
+half the gap to another site (`BlendWidth`); ring columns with still water, a river lip, a stamp or ledge opening are never moved; caves only
+6 m (`CAVE_CAP`) under the new ground; no tree (`ClearCells` on the tree density plane) and no fluid pocket (`FluidPockets.StartZone`) in a
+disc + ring. (3) BUILDINGS (`Towns.Layout`, BuildingKit 184): programs town 1 hall + 8 houses + 8 huts, frontier 1 + 4 + 4, village 3 + 3,
+outpost 2 huts; the hall at the centre (door toward the route join), the rest on rings from an 8 m plaza in 1 m steps x 32 integer
+directions (start = a hash of the site centre), door facing the centre; a slot = box (eaves incl.) 2 m inside the disc, 4 m (`GAP`) from every
+box, every map cell under it dry land, not sea / lake / river / feature / route corridor / stamp / start cell, natural ground passing 187's
+step rule; floor = pad + 1, 0.6 m foundation. `WorldRecord.BuildingList` = the footprints (id = the site id). PLANE (`WorldMap.EnsureTowns`,
+`MapView.town`, int[]: sites + buildings, ~3.7 KB): LOD 0 / point query = the exact kit part (`Towns.VoxelAt`; PointVoxel first, VoxelJob
+`OverlayBuildings` after the trees), shells = `Towns.CoarseRole` (the sample point's part if solid, else the highest solid part on the cell's
+stride-2 sub-grid: walls / roofs are >= 2 voxels, so far houses keep them; shell 1 is exactly the sample point); column tops raised (air fast
+paths exact; shells + 2^shift); far band = flattened heights only. Engine: `TerrainGenChunkSource.Towns.cs` (`TownsArg`, `SetTowns` for tests,
+`TownArray` also used by FarField). Player log: `[Towns] plan + layout .. ms: ..`. Tests `TownTests` (fast: `Spacing_Adversarial_OneCorner_
+FewerTowns` -- one Walk corner with 3 easy areas -> 1 town of 2, negative control 2, + a far Walk patch -> tier-2 town there;
+`Layout_Adversarial_RouteWallBlocked`; `Flatten_OffPins_OutsideIdentical` -- 188a pins with the plane in the view, outside-column FNV ON ==
+OFF, disc at the pad, ring between; Slow `FourSeeds_TownsTable_Maps_Poses` -> `Logs/TerrainGen/towns190/table.txt`, maps, plan sheets,
+`poses_<seed>.txt`), `TownChunkTests.Hall_ChunksPointShellsAgree_PoolCost` (LOD 0 = kit, ON vs OFF only in discs + rings, FarQuery = chunks,
+shell 0 = Generate, shell 1 exact, shells 2-3 every cell with a part shows one, no hall column holes, dense bricks ON vs OFF ->
+`chunks.txt`); `SiteTests` checker knows tier 2 + the spacing. Labels: `python3 tools/towns190.py` -> `Screenshots/190/towns_<seed>.png`,
+`spacing_7_before_after.png`, `plans_<seed>.png`. Shots: `Logs/overnight/190_shots.sh` (per seed town / village eye + town from 150 m); the world survey now prints task 188's `[pools]` line after each pose's `[shells]`.
+Result: HANDOFF 190.
+
+**Task 190a -- materials by the rules only, no random variant spray, is the DEFAULT (owner 2026-11-12, Q-V (a); tasks 186 / 187a's pattern).**
+`TerrainSpec.matVariantOff` became `matVariantOn`: 0 = task 188a's no-spray look (every column its slot's MAIN palette entry), so every
+v4 spec -- play, rigs, capture runs, tests -- has no spray; `-matvariant 1` (`TerrainGenChunkSource.MatVariantArg` now defaults to false;
+`FarField` sets the far band's spec the same way) = the pre-190a spray, byte for byte. Trees unchanged (`c.cover` keeps the noise VARIANT
+bit). The effective value is logged by `StreamManager` ("material variant spray OFF (default)") and `FarField`. No SerializeField carries it.
+Tests: `MatVariantTests` pins 188a's FNV (`PIN_42` / `PIN_7`) on the explicit `-matvariant 1` arm and the new default on `PIN_DEFAULT_42`;
+`LandSigTests.Off_IsTodayByteForByte` and `TownTests.Flatten_OffPins_OutsideIdentical` compare their 188a pins on a `-matvariant 1` copy of
+the OFF spec. Shots: `Logs/overnight/190a_shots.sh` (188a's desert flat, savanna flat, forest bank a; default vs `-matvariant 1`). Result: HANDOFF 190a.
+
+**Task 190b -- landform signatures are the DEFAULT (owner 2026-11-12, Q-W (b): dunes as they are; tasks 187a / 190a's pattern).**
+`TerrainSpec.landSigOn` became `landSigOff`: 0 = task 189's signatures (dunes, canyonland benches + slot canyons, alpine ridges), so every
+v4 spec -- play, rigs, capture runs, tests -- has them; `-landsig 0` (`TerrainGenChunkSource.LandSigArg` now defaults to true; chunk source
++ `FarField`) sets 1 = the pre-189 columns, byte for byte. `WorldMap.Build` now runs `EnsureLandSigPlane` whenever `spec.LandSig` (else
+`ShapeField.Sample` would quietly take the OFF path for a map built without the plane), so every map a default spec builds carries the
+plane (1024^2 x 3 B = 3,072 KB; `WorldMap.LandSigBuildMs`, 34 ms in the player). No SerializeField carries it. Effective value in the
+player log: `[StreamManager] tg2 chunk source: ... landform signatures ON (default; plane 3072 KB in 34 ms)` and the `[FarField] tg2 ...`
+line. Tests: `LandSigTests` builds its world from the default (ON) spec, `off` = `landSigOff = 1`; 188a's pins stay on OFF; new
+`Default_IsOn_Pinned` (`PIN_ON_42` 0x5647ec7f / `PIN_ON_7` 0x08a2a095). `MatVariantTests` pins 188a on `-matvariant 1 -landsig 0`,
+190a's `PIN_DEFAULT_42` on `-landsig 0`, today's default on `PIN_DEFAULT_190B_42`; `TownTests.Flatten_OffPins_OutsideIdentical` pins on
+`-landsig 0` (towns run on the ON default, whole suite green). Shots: `Logs/overnight/190b_shots.sh` (189's canyonlands + range_200up;
+default vs `-landsig 0`), `Screenshots/190b/viewer.html`. Result: HANDOFF 190b.
+
+**Task 191 -- placement preview, ALL switches ON vs OFF (pictures only, owner 2026-11-12; no default or generator change).** ALL ON =
+`-trees 1 -ores 1 -fluidpockets 1 -sites 1 -towns 1` on today's defaults (material rules, stamp fit, landform signatures ON; variant spray OFF);
+ALL OFF = the defaults. One build, world survey (`-worldsurvey 1 -wsposes fixed -wsfixed <poses> -wsarms native -lookwait 35`, PRESETS=high),
+seeds 42 (10 poses) and 7 (4), plus `-trees 1` alone (forest, forest_far) and `-towns 1` alone (town eye / 150 m); the 400 m wide shots again
+with `-lookwait 90` (35 s leaves shells 2-3 empty = no distant trees). Scripts `Logs/overnight/191_shots.sh`, `191_wide.sh`,
+`191_wide_retake.sh`; logs `Logs/overnight/191/`; per-run `lookreview_*.txt` and the flip viewer in `Screenshots/191/` (Space cycles
+ON / OFF / switch alone). Capture change: the world survey prints a `[mem]` line (`MemoryLedger.Step14Line`: CPU / GPU body pool peak,
+refused, process now / peak) after each pose's `[pools]` line. Result: HANDOFF 191.
+
+**Task 192 -- trees look unique, with OPEN crowns (owner 2026-11-12: "very generic and not unique ... the density of the leaves is too much"; trees stay `-trees 1`, default OFF).**
+`Assets/TerrainGen/Trees.cs`: no more "3 families x jitter". `Pick` draws EVERY number of a tree from its cell hash inside RANGES its biome and
+cover slot set (age: 15 % saplings x0.42-0.6, mature x0.85-1.05, 18 % old x1.05-1.15 with thicker trunks and an extra limb; slot scale steep/high
+x0.85, hollow x1.1): forest broad deciduous (H 10-16 m, crown radius 0.24-0.4 H, 3-5 limbs x 2-3 twigs; conifers mix in on HIGH 50 % / steep 20 %),
+jungle tall emergents (H 11-20 m, crown base rising with height, buttress on old / tallest) + palms (hollow 35 %, flat 15 %), savanna flat-topped
+acacias (crown radius 0.45-0.65 H, flat pads) + 12 % bottle-trunked giants, snow conifers (spruce-to-pine continuum q: crown base, radius, 3-8
+lobed whorl tiers + a bark limb under each), desert cacti (arms 0-3 by height, 22 % barrels). `EmitLook` grows a SKELETON -- trunk -> limbs ->
+twigs (capsules, wood, radius >= 1 voxel so 6-connected) -- and puts the leaves as CLUMPS (lumpy blobs, edge noise 0.3) on the twig ends, the
+clump size from the fill target; sparse crowns put clumps on the upper shell (open interior), dense ones also inside. Trees on slopes lean out
+over the foot's own downhill gradient (the 4 foot samples, no extra sample). One leaf GenMat per tree, a shade picked per tree from the existing
+leaf GenMats (forest 60 % forest / 25 % jungle (dark) / 15 % savanna (olive) leaves; jungle 70/30; savanna 70/30; conifers pine needles): no new
+materials. `MAX_PRIMS` 14 -> 28 (tree scratch: a shell-5 chunk's worst-case prim array doubles, ~5 -> ~10 MB per shell scratch). FLAGS:
+`-leaffill 30|45|60` (`TerrainSpec.treeLeafFill`, measured leaf fill = leaf voxels / the ellipsoid (cone for conifers) inscribed in the leaves'
+box; default `Trees.DEFAULT_LEAF_FILL` 45; calibrated so 30 / 45 / 60 measure about 32 / 47 / 59 %, task 180's trees 60-81 %),
+`-treestyle 0` (`treeStyle180`, diagnostic: task 180's families byte for byte). `TerrainGenChunkSource.SetTreeLook(fill, style180)` for tests.
+Tests: `TreeTests.Look_FillSkyUniqueness_Sheets` (Slow; seeds 42 / 7, per biome the 30 trees nearest its densest block, arms 180 / 30 / 45 /
+60: fill, sky through the crown, "twin" = mean side-silhouette IoU with the most similar of 12 neighbours, <= 2-value bricks, prims; every new
+arm passes the physical rules; `Logs/TerrainGen/trees192/look.txt`, sheets `Screenshots/192/look_42_<biome>.png` = 12 neighbours, rows 180 /
+30 / 45 / 60), `FourSeeds_Rules_Sheets` and `Chunks_Deterministic_Border_PointAndShellsAgree` now write to `trees192` / `Screenshots/192`
+(task 180's sheets stay in `Screenshots/180`), `Poses_UnderCrown` (Explicit: the under-crown pose). `TreePoolTests.Pools_ForestPose` /
+`Pools_JunglePose` arms OFF / ON-180 / ON-30 / ON-45 / ON-60 / ADV-x60 -> `Logs/TerrainGen/trees192/pools_<pose>.txt`. Shots:
+`Logs/overnight/192_shots.sh` (180's five poses + `under_crown`, four launches) and `192_jungle_retake.sh` (180's jungle eye sits INSIDE
+the taller new jungle crowns = black frames; `jungle_high` = same target, eye 20 m higher, all four arms), `Screenshots/192/viewer.html`.
+`Cost_OnVsOff` now runs both looks on the same patches (`trees192/cost.txt`). Result: HANDOFF 192.
+
+**Task 193 (look, lighting; owner 2026-11-12 "Yeah"; SOFT_SKY_PLAN S2 + a ground-bounce half; OFF by default): SKY FILL, `-skyfill 1|2`.**
+CAUSE (Raymarch.compute AMBIENT SKY VISIBILITY): one ray STRAIGHT UP per tier-0 hit, skyVis 0/1; skyOpen = lerp(floor 0.02 (High), 1,
+skyVis) scales the ambient AND the sun-shadow floor, so any face blocked straight up (ground and trunks under a crown, a leaning tube wall,
+every down face: its own voxel blocks it) and out of the sun drew at 2 % = black. FIX (`RaymarchFeature.SkyFill`, `_SkyFill`): the same
+call site traces ONE cosine-weighted direction per pixel per frame over the face's hemisphere (SkyVisReference's R2 sequence, seeded by the
+surface cell's key, so a voxel face converges to its own stratified mean while the camera moves). S = open share of the SKY half (a side
+face's lobe folded up: open side face = 1, not 0.5); mode 2 adds B = share of the GROUND half landing on SUNLIT ground (the ray to its first
+solid voxel, entry face re-derived from t (`ShadowEntryNormal`), then one sun ray from there; `ShadowHit.hitV/hitT` new). Side faces in mode
+2 alternate halves per frame. Per-pixel history `SkyHistR/W` (uint2: S 12b | B 12b | counts 4b+4b, key; ping-pong, reprojected like the sun
+history; 1/n for 16 samples then 1/16; mode change / resize drops it; OFF frees it; 2 x W x H x 8 B on). skyVis = S (mode 1; down faces 0 as
+before) or S and B mixed by the lumas of FarShadeSky(n) and CubeBounceLight(n, sun) (mode 2). Shells / far keep 1 (plan Q5 (a)); a sky ray
+leaving the window sideways counts open (plan S3, not done). CPU twin `SkyFillReference` (+ `EntryNormal`, `FirstSolid`); tests
+`SkyFillReferenceTests` (7): sealed 2 m room + 0.1 m shell room exactly 0 every face/frame both modes; 1-voxel crack through a 1.1 m roof
+(floor under it 1.2 %, 2 m aside exactly 0); open ground + pillar side over sunlit ground exactly 1; S(side) = 2 x SkyVisReference;
+3 m ledge (underside B 0.42, wall S 0.56) + running mean vs quadrature (rms <= 0.07); 1 m x 6 m trench (wall S 0.29 / 0.047 / 0.012 at
+0.9 / 2.9 / 5.8 m down -- darker than today's 1.0 there: physical); lattice canopy (ground S 0.50, trunk 0.52, crown underside B 0.54);
+GPU contracts (fold, halves, record, entry face = DDA's on 1,765 rays). Capture: WorldSurvey arm suffix `_sfN` (`-wsarms
+native_sf0,native_sf1,native_sf2`), each arm's 60 settle frames logged as `[frame]` mean/p50. Shots: `Logs/overnight/193_shots.sh`,
+`193_trench.sh`; `Screenshots/193/viewer.html`, `black193.txt`. Result: HANDOFF 193.
+
+**Task 194 (bug, default ON): the RECTANGULAR PITS near the full GPU body pool = the refused-chunk hand-over.** Cause: a chunk the
+near GPU body pool refuses (TerrainClipmap.GpuPool.cs, FULL POOL) is held as air in tier 0 and its column marked non-resident so the
+shells draw it -- but tier 0 still drew the rest of the column (the uniform rock under a surface chunk needs no GPU body) and its
+neighbours, and tier 0 marches first: a ray through the refused chunk's air hit that rock = a 12.8 m box pit with straight walls.
+Shell 1 STORES every refused chunk seen (probe: 0 in its +-1-chunk hole at High). Fix (Raymarch.compute, REFUSED-CHUNK HAND-OVER block
+before tVoxelLimit): while `_Tier0Refused` (RaymarchFeature: GpuPoolRefusedNow > 0, shells + far band on), a tier-0 hit past the ray's
+entry into a column holding a REFUSED chunk is dropped; tier 0 ends at that entry and the shell march draws from there. Refused columns
+only: FarField.UpdateResidency writes them as a second bitmap after the residency bits in the same `FarResident` buffer
+(`Tier0ColumnRefused`; `ColumnWalkT` = FarStartT's DDA with a mode flag; `FarField.ColumnResident/ColumnRefused` statics). A first
+version stopped at ANY non-resident column and lost houses at eye level (streaming columns near the camera lie in shell 1's hole:
+`Screenshots/194/seed42_town_eye_after_v1_REJECTED.png`). No pool size, eviction, layout or API change; refused counts unchanged.
+`-refusedhandover 0` = old behaviour (shots only); WorldSurvey arm `native_rh0` = OFF for one shot; capture-only `[refused]` lines per
+shot (PlaygroundCapture.RefusedProbe.cs: count, on-screen refused chunks with distance / chunk below / shell 1 stores / px). CPU twin
+`Tier0HandOverReference`; tests `RefusedHandOverTests` (7: real TerrainClipmap with a 25-body pool reproduces the pit; the floor hit is
+dropped at the refused column's entry; earlier hits kept; a streaming-only column is never handed over; the column is tier 0's again
+once the chunk lands; twin = a fine column walk on 500 rays). Not covered: a refused chunk inside shell 1's hole still has no shell
+data (ABSENT -> far band), and sun shadows across a handed-over column may differ slightly. Shots: `Logs/overnight/194_proof2.sh`,
+`Screenshots/194/` (`refused_*.txt`, `diff194.txt`). Result: HANDOFF 194.
+
+**Task 194a (play default; owner Q-Z (a), 2026-11-13: "Mode 2 ON in play now; the performance stage makes it cheaper"): PLAY STARTS
+WITH SKY FILL MODE 2.** `PlaySettings.skyFill` (int, default 2; 0 off / 1 sky / 2 sky + ground bounce; out of range -> 2; a file saved
+before 194a gets 2), `-skyfill 0|1|2` overrides it for one run (last match wins; a bad value keeps the saved one). `SettingsMenu.LoadAndApply`
+sets `RaymarchFeature.SkyFill`; F6 row "Shade light" (Sky + bounce / Sky / Off), live, saved (panel 1152 -> 1226 px, ui scale 1158 -> 1232).
+`tools/play-flags.sh` PLAY_SETTINGS_FLAGS gains `-skyfill 2`, so `run-tg2world.sh MODE=playwalk` (the play-like capture run) matches play.
+RIGS DO NOT CHANGE: only `Playground.IsPlaySettingsRun()` (not a capture run, not `-fluidprobe`) reads PlaySettings; every other run keeps
+`RaymarchFeature.SkyFill`'s own flag read, default 0. Checked: `run-tg2world.sh:83` (MODE=orbit, `-sustained`) and `:93` (`-fluidprobe`)
+pass no `-skyfill`; `run-acceptance-rig.sh` launches the Phase 4 scene, which has no SettingsMenu. Test
+`PlaySettingsTests.SkyFill_PlayDefaultIs2_OldFileGets2_FlagOverridesForTheRun`; `PlayFlagsFileMatchesPlaySettingsDefaults` now pins
+`-skyfill 2`. No F6 screenshot: the menu shows only in an interactive run (`-settingsopen` + `-playshot`), not in a capture mode.
+Result: HANDOFF 194a.
+
+**Task 194b (build plumbing, owner 2026-11-13 "Yes this next to speed up development"; NO runtime change): player builds leave five dev
+kernels out of Raymarch.compute.** `Assets/Editor/DevKernelStrip.cs` (IPreprocessComputeShaders, only while a player is built) drops
+`CSMainFarShadeDiag`, `CSShellPrepassDiag`, `CSShellProbe`, `CSMainChecker`, `CSMainDetail` -- play never dispatches them. `VE_ALL_KERNELS=1` in
+the build's environment keeps them; `run-cost-split.sh` and `run-farband.sh` set it (their reports read the counters / probe) and give those
+builds a 60-min compiler timeout. Editor play and the EditMode suite always have every kernel. BuildStamp gains a `kernels   all|stripped A,..`
+line; the player reads it (`RaymarchFeature.KernelStripped`, parser `VoxelEngine.Rendering.KernelStripStamp`), and a run that ASKS for a missing
+kernel logs one `[kernels]` warning and draws with play's kernel: `-checker 1` -> plain TAA, `-detailspeed 1` -> CSMain, the *Diag cases (counter
+windows `CollectShadowStats`, debug views, `_DebugShellSkip` arms, `-shelldiet 0`, `-shellmask 1`, `-shellcolleap 1`) -> the lean twins, so
+shadow/shell counters read 0 (look review's `[px]` lines, the walk's end-of-run shadow step count) and debug views 12-14 draw as play: build with
+`VE_ALL_KERNELS=1` for those. Measured (cold, all kernels compiling at once): Raymarch 1503.7 -> 1128.8 s wall, 8179 -> 5551 s of kernel compile;
+slowest kernel now CSMainFlood 1129 s (CSMainFarShadeDiag was 1245 s); whole look-review build 31.0 -> 20.3 min. A rebuild after editing only C#
+reuses every kernel (0.01 s, whole build 4.7 min). The cache is per kernel, keyed on the preprocessed source INCLUDING line numbers: any
+Raymarch.compute edit that adds/removes a line recompiles all kernels; an edit inside one `#ifdef` that keeps line counts recompiles only the
+kernels that see it (task 194's build: 19 hits, 7 compiled); Unity keeps the last 5 source versions (`Library/ShaderCache/compute/Raymarch*/00..04`),
+so reverting an edit is a cache hit. Splitting the file would not help (the shared body is in every kernel). Proof nothing changed: build 2 (same
+source) compiled 0 of 21 kept kernels (byte-identical binaries); stills before vs after differ only as much as two launches of the SAME player do
+(A/A control). Tests `DevKernelStripTests` (list = five real non-play kernels, every one guarded, stamp parses back). Files: `Screenshots/194b/`
+(`compile194b.txt` per-kernel tables + pixel diffs), scripts `Logs/overnight/194b/` (`binmap.sh`, `table.py`, `pxdiff.py`). Result: HANDOFF 194b.
+
+**Task 195 -- rule ores are the DEFAULT (owner 2026-11-13, Q-X (a) "ores ON now"; leaf fill unchanged at 45, Q-Y (b)).**
+`TerrainGenChunkSource.OresArg` now defaults to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build one) runs
+task 181's rule ores; `-ores 0` leaves `spec.oresOn` 0 = step 3's `Ores.cs` placement, the pre-195 world byte for byte (same code path as
+before). Unlike 187a / 190b the SPEC field is NOT flipped: a bare `TerrainSpec` stays OFF, because the rules need the ore cell plane only the
+chunk source builds (`BuildOreCellPlane`, 4,096 KB); a bare spec with `Ores2` would read cell 0. Player log: `[StreamManager] tg2 chunk source:
+... rule ores ON (default; plane 4096 KB)` / `OFF (-ores 0)`. No F6 entry (there never was one); no identity/hash rig uses the tg2 world, so no
+rig needed `-ores 0`. Tests: `TerrainGenChunkSourceTests.RefJob` (the TerrainGen reference) now carries the source's ore cell plane like
+ColumnJob (it failed `AirFastPath_IsExact` at surface - 3 without it); `BrickSkipTests`' plain proofs now cover the rule ores and the
+`_Ores` twins became `_OresOff` (`-ores 0`, reports `brick_skip_*identical_oresoff.txt`), restoring the source's previous value.
+Shots: `Logs/overnight/195_shots.sh` (181's three wall poses, `-tod 12`, default vs `-ores 0`), `Screenshots/195/sheet_*.jpg`.
+Rough cost from that launch (not a timing arm): shell chunk generation 114-129 ms vs 85-91 ms per chunk on a worker. Result: HANDOFF 195.
+
+**Task 195a -- trees and towns are the DEFAULT (owner 2026-11-13, Q-X (a) "trees and towns ON once 192, 193 and 194 are done").**
+`TerrainGenChunkSource.TreesArg` and `TownsArg` now default to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that
+build one) places task 180/192's voxel trees and task 190's towns; `TownsArg` is also what FarField's own map reads, so the far band draws
+the flattened town pads by default. Towns need the site planner: `-towns` already forces `spec.sitesOn = 1` (constructor and FarField), so
+`-sites` keeps its OFF default (records only) and needs no flip. `-trees 0 -towns 0` = the pre-195a world byte for byte (`spec.treesOn`,
+`townsOn`, `sitesOn` stay 0 -- the same code path as before; add nothing else). As 195, the `TerrainSpec` fields are NOT flipped: a bare spec
+stays OFF (trees need the source's tree plane, towns its town plane). Player log: `[StreamManager] tg2 chunk source: ... trees ON (default),
+towns ON (default), sites ON` / `OFF (-trees 0)`. No F6 / PlaySettings entry exists for either; no identity/hash rig uses the tg2 world, so
+no rig needed the `0` flags. One test fixture did: `MaterialRuleChunkTests` (180b's "the rules repaint solids only, air/fluid unchanged ON vs
+OFF") now pins trees OFF -- a tree's density reads the column's cover slot, which the material rules set (`GroundRules`, "trees read the
+Cover slot"), so rules ON vs OFF legitimately moves trees, i.e. air (whole-suite run 1: 2 failures there, nothing else). Towns stay ON in it.
+Shots: `Logs/overnight/195a_shots.sh` (191's forest + snow + town_eye + village_eye, seed 42, `-tod 12`, default vs `-trees 0 -towns 0`),
+`Screenshots/195a/`. Result: HANDOFF 195a.
+
+**Task 196 -- fluid pockets get natural basins (owner 2026-11-13, Q-X (a): "fluid pockets stay OFF until a small task softens their walls into natural basins"; `-fluidpockets` stays DEFAULT OFF).**
+Why the walls were sheer: `FluidPockets.BuildPlane` puts the fluid level L one voxel under the LOWEST of 24 rim samples, and the samples may
+spread up to FLAT_SPAN (2.4 m); `Apply` then cut every footprint column straight down to L, so the high side of a pocket on a gentle slope
+was a vertical wall up to ~2.5 m tall (191's `surface_lava`). Now (`FluidPockets.Apply`, header "TASK 196"): the RIM (8-neighbours of the
+footprint) sits flush at L + 1 (one voxel over the fluid, lined as before); the BANK beyond it moves the ground toward L + 1 by at most
+UP - drop(t) (cut, uphill) or DN - drop(t) (fill, downhill levee), drop(t) = (t - 1) * BANK_Q8 >> 8, t = the smallest nesting ellipse
+(rx + t, rz + t) holding the column (`Ring`). BANK_Q8 = 147 = tan(`Cover.STEEP_DEG` 30 deg) * 256 rounded down: the slope rule the ground
+already has (soil stays, a walker can scramble out). UP / DN = the site's EXACT rim excess over / under L + 1 (every rim column of the base
+terrain, `MeasureBank`, once per site in BuildPlane), so the rim lands on L + 1 and the change tapers to 0 at `BankBand(UP, DN)` -- no step
+anywhere. The bowl's depth is `BowlDepth` = min(D, 1 + rmin * BANK_Q8 / 512) (its steepest under-fluid wall under the same slope). The band
+must stay inside the plane cell and the record cells the planner checked; a larger excess is capped (`PlaneStats.bankCapped`; 0 sites on
+seeds 42 / 7 / 2026 / 31337). Placement unchanged (same candidates, rules, L); plane words [1] / [2] carry UP / DN in bits 24-31 (0 / 0 =
+183's shape). Same rule for every fluid and biome. `-fluidpockets 0` never reaches Apply (unchanged byte for byte). `-pocketbasin 0`
+rebuilds 183's exact shape for before / after pictures. Gameplay: 111 of 131 seed-42 bowls are shallower (water up to 2.0 m -> 1.4 m at
+r 4.7 m); trees on a bank stand on the lowered ground. Plane build (main thread, once per world, only with pockets
+ON): player 27 ms -> 70 ms (seed 42 log); the Editor's Mono 0.4 s -> 1.2-1.9 s. Tests (`FluidPocketTests`): new `Bank_Rules` (fast); `FourSeeds_Plane_Table_KeepOuts` asserts every uncapped rim is flush;
+`Sites_AtRest_PathsAgree_Adversarial` adds a FORCED site on a ~20 deg slope, widens every box to the bank, and per case checks the rim and
+that no 4-neighbour step outside the footprint grows by > 2 voxels ON vs OFF (tree voxels moved by the bank are counted, not failed).
+Shots: `Logs/overnight/196_shots.sh` (191's surface_lava + water / quicksand / oil from the north, seed 42, `-tod 12`, `-pocketbasin 0` vs
+default), `Screenshots/196/viewer.html`; CPU cut-aways `Screenshots/183/cut_*.png` (before: `Screenshots/196/before_cutaway/`). Result: HANDOFF 196.
+
+**Task 197 (bug, default ON): the pits came back with 0 chunks refused = two more ways a column shows air in tier 0.** Capture probe
+`-mirrorprobe 1` (PlaygroundCapture.MirrorProbe.cs; read at END of frame, because streaming / uploads run in Phase4Bootstrapper.LateUpdate
+after the survey coroutine; the shot is that same frame): per band chunk of the mirror box, slot owner / held / dirty / refused, streaming
+stage, the GPU's own ClipmapBuffer and packed air mip against the CPU mirror (`[gpu]`: 0 differing in every frame), store AIR chunks against
+the generator (`[gen]`: 0), and the same chunks 5 s later. Causes found (jungle_high, launches q1 / h1): (1) RETRY GAP: RetryGpuRefused
+clears the whole refused set as soon as one GPU slot frees and re-dirties the chunks, but the re-upload waits in the budgeted, nearest-first
+dirty queue (up to ~1,250 chunks), while the slot still holds the refusal's air: "refused 0, 192 resident chunks missing, hand-over off";
+(2) VALVE EVICTION: the CPU pool's LRU valve evicts visible chunks (~28-41k valve evictions per survey run, peak 495k of 570k, valve 484.5k)
+and they reload; the eviction's clear is air and the column is non-resident (194 never handed those over). Fix (no pool / eviction / layout /
+API change; shader unchanged: the existing refused-bit now means hand-over): `TerrainClipmap.Tier0LacksChunk` (resident chunk whose slot does
+not hold its own write: refused, retried-but-queued, first upload queued, or another chunk's write; air over an empty slot is fine) and
+`FarField.ColumnState` (one store lookup per chunk for both bits): hand-over = refused, or resident and lacking, or NOT resident where shell 1's
+PUBLISHED directory holds it (`ShellStreamer.PublishedHolds`, outside its hole: inside the hole such a column stays tier 0's, 194's lost-houses
+rule). `FarField.HandOverColumns` gates `_Tier0Refused` (was GpuPoolRefusedNow > 0). `FarField.LackHandOver` false = 194's rule (survey arm
+suffix `_lh0`, before shots). Tests `Tier0LackHandOverTests` (6: the retry gap with a real budgeted pass, its pit ray old vs new rule,
+landing, first upload / air slot, the evicted column in vs out of the shell hole, a foreign slot after a recentre). Side effects: a shell
+draws a handed-over column with ITS copy, which can differ from live tier 0 at a lake shore (jungle_high right edge: a vertical blue water face
+and grey rock face, f1-f3) and shows the far band where the shells lack data (the 194 limitation, now for more columns). 195's badlands open
+sea did not reproduce (6 launches); it had 0 refusals and the wall columns lay in shell 1's hole, so this rule would not hand them over.
+Shots: `Logs/overnight/197_proof.sh`, `Screenshots/197/viewer.html` (pairs), `Screenshots/197/{p1,q1,g1,h1,f1,f2,f3}/`. Result: HANDOFF 197.
+
+**Task 198 (bug investigation, 2026-11-14): white dashes on steep faces -- RENDERER (lighting rule), real voxels; not fixed (look change, options in HANDOFF 198).**
+The dashes are sun-lit 1-voxel treads of the voxel staircase (real top faces, sub-pixel at 100-200 m) lit by their OWN face where
+`FarSlopeNormal`'s cave/overhang test fails (`p.y < lo - tv || p.y > hi + tv`), so `CubeFilterWeight` is 0 and task 120's filtered cube
+light does not average them away (it does everywhere else). Capture probe `-dashprobe 1` (with `-worldsurvey`; `PlaygroundCapture.DashProbe.cs`):
+finds 1-px light lines in the beauty frame, marches the same camera rays on the CPU through the generator's shell cells (`GenerateShellChunk`,
+shell by distance, never coarser mid-cell), sun-shadow ray by the GPU's 3-cell rule, and emulates `FarSlopeNormal` on the far texels' CPU copy
+(`-dashprobe 1` sets `FarField.ShadowTexels`, +20 MB); `-dashwin "pose:x,y;..."` picks 192x108 windows (else the densest) -> `ws_<pose>_cputop*.png`
+(white = predicted dash, cyan = tread averaged away, blue = shadowed tread, red tint = test fails). Debug views could not be used: see
+KNOWN_ISSUES (CSMainFarShade fails in player builds). Driver `Logs/overnight/198/shoot1.sh`; pictures `Screenshots/198/viewer.html`. Result: HANDOFF 198.
+
+**Task 199 (plan only, owner 2026-11-13 topic 3 P1-P4 + R1/R2; no code, no default change, no launch): render steps + frame budget.**
+`AMENDMENT_8_17_RENDER_STEPS.md` (DRAFT, NOT ADOPTED) + owner doc https://claude.ai/artifact/6JF22Hg7USmgb75F19UQgB: Full vs Air
+(M1, 30 fps) presets; a 33.3 ms budget per step for Air from 168b / 146 cost splits (sun ~5, sky ~2, shells ~1.3 ms over share on
+walk_near); seven steps S1 Surface -> S2 Sun -> S3 Sky -> S4 Local light -> S5 Reflections -> S6 Shade + compose -> S7 Post sharing a
+per-pixel hit buffer (+40 B/px: +19.8 MB at 540 rows); ordered tasks T0-T8 with est. ms; R1 water reflections and the R2 per-material
+shine table (no voxel-layout change); cinematic techniques vs shader packs / Lay of the Land; owner questions Q1-Q7. Finding (code
+reading, unmeasured): play draws the torch-flood twin `CSMainFarShadeFlood` since task 175, so diet 2 is bypassed in play. Result: HANDOFF 199.
+
+**Task 200 (EXAMPLES ONLY, owner 2026-11-13 trees talk T1-T4; no default, no world-gen change): tree growing methods at 0.1 m, `-treegallery <layout>`.**
+`Assets/TerrainGen/TreeGallery.cs`: prototype trees built ONCE from an integer seed (species, method, seed) into an 8^3-brick volume, then
+queried (Trees.cs's contract: pure function of a hash, fills AIR only). Methods: `M_SPACE` space colonization (attraction points in a
+species crown ENVELOPE, outer shell only where the crown is open; nodes step toward the points that see them; pipe-model radii; leaf clumps
+on the tips), `M_LSYS` rule-based recursive branching (phyllotaxis 137.5 deg, down angles, lengths from the envelope, 3 levels), `M_TEMPLATE`
+an authored limb list + jitter. Species (`Pick`, every number a per-tree range): oak, banyan (wide dome, horizontal limbs, aerial roots ->
+prop trunks with their own flare), redwood (60-70 m fluted leader + buttress flare, branches in the top half), birch (pale stand-in bark
+`MushroomStem`, 1-3 stems), spruce, acacia. Leaves: lumpy porous clumps (0.2 m hash holes) + a crumb filter (leaf voxels not 6-connected to
+wood go). Engine: `TerrainGenChunkSource.Gallery.cs` -- `-treegallery <file>` (absent = off; lines `tree sp method seed x z`, `today cx cz x z`
+= Trees.Build's tree moved, `marker x z` = 1.8 m post, `clear x0 z0 x1 z1` = no natural tree rooted there) builds the volumes in the
+constructor and publishes them through a `SharedStatic` (`TreeGalleryShared`); hooks: `GatherTrees` raises the column top, `OverlayTrees`
+calls `OverlayGallery` first (LOD 0 + shells <= `Trees.MAX_SHELL`), `PointTree` asks `GalleryAt`. Off = every hook returns at its first line.
+Tests `TreeGalleryTests`: `TodayTrees_Pinned` (Slow; FNV of Trees.Build over seed 42's first 64x64-cell block with >= 50 trees: 1,663 trees,
+`38EF6100C34F1928`), `Methods_Species_SheetsCost` (Slow; 6 species x 3 methods x 3 seeds on flat ground, CPU side-view sheets
+`Screenshots/200/proto_<species>.png`, `Logs/TerrainGen/trees200/cost.txt`), `Gallery_Chunk_AirOnly` (Slow; ON vs OFF chunks round an oak:
+only air changes, exactly to `GalleryAt`), `Gallery_Layout` (Explicit; flat open sites on seed 42, no town, no snow top, biome per species ->
+`gallery_42.txt` + `poses_42.txt`). Shots: `Logs/overnight/200_shots.sh` (16 poses) + `200_reshoot.sh` (5 re-sited blocks);
+`python3 -I tools/trees200.py` -> `Screenshots/200/sheet_{methods,species,closeup}.jpg` + `viewer.html`. Result: HANDOFF 200.
+
+**Task 201 -- surface fluid pockets are the DEFAULT (owner 2026-11-13, Q-AA (a): "fine for now but these need to be more like ponds"; the pond look is a LATER talk, `OWNER_TOPICS.md`).**
+`TerrainGenChunkSource.FluidPocketsArg` now defaults to true: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build
+one) places task 183's surface pockets with task 196's natural basins; `-fluidpockets 0` leaves `spec.fluidPocketsOn` 0 = the pre-201 world
+byte for byte (same code path as before: the plane stays a one-entry dummy and `FluidPockets.Apply` is never reached). Shape, placement,
+rules and `-pocketbasin` are unchanged. As 195 / 195a, the `TerrainSpec` field is NOT flipped (a bare spec stays OFF: the pockets need the
+site plane only the chunk source builds); FarField shares the source's map, so the far band follows the source. Player log:
+`[StreamManager] tg2 chunk source: ... fluid pockets ON (default; 131 surface sites)` / `OFF (-fluidpockets 0)`. No F6 / PlaySettings entry
+exists; no identity/hash rig (acceptance, acceptance-fluid, phase 5/6/7, fluid-tiled) builds the tg2 world, so no rig needed
+`-fluidpockets 0`. Fluid sim: pockets are resting generated fluid, which takes NO fluid tile under awake-only residency (task 54,
+`FluidTileResidency.Refresh`): they cost the tick nothing until a wake (an edit, a flow into them). The world survey now prints a
+`[fluidtiles]` line per pose (resident / acquired / unsettled tiles; capture only). New Explicit report `FluidPocketTests.ForestSites_Poses201`
+(seed 42's forest water / lava sites + north-side poses -> `Logs/TerrainGen/pockets201/`). One test followed the new default: `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin`
+(182) failed on 8 shell-5 voxels at `border_bank` -- a shell's TOP voxel takes its material at the ground h, and there h lay inside a pocket's
+lining range, so it showed the mud lining (as LOD 0 does, `DetailField.Material`), which the test read as "soil under the skin". The test
+now skips lining voxels like stamps (sampled y, or h for the top voxel) and logs them: 38 voxels wear their pocket's lining, 0 show anything
+else (`shell_bared182.txt`). Pockets stay ON in it (no pin). Shots: `Logs/overnight/201_shots.sh` (196's water
++ lava, a forest water pocket, 195a's forest; `-tod 12`; default vs `-fluidpockets 0`), `Screenshots/201/`. Result: HANDOFF 201.
+
+**Task 201a (bug, owner 2026-11-14 "efficient by construction"; no bigger pool): SEALED BRICKS take no GPU body, ON by default (`-gpuseal 0` = the old upload).**
+The GPU body pool (task 93f, 254,400 bodies = 124 MB) was full at every pose since 195a: demand at the 5 test poses 194-321 k bodies,
+refused chunks drawn by the shells (grey walls, a missing redwood). Accounting (`-gpupoolprobe 1`, capture only,
+`PlaygroundCapture.GpuPoolProbe.cs`: per pose, the box's dense bodies by source / kind / hidden / ring / layer / duplicates) found
+26-37 % of the bodies are bricks NO ray can reach: every voxel and the 1-voxel shell around the brick opaque. Trees+towns add ~55 k at
+the forest pose but the pool was full without them too (`-trees 0 -towns 0`: town_eye and the redwood pose still refuse).
+`TerrainClipmap.Sealed.cs`: at each box chunk upload a Burst scan (`SealedBricks.Mask`, main thread, ~0.1 ms per dense chunk) marks the
+chunk's INNER bricks (1..14 on every axis, so the shell lies in the same chunk: a refused / evicted neighbour cannot expose them) whose
+brick and shell are all seal-solid (not air, fluid 6/11/12/18-22, torch 14-17, glass 24 or river lip 136); those are staged as a
+UNIFORM handle of their voxel 0's material and acquire no GPU slot and upload no body. Exact: every tier-0 ray passes air or a clear fluid
+and stops at the first differing voxel, stepping face to face, so it stops on the shell first; neighbour reads (AO, emissive bleed,
+river lip, normals) only touch voxels next to air / fluid; shadow / torch / height reads test non-zero. Nothing is cached: every write path
+re-dirties the chunk, and the mask is recomputed from the CPU state at its upload. CPU side unchanged (`_clipmapLocal` keeps CPU handles: air
+mips, fluid twin); the fluid terrain directory still uploads every body (its CA reads them). Validators compare against
+`ExpectedGpuHandle` (sealed -> uniform). Pool off (rigs, `-gpupool 0`): never runs. Tests `SealedBrickTests` (14^3 inner bricks sealed,
+none on the border; one air / water / glass / torch voxel unseals exactly the 8 bricks around it; an oracle chunk with caves, a pond,
+glass and a torch: GPU view = CPU at every voxel next to a non-solid one, solidness and non-zero equal everywhere; too big unsealed fits
+sealed; switch off / off mid-run). Ledger `[mem]` line now prints `in use N, sealed N`. Capture flags: `-gpupoolprobe 1` (the accounting
+lines per survey pose), survey arm suffix `_gs0` (seal OFF for that shot: every box chunk restaged, then back) and `-gpusealcmp 1` (shells,
+far band and river time held during a pose's arms, for identity stills). Scripts `Logs/overnight/201a_{account,after}.sh`,
+`201a_table.py`, `201a_diff.py`; table `Screenshots/201a/table201a.txt`. Result: HANDOFF 201a.
+
+**Task 202 (plan only, owner 2026-11-13 G1 (a); no code, no launch, no tests): the GAME-DESIGN DOC, DRAFT.** Claude Doc "Game design"
+(https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8, the live version; the owner answers there) + repo snapshot `GAME_DESIGN.md`. Pitch from
+the owner's words; nine areas (world and travel, settlements, resources, building, survival, combat and skills, creatures, progression, core loop)
+with every row tagged Decided / Leaning / Open + source and date (brief, design round 2026-10-15, placement batch P1-P6 of 6 Nov, 13 Nov talks
+V1-V4 / T1-T4 / W1); the placement-phase checklist (resources -> towns -> lairs, flora alongside) and the before-characters checklist; questions
+A1-A6 (placement: core loop, cities, humanoid design tool, what trees give, town safety, own-settlement residents) and B1-B6 (classic death, hunger,
+night, how moves are learned, fast travel, companions), recommendation first.
+
+**Task 203 -- surface fluid pockets get NATURAL OUTLINES (owner 2026-11-13, Q-AA "these need to be more like ponds", W1 (a): every fluid; DEFAULT ON).**
+`FluidPockets` (header "TASK 203"): a surface pond's footprint is no longer one ellipse but the union-like blob of 3-4 overlapping LOBES
+(scaled copies of the site's ellipse): G = sum_i max(0, 1 - rho_i), footprint = { G > TAU (0.05) }, integer Q16 (`Shape`, `Field`,
+`InLobes`). Lobe 0 on the centre; lobe 1 points to the LOWEST of the 16 rim samples the planner already takes (data-derived: the pond reaches
+toward the low ground and draws back from the high side, so less is cut); lobes 2-3 on its flanks at angles / sizes hashed from the site's
+own centre. Every lobe lies inside the site's ellipse and box, so the pond, its rim and every bank ring stay inside what the planner checked
+(183 / 196's containment holds). The bed shelves at 196's 30 deg bank slope from the shore (`LobeDepth`); rim flush at L + 1 and bank rings
+as 196 (`LobeRing`; G grows with t, so rings nest); UP / DN measured on the new rim (`MeasureBank(in Site)`). Same rule for every fluid and
+biome; at rest by construction. Plane bits: word [0] bits 28-31 the low direction, word [3] bit 31 = outline on; `-pocketoutline 0` leaves
+both 0 = 196's plane byte for byte (FNV 5A0794B7B9ECA569, seed 42); `-fluidpockets 0` never reaches Apply. No extra memory: 5 bits in the
+existing plane words, the shape is recomputed per column from the hash. Gameplay: ponds cover ~55 % of the old ellipse's area (smaller
+ponds, less fluid); a tree can now stand on ground the old ellipse took (seed 42's jungle honey pond is hidden under a crown).
+**IL2CPP bug found and worked around:** `Pack` with a `?:` inside the word-3 expression compiled in the PLAYER to a `uint8_t` temp
+(rx / rz / depth = 0 in the player only, EditMode green); now statements (KNOWN_ISSUES). The player log's `[FluidPockets] plane ...` line
+ends with `plane fnv <hex>`: it must equal an EditMode build of the same seed. Tests (`FluidPocketTests`): new `Outline_Rules` (fast; 600
+random sites: lobes in the box, one 4-connected pond, rings nested, bed step <= 2 voxels, reaches toward the low side on 599 / 600, outline
+off = the ellipse, Pack / Decode; writes `Logs/TerrainGen/outline203/shapes.txt`); `Sites_AtRest_PathsAgree_Adversarial` also renders CPU
+top views `Screenshots/203/cpu_top_*.png`. Shots `Logs/overnight/203_shots.sh` (seed 42, `-tod 12`, `-pocketoutline 0` vs default),
+`Screenshots/203/viewer.html`. Result: HANDOFF 203.
+
+**Task 205 (look, 2026-11-14; flag only, default OFF -- the look call is the owner's): white dashes in play + `-dashfix 0|1|2`.**
+Play check (198's poses, noon, sun behind): FSR 3 dyn does NOT hide the dashes. It turns them into a fainter light line (forest_breaks wall box:
+66 predicted-dash px showing at native -> 14-18 in play; cliff_snow ledge 122 -> 8-9; tree crowns 784 -> 296-321). New finding (oracle side split): EVERY
+predicted dash lies ABOVE the four far-texel column tops (forest 374/374, cliff_snow 1,296/1,296, 0 below), so trees and cacti (also above) fail the bracket the same way.
+`-dashfix` (`RaymarchFeature.DashFix`, `_DashFix`; `Raymarch.compute` `FarSlopeCode` / `CubeFilterWeightOpen`, voxel / shell path only, the far band's call unchanged):
+where the bracket test fails, sky-open hits (x skyVis; caves keep face light; undersides never) take task 120's filtered cube light with the column slope.
+**2 = TOP faces only (recommended)**: dashes gone at native and in play (forest box 66 -> 0, cliff_snow 122 -> 1-6), side faces keep their light; changes
+0.42 % (forest) / 1.05 % (cliff_snow) / 4.4 % (overhang: crowns lose their tread stripes, a little darker) / 0.16 % (cave) of pixels.
+1 = every face but undersides: also kills them, but flattens trees / cacti and adds pale side-face stripes (7.4 % on overhang). 0 = byte for byte the old
+call (`fixed_cliff` identical to 198's pre-change frame; others within launch-to-launch streaming noise). Survey arms `native_df2` / `fsr3_dyn_df2`
+(suffix `_dfN`); `-dashprobe 1` now also counts later arms (`DashCount`) against the first arm's predicted pixels and splits predictions ABOVE / below the
+bracket. The world survey disables `PlaygroundFlyCamera` (a click on the window turned the camera; KNOWN_ISSUES). Tests `DashFixTests` (2). Drivers
+`Logs/overnight/205/shoot1-4.sh`; pictures `Screenshots/205/viewer.html`. Result: HANDOFF 205.
+
+**Task 206 (bug from 198, 2026-11-14): debug views, the debug pixel and the torch-flood kernel load in a player again; a kernel that does not load is LOUD.**
+Three kernels failed Metal's compile at their first dispatch in a player and silently kept the last image (KNOWN_ISSUES): `CSMainFarShade` (bool select from
+SkyHistFetch's early return) and the flood twins `CSMainFarShadeFlood` / `CSMainFlood` (the same, plus 33 Metal buffer slots, cap 31, since task 193). Fix in
+`Raymarch.compute`: `HEIGHT_MIP_READ` = read-only `HeightMipRO` outside diet 2 (RaymarchFeature binds the same buffer to it; 9 -> 8 UAVs), SkyHistFetch's
+probes walked backwards outside diet 2 (same first match), `_UseLODCascade` folded to 0 in the flood twins (macro after diet 2's pair) and RaymarchFeature
+picks a flood twin only while the cascade is off. Diet-2 play kernels: Metal source byte-identical (17 of 21 kernels identical, `Screenshots/206/msl206.txt`).
+`KernelHealth` (Assets/CoreEngine/Rendering): IsSupported per kernel + a GPU heartbeat (DebugBuffer[0..2] = NaN before an unverified non-diet kernel's dispatch,
+read back at the next record; NaN = it never ran; 2 good reads = verified, then no per-frame work) -> one `[kernels] FAILED` error, the blit pass clears to
+MAGENTA, `RaymarchFeature.KernelFailFrames / KernelFailedLastFrame / PrimaryKernelLastFrame`. World survey arm suffixes `_tf1` (torch flood on for the shot),
+`_dvN` (debug view N), `_px` (debug pixel, view 0); `_dvN`/`_px` print `[dbgpx]` (put them LAST: the pixel keeps diet 2 off), every arm prints `[kernel]`, the
+survey ends with `KernelHealth.Summary()`. Tests `KernelHealthTests` (10). Driver `Logs/overnight/206/shoot.sh`; pictures `Screenshots/206/`. Result: HANDOFF 206.
+
+**Task 207 (bug, default ON; owner Q-AB (a), fix 1 of 2): the GPU retry re-queues only refused chunks that fit.** `TerrainClipmap.RetryGpuRefused`
+(TerrainClipmap.GpuPool.cs) used to clear the WHOLE refused set as soon as one GPU body slot freed (task 197's "retry gap" churn). Now, at the
+start of every upload pass, it re-queues refused chunks nearest the camera first (Chebyshev XZ, ties by y/z/x). A chunk is re-queued, and leaves
+the refused set, only if the bodies it asked for when it was refused (its dense, non-sealed bricks, stored by `Refuse`) fit in free bodies minus
+those promised to earlier re-queued chunks still in the dirty queue (`_gpuRetryPending`, purged every pass). A chunk that does not fit stays refused
+(197's hand-over keeps drawing it), and a farther, smaller one may still go. Evicted refused chunks are forgotten. A refused chunk that has left the
+box is re-queued so that it parks. The sort only runs when free-minus-promised or the camera chunk changed. No pool size, layout, shader or
+eviction change. `-retryfit 0` = the old retry (launch-wide, Phase4Bootstrapper; `TerrainClipmap.RetryOnlyWhatFits`). New counters
+`GpuPoolRetriesTotal`, `GpuPoolReRefusedTotal` (a retried chunk refused again = the churn), `GpuPoolRetryPending`, printed on `-mirrorprobe 1`'s
+`[mirror] box` line. Tests `GpuRetryFitTests` (8: min(k, N) nearest first for k = 1/2/4/6, promises held across passes, a near chunk too big
+stays refused while a farther one goes, evicted ones are forgotten, `-retryfit 0` churn). Driver `Logs/overnight/207_pair.sh` (b1 ON / b2 OFF,
+197's poses); shots `Screenshots/207/{a1,b1,b2}/`. Result: HANDOFF 207.
+
+**Task 208 (bug, default ON; owner Q-AB (a), fix 2 of 2): the CPU pool valve spares chunks the player can see.** §3.6's valve
+(`StreamManager.ApplyPoolPressureValve`) used to take the oldest-admitted chunks outside the camera's 5x5. Those are the NEAR ones, because
+admission runs nearest first, so 23 % of its victims were in view (19,488 of 83,149 in the proof's OFF launch). Now, when a camera frustum is
+set (`SetViewFrustum`, from `Phase4Bootstrapper.LateUpdate` via `GeometryUtility.CalculateFrustumPlanes`, no alloc), one scan + one sort per
+call ranks the victims: out of view first, then in view beyond the load radius, then in view within it (last resort: counted and logged as
+`[valve] evicted an IN-VIEW NEAR chunk`). Within a class the farthest (Chebyshev XZ) goes first; LRU then the coord break ties. The pressure
+test, the 32-victim guard per call, the 5x5 exemption and EvictChunk (save before drop) are unchanged. There is no per-chunk memory (reused
+scratch list), and the old code scanned every resident chunk once per victim. With no frustum, or with `-valveview 0` (launch-wide,
+`StreamManager.ValveViewOrder`), the old LRU order runs. New counters `ValveInViewEvictionsTotal` / `ValveInViewNearEvictionsTotal` (counted in
+both orders), printed on `-mirrorprobe 1`'s `[mirror]` lines. Tests `ValveViewOrderTests` (6: a full pool evicts 32 out-of-view farthest-first
+chunks = the order's first 32, the order is deterministic and class/far/LRU ranked, a 1-brick overshoot stops on the order's prefix, everything
+in view still relieves the pool and counts, the old order's per-call count and in-view counter, no frustum = LRU). Driver
+`Logs/overnight/208_pair.sh` (b1 ON / b2 `-valveview 0`; 197's poses + a 3-step walk from jungle_high); shots `Screenshots/208/{b1,b2}/`.
+Side effect: the GPU body pool stays full (the old valve freed GPU bodies by dropping in-view chunks), so refusals went up. See HANDOFF 208.
+
+**Task 209 (look, owner 2026-11-14 Q-AF (a): "why can't we use the same rules we use for the island coast? I want the ponds to have a natural outline"; DEFAULT ON, `-pocketshore 0` = 203).**
+`FluidPockets` (header "TASK 209"): a surface pond's shore is now the ISLAND COAST'S RULE. `WorldMap.Coast` is the envelope 1 - d plus two fBm
+bands (wavelength 9000 / 2600 voxels, 5 / 3 octaves, amplitude 0.45 / 0.12 island radii, R 24,000), land where the sum > 0; task 209 names those
+numbers (`WorldMap.COAST_*`, Coast / Macro compile unchanged) and the pond takes them scaled from the island's radius to the pond's: shore radius
+(in units of a base ellipse S * (rx, rz)) = 1 + N, N = the two bands with the island's amplitudes, lattice units per radius (K = R / wavelength),
+lacunarity 2.03 and octave shift, sampled on the nominal shore in the column's direction (`ShoreOf`, `ShoreAt`, `InShore`, `ShoreRing`, `ShoreDepth`,
+`ApplyShore`). What could not be copied, and why: (1) the 2-D threshold makes islets and closed-off lakes; a pond must be ONE body, so N is a function
+of direction only (every ray leaves the pond once), faded in from the centre (w = min(1, rho); any fade stays star-shaped) so the bed has no centre
+seam; (2) Unity's float simplex is not byte-identical across Burst / Mono / IL2CPP and the seal needs one footprint everywhere, so the noise is an
+integer Q16 gradient noise (8 gradients, quintic fade, x sqrt 2, clamped to [-1, 1]) with Noise.Fbm's sums; (3) the island is drawn at ~300 map cells
+of radius, a pond at 10-50 voxels: an octave is kept only while its lattice unit spans >= 4 voxels along the shore (bumps >= 2 voxels; the first octave
+always), so ponds show the coast's 1-2 coarsest octaves (band 2 never fits). Containment is exact, not tuned: S = 1 / (1 + B), B = the exact bound of the
+KEPT octaves, so the shore never leaves the planner's ellipse (Shore_Rules checks InFoot(rx, rz) with no + 1). Depth: the ray distance to the shore
+measured on the short axis, shelving at 196's 30 deg (no steeper in any direction); rim / bank / lining as 203 on the new shore (each column's shore
+ellipse grown by t: rings nest). 203's lowest-rim lobe is gone (the coast rule has no such term); `lowDir` is still stored. Ponds are ~63 % of the
+planner's ellipse (203: 55 %): slightly MORE fluid per pond. Plane bit: word [3] bit 30 (depth <= 20 needs bits 24-28; Decode masks 63);
+`-pocketshore 0` leaves it 0 = 203's plane byte for byte; the shore needs the outline (`-pocketoutline 0` = 196's ellipse). No stored data, no memory:
+the shape is recomputed per column from the site hash. Tests (`FluidPocketTests`): `Shore_Rules` (fast; 600 sites: the Q16 numbers equal WorldMap's,
+inside the planner's ellipse, centre in, one 4-connected body, rings nested and in the box, bed step <= 2, not its base ellipse, shore off = 203's
+lobes, Pack / Decode with bit 30 only; `Logs/TerrainGen/shore209/shapes.txt`), `Shore_PlaneFingerprint` (Slow; seed 42: off = 203's FNV
+72CEA9A36AECA569, no site moved; `plane_fnv.txt`). Shots `Logs/overnight/209_shots.sh` (seed 42, `-tod 12`, `-pocketshore 0` vs default),
+`Screenshots/209/viewer.html`. Result: HANDOFF 209.
+
+**Task 210 -- WORLD space-colonization trees behind `-trees2 1` (owner 2026-11-14 Q-AD "a for all"; default OFF = today's trees byte for byte).**
+`Assets/TerrainGen/Trees2.cs` + `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Trees2.cs`. A tree is an INSTANCE of a shared prototype, not a
+per-position build: task 200's method (a) (`TreeGallery.Build`, M_SPACE, `world: true` = aerial roots 4 m into the ground) grows a LIBRARY once
+per process (oak, birch, spruce, acacia x 6 variants, banyan, redwood x 3; fixed seeds 1..V, so variants 1-3 are the trees of task 200's
+sheets), each prototype on its own worker thread (main thread packs + publishes through a SharedStatic `Trees2Shared.Lib`, refcounted by the
+sources; 30 prototypes, 10.6 MB, 2 bits a voxel; player 550 ms on 6 threads, EditMode ~4.3 s). An instance = (prototype, quarter turn, root
+snapped to a multiple of 8 on every axis): prototype bricks land on world bricks, so every copy of a prototype has the same bytes in the bricks
+it does not share with terrain. Placement, a pure function of seed + cell: NORMAL grid 12.8 m (one tree a cell; species by the biome's BRICK
+BUDGET: `BUDGET` = today's trees' expected bricks per 51.2 m square at full plane (density x 64 cells x 266), `SHARE`/16 per species, p =
+budget share / (16 cells x the species' MEAN prototype bricks, from the built library) -- a bigger prototype makes its species rarer, never
+the area costlier; x tree plane (capped 16/16) x `Trees.SlotMul`); GIANT grid 102.4 m (a banyan per jungle cell p 0.30; a grove of 3-5
+redwoods p 0.35 in forest cells with tree plane >= 18 = river plains / wetland). Site rules = Trees.Build's (land, dry, no stamp / opening,
+45 deg foot, canopy clearance) + the crown's reach over tree-plane cells (no crown over road / town / sea) + giants' root feet reach the ground.
+Suppression one level per tier (deterministic from any footprint): giants > oaks > birch / spruce / acacia, then 192's trees inside a library
+tree's keep radius are emptied (`Suppress192`). 192's trees kept (`Trees2.Keep192`, Trees.Build): forest none, desert all (cactus), snow 6/16
+(pines), jungle 14/16 (emergents + palms; the 2/16 pay for the banyans), savanna baobabs only (`Look.baobab`). Birch bark is a real GenMat
+(`GenMat.BirchBark` = 19, engine 147, palettes + Items / Tools; `FarField.GenToEngine` maps it generically). Hooks: `GatherTrees` ->
+`GatherLib` (library trees appended as `Tree` entries, shape `SHAPE_LIB` | turn, prim0 = prototype), `OverlayTrees` -> `OverlayLib` first
+(library wood, then leaves, AIR only; coarse bricks skipped by the prototype's brick flags at shells <= 2), `PointTree` -> `Trees2.At`;
+`MaxContentY` + 760 (a redwood) only with the flag; scratch room via `TreeScratch.Ensure(n, extra)`. Flag `-trees2 1` (needs trees on);
+tests `Trees2TestOverride`, `SetTrees2`, `LibTreesIn` (Burst gather, same view as the jobs). Tests `Trees2Tests`: `Library_Turns_Budget`
+(Slow; two builds equal, turns invert and map bricks to bricks, bounds, expected bricks <= budget; `Logs/TerrainGen/trees210/library.txt`),
+`Chunks_Deterministic_Border_PointAndShellsAgree` (Slow; an oak across a chunk border: runs equal, only air -> tree, FarQuery and shells
+0-3 agree; `chunks.txt`), `Poses210` (Explicit; `poses.txt`). Shots `Logs/overnight/210_shots.sh` (20 poses, both arms), `210_far.sh`,
+`210_final.sh`; table `Logs/overnight/210_table.py` -> `Screenshots/210/table210.txt`; `python3 -I tools/trees210.py` -> sheets + `viewer.html`.
+Result: HANDOFF 210.
+**Task 211 (plan only, owner 2026-11-14 Q-AE; no code, no launch, no tests): game design batch A folded in.** Claude Doc "Game design"
+(https://claude.ai/artifact/BprGXbxRr6W5MPdDAXxYp8) + repo copy `GAME_DESIGN.md`: A1 (b) late first world flip (core loop Decided,
+session row changed, Stages row), A2 (c) 2-3 cities per Medium world (How many, Size tiers, towns checklist: 187's 3 towns + 1 frontier
++ ~10 villages/outposts, ~1.35 km fair-share spacing), A3 (a) one humanoid generator for NPCs + player creator, A4 (a) wood/fruit/seeds/
+regrowth (trunk block = wood; 6 new ids = 3 woods + 3 fruits of the 11 free GenMat ids 9, 18, 26-29, 38, 39, 59, 94, 95; seeds are
+items), A5 (c) dynamic town safety (new Open section "Town safety by NPC behaviour": 5 rules, a needs table, questions C1-C5), A6 (a)
+Terraria move-in rule + the DESIGN PRINCIPLE under the pitch ("keep all rules simple and depend on emergent behavior"). Result: HANDOFF 211.
+
+**Task 209b (look, owner 2026-11-14 Q-AG (a): "still stream ... Pond overflow streams is exactly what I was thinking, just to make the world and ponds feel more natural"; task 204's option (A); DEFAULT ON, `-pocketstreams 0` = task 209 byte for byte).**
+`TerrainGen/PocketStreams.cs` (header "TASK 209b"): every surface pond but quicksand gets narrow carved channels built the way
+`Rivers.cs` builds rivers, AT REST (0 fluid tiles, 0 tick until touched). Network on the 8 m map: INLET = upstream from the pond's cell,
+the higher neighbour that DRAINS INTO the current cell (D8 on `WorldMap.Height`) with the largest catchment `Flow`; stops at a keep-out
+cell (sea, lake / river, route, feature, not Walk band, start zone / towns, another pond's box), a rise > 2 m per cell (spring at the cliff
+foot) or 6-16 cells by pond size; nothing drains in = a one-cell spring. SURPLUS: OUTLET iff catchment area >= 16 x pond area (the
+simplest water balance), down D8 to a river (water joins at the river's own level) or it ends (sealed by the lip rule); else a SEEP (a
+lining-material trail from the low rim, one cell). Channel = Rivers' shaped section at stream scale: half width 3-6 voxels by
+log2(Flow) (0.6-1.2 m wide), 0.25-0.35 m of fluid; course = Rivers' B-spline over the cell centres bent by Rivers' meander rule at the
+stream's scale (2.5 half widths, one bend per 24 half widths, seeded noise on the phase), nodes every 12 voxels; level = 2 voxels under
+the pond-shaped ground at the node, running minimum downstream, never under L upstream / over L downstream, AT L within the pond and
+4 voxels + half width past its shore (flush junction). Banks: Rivers' carve / raise at stream scale (24-voxel reach, cut <= 1.2 m); LIP
+rule as Rivers' (water lips = RiverLip drawn as water; other fluids' lips = the pond lining, 0 new ids). Seals kept: never carves under a
+pond rim (unless that column becomes stream fluid at L), a river's hold or a lake rim; never carves / fills a column that already holds
+water. Non-water channels LINED (`FluidPockets.Lining`) over [level - 6, level + 2]; no stamp opening within 0.8 m; caves stay 8 under the
+bed. Texel 1 only (LOD 0, shells, FarQuery); the far band does not draw a 1 m stream. Storage: built once per world in
+`FluidPockets.BuildPlane` and APPENDED to the site plane (`MapView.stream` = `PocketStreams.Section`), so every generator path carries it
+(6 MapView sites + WorldMap.View); seed 42: 63.9 KB per plane copy, 177 ms build in the Editor / 20 ms in the player. The course is computed in doubles relative to the pond; still, the IL2CPP player's stream plane differs from the Editor's in a few node x values (fnv C5DE7646D4DF6CA9 vs CACEE583F814B040; z / width / depth hashes equal, logged per field): one-ulp rounding flips, each world self-consistent and at rest by construction (an integer course would make them byte-identical). Tests (`FluidPocketTests.Streams.cs`):
+`Streams_Rules` (fast), `Streams_Seed42_AtRest_PathsAgree` (Slow: plane deterministic; OFF = 209's FNV 38AF614C8AECA569; every stream's
+channel + 2 rings at rest + lined; per fluid the longest stream's shore and middle in the CPU fluid oracle 150 ticks + a negative control;
+ON vs OFF only inside the reach; FarQuery = chunk; shell 0 = Generate; streams-off chunks = a fresh `-pocketstreams 0` source;
+`Logs/TerrainGen/streams209b/streams.txt`, CPU top views `Screenshots/209b/cpu_top_*.png`), `Streams_Diag_CrossSections` (Explicit).
+The pond tests now run with `StreamTestOverride = 0` (OneTimeSetUp). Shots `Logs/overnight/209b_shots.sh`, `Screenshots/209b/viewer.html`.
+Result: HANDOFF 209b.
+
+**Task 212 (8.17 T0, performance):** adopted amendment 8.17 (874f431). Cost split, capture only and opt-in (7232a42):
+`-costarms flood_off` (torch flood off for the arm), `-costarms skyfill0` (sky fill 0 for the arm), `-costpaths cliff` (walk_near
++ task 199's cliff1 still pose, task 131's cliff1 A, sun 30 deg at 15.95 h; every path now carries its own sun hours). The runner
+`Logs/overnight/212/measure.sh <tag> [arms]` does the warm-up, then one cost split with `$PLAY_SETTINGS_FLAGS -renderrows 432
+-shellwait 90 -costpaths cliff`, and logs keyboard/mouse idle every 5 s (`Logs/overnight/212/hididle`, CoreGraphics per event type:
+ioreg's HIDIdleTime is reset every ~10 s by a running player, so it cannot be used). Result (warm, AC, 432 rows): play walk_near
+p50 106.8 ms, flood twin 27.8, sky fill 2 40.4, sun 28.1, shells 8.4, ceiling 24.6; cliff1 135.3. Next step T2, then T4 before T3.
+Result: HANDOFF 212.
+**Task 213 -- denser forest for the world trees (owner 2026-11-15 Q-AJ (a); still behind `-trees2 1`, default flip = task 214).**
+`spec.trees2On` now has 3 values: 0 today's trees, 1 = task 213's DENSE placement (the meaning of `-trees2 1`), 2 = task 210's placement
+byte for byte (`-trees2 1 -trees2dense 0`; `Trees2Mode()`, `SetTrees2Mode(byte)`, `Trees2TestOverride` 0/1/2). Dense mode (`Trees2.GatherDense`):
+oaks (tier 1) alone on the 12.8 m grid (`lib.pqD`), the small trees (birch, spruce, acacia) on a FINE 6.4 m grid (`F_SHIFT` 6, root at [8, 56),
+`SALT_F`, `lib.pqF`, 64 cells per 51.2 m square); forest budget `BUDGET_D` = 1.4 x 210's, oak 8/16 + birch 8/16 (snow / savanna keep 210's
+budget, only their grid changes). Same site rules, tiers and Near ranges; rivals found through CELL INDEX maps (keep <= 96 voxels: 3 x 3 normal
+cells for oaks, 5 x 5 fine cells for tier 2; `MaxCells` int scratch in `GatherLib`), so the gather and `Suppress192` are O(candidates) instead of
+210's O(n^2) (a 4x finer grid at shell 5 would have been ~16x dearer). `MaxTrees` / `MaxCandidates` take `dense`. Full plane: forest 25.7 trees
+per 51.2 m (210: 15.1). Calibration `Trees2Tests.Dense_Sweep` (Explicit) -> `Logs/TerrainGen/trees213/sweep.txt`; test
+`Dense_Density_FootprintsAgree` (Slow: 210's counts pinned 109 / oak 17 / birch 92; 256 m forest window dense 233 trees vs 150 = 1.55x for
+1.33x world tree bricks, <= 1.40 asserted; 16 chunk gathers == one 256 m gather; `density.txt`); `Library_Turns_Budget` also checks the dense
+budget and grids. Shots `Logs/overnight/213_shots.sh` (3 arms d / s / t0, 4 poses), table `Logs/overnight/213_table.py` ->
+`Screenshots/213/table213.txt`, `python3 -I tools/trees213.py` -> `sheet213.jpg` + `viewer.html`. Result: HANDOFF 213.
+
+**Task 214 -- the world trees are the DEFAULT (owner 2026-11-15, Q-AJ (a): "the new trees become the default in every world").**
+`TerrainGenChunkSource.Trees2Mode()` now defaults ON: every tg2 chunk source (play, rigs, capture runs, EditMode tests that build one)
+gets `spec.trees2On` 1 = task 213's dense world trees (Trees2Library built once per process, 30 prototypes, ~10.6 MB, ~0.5 s on workers);
+`-trees2dense 0` = task 210's placement; `-trees2 0` leaves `trees2On` 0 = today's (pre-210) trees byte for byte (the library is never
+built). `-trees 0` still turns both off. As 195a / 201, the `TerrainSpec` field is NOT flipped (a bare spec stays 0). The tests that
+pin today's trees pass the flag explicitly (`src.SetTrees2(false)`): `TreeTests` (its `Ctx`), `TreeGalleryTests` (`TodayTrees_Pinned`,
+`Gallery_Chunk_AirOnly`, `Gallery_Layout`), `TreePoolTests` (task 188's arms), and `FluidPocketTests.Streams_Seed42_AtRest_PathsAgree`
+(`Trees2TestOverride = 0`: its out-of-reach tree filter is IsTreeTrunk / IsTreeLeaf, which misses the birch's `GenMat.Leaves`; on the default
+world its only out-of-reach change was 2,908 air <-> Leaves voxels at water_shore); `Trees2Tests` already sets `Trees2TestOverride`. No
+assertion changed. Player log: `[StreamManager] tg2 chunk source: ... world trees ON (default, dense)` / `ON (210 placement,
+-trees2dense 0)` / `OFF (-trees2 0)`. No identity/hash rig builds the tg2 world, so no rig needed the flag. Shots
+`Logs/overnight/214_shots.sh` (default vs `-trees2 0`, 3 poses), table `Logs/overnight/214_table.py` -> `Screenshots/214/table214.txt`.
+Result: HANDOFF 214.
+
+**Task 215 (defaults, 2026-11-15, owner Q-AH (a)): `-dashfix 2` is the DEFAULT (task 205's white-dash fix, top faces only); `-dashfix 0` = the old call.**
+`RaymarchFeature.DashFix` parses `-dashfix` with default 2 (play, rigs, capture; voxel / shell path only, the far band's call is unchanged; F6 has no
+field). Survey arm suffix `_df0` still forces the old call per shot. Test `DashFixTests.Flag_Default2_LastMatchWins` pins the default. Check: one launch,
+205's flags + `-gpupoolprobe 1`, arms `native_df0,native,dyn_df0,dyn` at forest_breaks / cliff_snow / cave_mouth (`Logs/overnight/215/shoot.sh`):
+predicted dash pixels still dashing, cliff_snow 1,296 -> 6 native, 12 -> 1 FSR 3 dyn; forest_breaks 374 -> 0 native, 15 -> 0 dyn; pixels changed > 8
+levels: forest dyn 0.51 %, cliff_snow native 1.09 %, cave_mouth native 0.16 % (205: 0.42 / 1.05 / 0.16). forest's native pair is NOT comparable
+(the first arm was shot before the wall's near detail streamed in). No storage (one shader int). Pictures `Screenshots/215/sheet215.png`,
+`zoom215.png`. Result: HANDOFF 215.
+
+**Task 216 (bug, owner 2026-11-15 Q-AI (a): new eviction design approved; DEFAULT ON since task 218b, `-gpuviewevict 0` = 207's path).**
+`TerrainClipmap.ViewEvict.cs`: when a chunk IN VIEW (or in the camera's 5x5) is refused by the full GPU body pool, mirror-box chunks that
+are OUT OF VIEW and FARTHER (Chebyshev XZ) give up their bodies first, farthest first (ties: higher box slot), and only if the victims cover the
+whole shortfall (nothing is cleared for a chunk refused anyway). Victims: held by their slot, in the box, not dirty, not touched by a live fluid
+tile (`SetFluidWanted`), outside the 5x5, outside the frustum. A victim is written as air (entries, air mips, height, sealed mask, the refusal's
+write), its bodies freed, and it joins the refused set with its body count: FarField's hand-over draws it (IsGpuRefused) and 207's retry brings it
+back when it fits. The retry ranks requesters (in view / 5x5) before the rest and may evict for an in-view refused chunk too; with view eviction
+on it also re-runs when the frustum changed (`StreamManager.ViewVersion`). The frustum is 208's (`StreamManager.ChunkInView`, handed over by
+`TerrainClipmap.SetView` before every UploadDirty). One lazy scan of the box's slots per pass (only when a requester is short), one sort of a
+reused list of packed longs, at most 16 victims per pass (their 16 KB entry writes are charged to the pass's bytes). No per-chunk storage, no
+new GPU memory, no pool, layout or API change. Off / no view = 207's code path. Counters `GpuViewEvictedTotal`, `GpuViewEvictedBodiesTotal`,
+`GpuViewEvictSavedTotal`, `GpuRefusedByView` (refused now split in view / 5x5 vs other), printed on `-mirrorprobe 1`'s new `[mirror gpuview]`
+line; `UploadStats.viewEvicted / viewEvictBytes`. Tests `GpuViewEvictTests` (11: farthest-first order and landing, victims must be farther and
+cover the shortfall, out-of-view far requesters do not evict, the 5x5 does, in-view chunks never are victims, off / no view = today, the retry
+evicts when the view turns, ranks in-view first, off keeps 207's order, victims come back through the retry). Driver `Logs/overnight/216_pair.sh`
+(b1 `-gpuviewevict 1` / b2 `0`, jungle_high + walk1/walk2, `-trees2 0`). NOT YET MEASURED: with today's defaults both arms of the first pair were
+killed by the memory watchdog at jungle_high (9,088 / 9,782 MB footprint, KNOWN_ISSUES "JUNGLE_HIGH FOOTPRINT"), and the owner pause stopped the
+rerun. Result: HANDOFF 216.
+
+**Task 217 (plan only, owner 2026-11-15 Q-AK "recommended for all Qs"; no code, no launch, no tests): town safety C1-C5 decided.** Claude Doc
+"Game design" + `GAME_DESIGN.md`: section "Town safety by NPC behaviour" is Decided as six rules (one danger map, 1 byte per 8 m cell ~0.55 MB
+Medium; lights/rooms/people lower it; guards = residents walking between lights at night; a resident leaves on no valid room or high home danger
+for a few days, checked once a day; a settlement = rooms/residents within ~64 m, no claim; size steps by resident count, e.g. 5/15/40). Missing
+pieces table with a build order (0 furnished buildings in placement; 1 danger map, 2 room detection, 3 NPC day routine, 4 spawn rule before
+character work). Settlements rows (react to edits, size tiers, own settlement, safety), A6 wording, placement checklist (64 m rule, danger-map
+memory) updated. New questions C6 (64 m as chain vs radius) and C7 (anger and repair requests). Result: HANDOFF 217.
+
+**Task 218 (bug, supervisor 2026-11-16, Q1 (a) of HANDOFF 216): the jungle_high 9-10 GB footprint = the point query's tree gather (FIXED, no switch).**
+Isolation (`Logs/overnight/218_iso.sh <arm> <flags>`, 216's survey flags at jungle_high / walk1 / walk2 (+ `XPOSE=` an extra pose), sampler
+`Logs/overnight/218_memsample.sh`: footprint every 4 s, `footprint` category snapshots at 2.0 / 3.5 / 5.0 / 6.0 GB, SIGTERM at 6.6 GB before the 8 GB
+watchdog): `-trees2 0` peak 3,120 MB; trees ON: Untagged (native) 978 -> 5,114 MB while the main thread sat in the survey's `-mirrorprobe`
+(`GenProbeLines`: one `FarQuery.GetVoxels` of ~1 M points). Cause: `PointTree` re-gathered per voxel column and `GatherLib`'s ~23 KB `Allocator.Temp`
+scratch piles up inside FarQuery's single `IJobParallelFor` (Temp is given back only when the whole job ends). Fix: `GatherLib` scratch =
+`UnsafeUtility.Malloc`/`Free`; `PointTree` gathers once per 128-aligned CHUNK column (Generate's footprint, `& ~127`) into `PointColumn.treeList` /
+`treePrims` (raw Malloc'd pointers: a job may not create a Persistent NativeArray), freed by `PointColumn.Dispose()` at the end of each
+`PointJob` batch. Same bytes (Slow `Trees2Tests.Chunks_Deterministic_Border_PointAndShellsAgree`, `FarQueryTests`, `TreeTests`). Tests:
+`PointTreeMemoryTests.PointQuery_Trees2_FootprintFlat` (16,384 air points in distinct columns: footprint growth < 48 MB; was +332 MB / 4,060 ms,
+now +0 / 377 ms; `Logs/TerrainGen/temp218/point.txt`), `TempAllocThreadProbeTests` (Explicit probe: Temp in `job.Run()` on a worker thread is
+given back, in an IJobParallelFor it is not; `probe.txt`). Diagnostic flag `-memwatch <MB>` (`Assets/Game/MemWatch.cs`, default off): a
+`[memwatch]` line every 10 s (footprint, Unity allocated / reserved, managed heap) and `MemoryLedger.Report()` once at <MB>; no line for > 10 s
+= the main thread is stuck in one frame. Result: HANDOFF 218.
+
+**Task 218b (bug proof, supervisor 2026-11-16: 216's Q2 (b)).** Ran 216's launch pair with today's defaults (world trees ON, 218 fixed the
+jungle_high footprint): `Logs/overnight/218b_pair.sh`, one build, b1 = `-gpuviewevict 1`, b2 = `0`, jungle_high / walk1 / walk2, `-mirrorprobe 1`,
+logs `Logs/overnight/218b/`, shots `Screenshots/218b/b1|b2/`. ON vs OFF: GPU refusals over the run 58 / 70 / 70 vs 61 / 81 / 81; refused in view
+or 5x5 at the shot 22 / 6 / 0 vs 23 / 8 / 0; victims 17 (8,183 bodies), 13 requesters mapped by it; valve evictions 32,088 vs 35,204; CPU pool peak
+496,264 vs 495,941; process peak 2,598 vs 2,510 MB, already reached at the first shot when the eviction had acted once (1 victim, 370 bodies), so
+start-up load variance, not this code (it holds < 0.1 MB). Pictures: walk2 0 px differ, walk1 2,373 px (distant trees), jungle_high 36 k px in the
+far top band; nothing missing in either arm. Default flipped ON (`Phase4Bootstrapper` `-gpuviewevict` default 1, `TerrainClipmap.ViewEvict = true`).
+Small effect: the chunks still refused at the shot sit on the box's far edge, where no out-of-view chunk is farther. Result: HANDOFF 218b.
+
+**Task 219 (perf feasibility ladder, performance).** Capture-only additions to the cost split (`PlaygroundCapture.CostSplit.cs`, opt-in):
+`-costfixed "name|ex,ey,ez|ax,ay,az;..."` (the -wsfixed syntax) times still poses after walk_near at the launch's hours; `-costarms none` =
+FULL only; every path ends with a `[mem]` line (`MemoryLedger.Step14Line`). Runner `Logs/overnight/219/ladder.sh` (warm-up, then one launch
+per `<quality>_<rows>` arm, play flags + `-renderrows <rows> -shellwait 60`, poses walk_near + task 210's forest_eye / jungle_eye), table
+`Logs/overnight/219/table.py` -> `table.md`, pictures `Logs/overnight/219/sheets.py` -> `Screenshots/219/sheets/` + `diff.txt`. Result: no preset
+reaches 30 fps; Ultra / High / Medium / Low all ~108-111 ms at walk_near (the presets size the shells, not the lighting that costs the frame).
+Result: HANDOFF 219.
+**Task 221 (look QA, capture only: lighting-off pictures for Q-AN).** No code. The cost split as task 219 (`$PLAY_SETTINGS_FLAGS -quality high
+-renderrows 432 -shellwait 60`, `-costtimed 1`: stills only, the timings are meaningless), runner `Logs/overnight/221/run.sh <launch>...`,
+sheets + diff `Logs/overnight/221/sheets.py` -> `Screenshots/221/sheets/`, `Screenshots/221/full/<pose>_<arm>.png`, `Logs/overnight/221/diff.txt`.
+Arms: A play, B `skyfill0`, C `flood_off` (old point-light torches), D `sun_off`, E = launch `-skyfill 0 -torchflood 0` + arm `sun_off`.
+Gotchas found: `-shadowlevel 3` on the launch line is NOT applied in a `-costsplit` run (header still says rung 0) -- stack via an arm;
+`-costpaths torch` turns the torch flood OFF in every arm except `tf_on` (task 158), so the play look at night is arm `tf_on`
+(sky fill 0 + flood = launch `-skyfill 0` + arm `tf_on`); the jungle_eye still pose is not repeatable across arms (camera came out at
+minimap alt 18 / 20 / 33 m in different runs). Result: HANDOFF 221.
+**Task 222 (research, no code: Lay of the Land).** Public web only (Steam store/news/forum APIs, YouTube watch pages + storyboard frames,
+search snippets for X). Findings, table and options: `RESEARCH_LAY_OF_THE_LAND.md`. Side-by-side picture `Screenshots/222/side_by_side.png`
+(ours High 219 vs 3 official Steam shots; git-ignored; Steam images are linked, not committed). Dev devlogs carry no captions (music-only);
+`yt-dlp` not installed. Key: 10 cm voxels (QUOTED), UE5 Lumen, meshed terrain (INFERRED), finite pre-generated world, MIN GTX 1660 Ti 1080p
+Low 30 fps (~2.1x M1's 2.6 TF). Result: HANDOFF 222.
+
+**Task 223 (bug audit: Temp/TempJob allocations in and around jobs; no switch).** Table and evidence: `AUDIT_TEMP_ALLOC.md`. Only three
+`IJobParallelFor`s exist (FarQuery `PointJob`, fixed by 218; FarField `FillRegionJob` / `FillTg2Job`, no heap allocation); every Temp in a
+single `IJob` is made once per `Execute`; nothing has a peak above 50 MB. The "older than 4 frames" / "JobTempAlloc" warnings were
+`Allocator.TempJob` scratch held for a whole chunk build on the streaming worker threads (`Generate`, `GenerateShellChunkRaw`,
+`FillShellChunk`); no logged stack ever named TorchFloodBuild. Fix: those 16 allocations -> `Allocator.Persistent` (same sizes, freed in
+the same `finally`). Explicit probe `GenScratchHashTests.GeneratorOutput_Hash` (`HASH_TAG=<tag>`, writes `Logs/TerrainGen/temp223/hash_<tag>.txt`):
+identical hashes before/after. Launch pair `Logs/overnight/223_pair.sh`: warnings 169 + 68 -> 0 + 0, peak 2,528 -> 2,516 MB. Result: HANDOFF 223.
+
+**Task 224 (perf: reuse the generator's scratch per worker; no switch, no look change).** Follow-up to 223. `Generate`'s voxel-pass
+scratch (`mats` 128^3, brick material/uniform, skip stats; 2.06 MB) now lives in the worker's `ColumnPass` (made on its first non-air chunk,
+`EnsureVoxelScratch` zeroes the three ClearMemory arrays per chunk; `mats` stays unwritten as before, it was UninitializedMemory). The shell
+side gets `TerrainGenChunkSource.ShellScratch` (fill arrays + voxel skip stats, ~0.46 MB), one per `ShellStreamer` worker thread (made in
+`WorkerLoop`) plus one for the synchronous path; `ResetFill` zeroes every array a fresh one had zeroed and empties the lists. It is NOT kept in
+`ShellChunk` (2 x workers + 2 of those wait for upload, so it would be held ~2.7x over). New overload
+`GenerateShellChunk(shell, coord, output, ops, summaries, scratch)`; a null pass / scratch = one-shot scratch per call (the old way).
+Tests: `GenScratchHashTests.VoxelReuseIsExact_DenseThenSparse` (fast) and `ShellScratchReuseIsExact_DenseThenSparse` (Slow): dense chunk
+first, then sparser ones, also with the scratch `Scribble`d with junk, against fresh scratch (bytes, brick table, skip/fill stats). The
+Explicit hash probe now also hashes the reused path: both = 223's `near 69CE4AAEAE2F03BC shells 7E504985E4B9FDDF`. Result: HANDOFF 224.
+**Task 220 -- keep the budget (plan only, owner 2026-11-16).** `PERF_BUDGET_GUARD.md` (the guard: options strict / milestone every
+5 drawing tasks + at once after a HEAVY task (recommended) / merge-only; the milestone check `run-budget-check.sh`, NOT written yet,
+owner picks first; lighting tracked as sky fill / sun / torch flood deltas at walk_near day + flood at the night torch path; failure
+-> one switch-arm bisect launch, no new drawing tasks until resolved), `PERF_BUDGET.json` (provisional ratchet baseline from 212/219:
+walk_near p50 107 ms, sky fill 40.4 / sun 28.1 / flood 27.8 / shells 8.4 ms, peak 2,607 MB; targets reported as distance only;
+tolerances from 212's F-pass noise), PREAMBLE rule 12 (per-task proxies P1-P5: memory, pass card, cold ms only if shown, counts,
+ray-work counters; `HEAVY` marker). Supervisor's `Cost:` line text: guard sec. 7. No code, no launch. Result: HANDOFF 220.
+**Task 225 (look, owner Q-AN "why are the tree trunks pitch black"): TWO EXACT FIXES to the look's display<->linear handling, both
+ON everywhere (`RaymarchFeature.LookExactSrgb` `-lookexact 0|1`, `SkyShareLinear` `-skylinear 0|1`; shader `_LookFix` bits 0/1).**
+CAUSE, measured with new capture-only SHADE TERMS views 15-18 (`-shadeprobe 1` in the cost split; decoder `Logs/overnight/225/probe.py`,
+per-fix simulation `sim.py`): trunk albedo is NOT it (forest 0.82, jungle 0.25 display luma -- authored), the sky trace is voxel-exact
+(not coarse), the shadow term is applied once. Two multiplying defects: (1) LookToLinear was pow 2.2 but URP's output encode is the exact
+sRGB curve (the probe ramp: byte 2/255 -> 22, not 28), so a look value of 0.03 reached the screen as 0.006 (5x darker), 0.067 as 0.034;
+fixed: LookToLinear = the sRGB EOTF, `LookToDisplay` its inverse (DrawnEdgeFade, the TAA dyn track). (2) sky fill (193) made skyVis a
+FRACTION of linear light but it still entered the display-space lerp, so 25 % open sky gave 0.25^2.2 = 4.7 % of the light; fixed:
+`LookSkyOpen` takes skyVis^(1/2.2) (0 and 1 unchanged: open ground, shells/far hits, sealed caves). Look 0 (linear lighting) untouched.
+Cost: no buffer, no pass, one select + pow per pixel. Capture arms `lookfix_off` (= before), `lookexact_off`, `skylinear_off`
+(`PlaygroundCapture.CostSplit.cs`). Tests `LookFixTests` (flags, shader text, curves vs `Mathf.GammaToLinearSpace`, the crush numbers).
+Shots: `Logs/overnight/225/run2.sh day2|night2`, `compare.py` (sheets in `Screenshots/225/`). Result: HANDOFF 225.
+
+**Task 226 -- look polish toward Lay of the Land (owner Q-AN 2026-11-16; LOOK, stills only, no timing). Four pieces, each its own
+switch, all ON in play, rigs and capture (`RaymarchFeature.VoxelVary` `-voxvary`, `Crevice` `-crevice`, `AerialHaze` `-aerial`
+(+ `-aerialrange` m, default 1100), `Bloom` `-bloom` (+ `-bloomk` strength, default 0.6); shader `_LotlLook` bits 0-2 + the BLOOM kernels).**
+(1) VOXEL VARY (`LotlVoxelVary`): every voxel x(1 +- A) brightness and +-3 % warm/cool, from two position hashes (world-anchored: stable
+under FSR / TAA), A from the material's own look albedo (12 % dark -> 6 % white, so light materials do not clip), mean-neutral; faded out
+where a voxel is < 4 -> 2 px; fluids, self-lit and emitting materials skipped. (2) CREVICE: FaceAO (the hit's existing 8 occupancy reads)
+also takes half of its depth off the DIRECT term (before: ambient only, so sunlit crevices never showed); fades where VAO fades. No new
+read. (3) AERIAL: the sky-haze range 1800 -> 1100 m (height falloff unchanged) and desaturation share 0.5 -> 0.75 (`FarShadeApplyHaze`).
+(4) BLOOM: `BloomDown` (quarter render res, per-pixel bright share smoothstep(0.55, 1.0) of linear luma), `BloomBlur` x2 (separable
+Gaussian sigma 2.5 quarter texels), `BloomAdd` (render res, 4 loads + RMW) -- after the frame's last writer, before FSR 3 (no pass at
+output resolution); look 1 only; two quarter-res half4 render-graph textures (0.33 MB at 768x432). Capture arms `lotl_off` (= before),
+`vary_only`, `crevice_only`, `aerial_only`, `bloom_only`, `X_off` (`PlaygroundCapture.CostSplit.cs`). Tests `LotlLookTests`
+(flags, gating, bloom order, CPU mirror of the variation: mean-neutral, bounded, stable, gone when faded). Shots:
+`Logs/overnight/226/run.sh day|night`, `sheets.py` (sheets in `Screenshots/226/sheets/`). Result: HANDOFF 226.
+
+**Task 227 (performance, owner Q-AN 2026-11-16 "lower-resolution sky and bounce light, like Lumen's Low"): LOW-RES SKY FILL,
+`-skyfillres 1|2|4` (DEFAULT 4; 1 = task 193's inline path, one ray per pixel, for A/B).** Raymarch.compute block LOW-RES SKY FILL: the
+primary kernel no longer traces sky fill; it shades with the face's running mean (one frame old) and writes a 12 B record (`SkyRec`
+{v, a, b}: task 193's S/B/counts plus the FACE, `SkyReqPack` voxel + normal; key derived, so matching is 193's). New kernel
+`CSSkyFillTrace` (VE_FAR_SHADE, after the primary passes) runs one thread per 2x2 / 4x4 block: picks one face of the block (scan start
+rotates every 2 frames, per-block offset), traces its sample exactly as the inline path (`SkyFillTraceSample`, same seed/half/direction)
+and folds it into every pixel of the block on the SAME FACE PLANE (`SkyShareBad` == 0: same normal, same coordinate along it,
+tangential <= 1 + 2 B x voxels-per-pixel). A face with no history takes a compatible reprojected neighbour's record (counts capped 8),
+and only with none traces inline (orphan). `SkyShareBad` is integer arithmetic on purpose: the first, bool-select version made HLSLcc
+emit `as_type<float>(bool)` and CSMainFarShadeFlood failed to load in the player (task 206's failure). Only with a far-shading
+primary kernel (play, capture runs); others trace inline. Capture: cost arms `sfres1|sfres2|sfres4`; the cost-split run line prints
+`skyfill N res inline|2x2|4x4`. CPU twin `SkyFillReference` (ReqPack/Unpack, ShareOk, ShareBad, ShareT, BlockStart, LowResFrame);
+tests in `SkyFillReferenceTests` (LowRes_*: pack round trip + shader pins, share rule at trunk/wall/ledge/slot edges and shader form
+== rule on 50k cases, ledge top stays EXACTLY 1 beside a 0.3 m slot floor (0.03), trunk/wall/ground keep their own light, one-face
+block == inline path within 1/16), `KernelHealthTests` (one backwards fetch loop for every kernel). Memory: history 2 x W x H x 12 B
+(+2.65 MB at 768x432). Runner `Logs/overnight/227/run.sh day|night`, pictures `sheets.py`, `zoom4.py` -> `Screenshots/227/sheets/`.
+Result (warm, ABBA, walk_near p50): 106.8 ms inline -> 78.0 (2x2) -> 72.3 (4x4); sky fill off 66.3. Result: HANDOFF 227.
+
+**Task 228 (performance, owner Q-AN 2026-11-16 "coarse far shadows"): COARSE FAR SUN SHADOWS, `-sunfar <m>` (default 0 = OFF, presets
+unchanged).** A sun ray whose receiver is at least <m> from the camera counts a DENSE brick as solid once it has climbed two bricks of
+its march grid above its origin (`Raymarch.compute` `_SunFarVoxels` / `SunCoarseY`, `SUN_COARSE_NEVER`; `TraceShadowRay(..., coarseY)`
+tier 0, `ShellMarch(..., coarseY)` for the task-133 continuation (k 1) and the shell-hit sun ray (k = its shell); the sky probe, the
+primary marches and CSSunDeferLean pass NEVER). No new data (the brick directory is the coarse copy), 0 bytes. Capture arms
+`sunfar_off` / `sunfarNN`; the cost-split run line prints `sunfar N m`. CPU twin `ShadowRayReference.Trace(coarseY)`, `SunCoarseY`,
+`BrickHoldsSolid`; tests `SunFarCoarseTests` (near/off exact, only adds occlusion, bumpy ground no self-shadow, thin pole and tall wall
+widen by at most their own bricks); `SunDeferTests` pin updated. Result (warm ABBA, noon, 432 rows): walk_near 72.0 -> 70.0 ms, forest_eye
+102.0 -> 95.9, jungle_eye 66.8 -> ~66.2 (sun off 49.3 / 72.0 / 48.9). DEFECT, why it stays OFF: the vertical climb guard fails on a steep
+bare slope (a ray two bricks up is still inside the slope's surface bricks): brick-shaped false shadows (`Screenshots/228/sheets/walk_far_hill.png`);
+far forest interiors lose their sun patches. Runner `Logs/overnight/228/run.sh`, pictures `sheets.py`. Result: HANDOFF 228.
+
+**Task 229 (performance, owner Q-AN 2026-11-16 "Torches are too important to turn off"): the torch-flood kernel twin only when
+torches are near, `-floodnear 1|0` (last match; DEFAULT ON; 0 = before: the twin whenever the flood is Ready).** Finding: with the flood
+ON (play) an EMPTY pool still uploads, so `TorchFloodPool.Ready` was true with no torch anywhere and play drew `CSMainFarShadeFlood`
+every frame. The twin is not a diet-2 kernel, so play lost diet 2 (the 8.17 note); the flood code inside it costs ~0. New
+`FloodTwinRule` (VoxelEngine.Rendering): the twin draws only while an ACTIVE light's range sphere (`LightSourceBuffer.ActiveLights`,
+the shader's own `dist^2 > range^2` gate) or a LIT flood chunk (`TorchFloodPool.LitChunkIn`: non-zero directory entries, 128-voxel
+chunks as `FloodLevels`) reaches the tier-0 window + 1 brick. Otherwise the plain kernel (and so diet 2) runs: the same picture by
+construction, because the two kernels differ only in the light terms on tier-0 hits, and every one of them is 0 there. Per frame: <= 32 sphere tests +
+a directory scan over the window's chunks; 0 bytes added. Capture: cost arms `floodnear_off` (before), `floodd2_off` (flood off + diet 2
+off), `tf_twin` (`-costpaths torch`: tf_on with the rule off); run lines end `flood twin|skip|-`; `-costfloodpair` (with
+`-coststillraw`): raw2 / `_raw_fnflip` / `_raw_fnback`, compare `python3 -I Logs/overnight/229/fnpair.py <dir>`. Tests
+`FloodTwinRuleTests` (window margin; a light 1 cm inside / outside the range on an axis and on a diagonal corner; 20k random
+lights: "no reach" => the shader's gate skips every window point; a real flood: one lit chunk, a window one voxel short -> plain,
+one voxel in -> twin, the torch removed -> plain, placed again -> twin; shader pins), `KernelHealthTests` pin updated. Result
+(warm ABBA, 432 rows, noon, p50): walk_open 37.5 -> 31.2 ms (flood off 31.3, flood off + diet 2 off 37.35); walk_near 90.2 -> 78.0 and
+72.0 -> 59.2 (two levels in one launch, neighbouring passes); torch_camp (28 torches): twin in both arms, 61.4 vs 61.9. Runner
+`Logs/overnight/229/run.sh day|day2|night`. Result: HANDOFF 229.
+
+**Task 231 -- why Lay of the Land looks "cinematic" (owner 2026-11-17; OFFLINE experiment, no engine change, no timing).** Python factor
+ablation on our 226 stills and on their three Steam shots (`Screenshots/222/side_by_side.png`): (a) warm sun / cool shade, (b) pale hazy
+sky + soft clouds, (c) colour grade, (d) lifted coloured shade, (e) 1/4-voxel grain, each alone and all five; the reverse test removes
+each from THEIR shots. 8 image metrics (sky chroma/luma, warm-cool split, shade p10, chroma, green chroma, contrast, detail), each scaled
+by its spread over the 6 originals. One low-sun (12 deg) launch with existing flags (`-costsun 12 -costfixed ... -costarms none`).
+Script `Logs/overnight/231/ablate.py` (run `python3 -I Logs/overnight/231/ablate.py` from the repo root), report
+`Logs/overnight/231/ablation.txt`, launch `Logs/overnight/231/run.sh`; sheets + `viewer.html` in `Screenshots/231/sheets/`.
+Result (HANDOFF 231): sky > grade > the rest; the time of day (low sun) alone equals all five at forest_eye; all five close only ~30 %.
+
+**Task 232 (performance, owner Q-AN 2026-11-16; supervisor's (a) 2026-11-17): LOW-RES SUN, `-sunres 1|2|4` (last match; DEFAULT 1 =
+today's path; kept OFF: no saving measured).** Raymarch.compute block LOW-RES SUN: with a far-shading primary kernel that is not the
+sun-defer one, the primary kernel shades with the face's sun record (`SunRec` {v, a, b}: vis + flags PRIOR / SHELL, the face as
+`SkyReqPack`; the temporal-shadow history, now 12 B per record, was uint2): its own (key match), else a PRIOR (>= 2 reprojected
+probes on the SAME face plane, `SkyShareBad` 0, agreeing within 1/16), else the exact ray inline (`SunTraceFace`: tier-0 ray + task
+133's continuation, or the shell-hit ray from the 0.1 m face centre). New kernel `CSSunTrace` (VE_FAR_SHADE VE_SUN_TRACE) traces one
+face per 2x2 / 4x4 block per frame (even frames: a prior first) into every record of that face; a wrong prior drops the block's other
+priors on its plane. Exact rays only, no coarse bricks (228's defect cannot occur). Task 56's -tshadow path keeps {vis, key} in the
+same struct. Capture arms `sunres_off|sunres2|sunres4`; the cost-split run line prints `sunres inline|2x2|4x4`. CPU twin
+`SunLowReference` (Make, Fetch, TraceBlock, Frame); tests `SunLowReferenceTests` (shader pins, two agreeing same-plane probes, slot
+floor never takes the ledge's light, steep slope exact under 3 suns, thin pole exact near, far edge error within 1 voxel; a far
+sub-pixel pole line is missed in ~1.7 % of pixels, all within 1 voxel of its edge). Memory: +2.65 MB whenever the history exists
+(8 -> 12 B x 2 x 768x432; play has temporal shadows ON via the preset). Result (warm ABBA, noon, 432 rows, p50): walk_near 62.1 ->
+60.6 ms (noise 1.3), forest_eye 95.8 -> 98.3 (noise 8.9), jungle_eye 70.5 -> 69.3 (noise 27); sun off 42.3 / 78.0 / 54.7. Runner
+`Logs/overnight/232/run.sh`, plan `PLAN.md`, pictures `sheets.py` -> `Screenshots/232/sheets/`. Result: HANDOFF 232.
+
+**Task 233 (look: low-sun start, pale sky + clouds, light grade; owner Q-AP (a)).** Three switches, constants / per-pixel ALU
+only, no new pass, 0 GPU bytes. `-startsun DEG` (SunCycle.StartSunDegrees; DEFAULT 0 = noon, `-startsun 16` = the look pick,
+morning side): play's start view / resume and the cost split's default hours (no `-costsun`) use the morning hours where the sun
+is DEG up. Kept OFF because over budget: warm ABBA sun step at forest_eye 18.2 ms (noon) -> 45.0 (16 deg) / 35.9 (25 deg),
+noise 8.0; walk_near 12.1 -> 9.6 / 10.6 (`Logs/overnight/233/costsplit_day.txt`). `-skypale 0|1` (default 1; `-skylook` is task
+121's switch): LookAtmosphere (sky pixels + haze target) uses the pale zenith (0.44,0.60,0.84) / horizon (0.80,0.85,0.90) with a
+wider horizon band (down^2 by day), `_SkyLook` bit 8, `_SkyPaleZenith/_SkyPaleHorizon` (w = day factor); `SkyClouds` 2-octave
+value noise on MISS pixels only (`!hit && !farHit`); the lighting colours (ambient, FarShadeSky, sky fill) take the pale hue at
+the old luma (SunCycle.DayZenith/DayHorizon), so shade changes hue, not brightness. `-grade 0|1` (default 1): `Grade233` in
+CSMainBody just before the ResultTexture write (render rows, before FSR), display space: greens -22 % sat + olive, all -5 %,
+warm mids, S-curve 0.18 pivot 0.40, toe lift 0.012, corner vignette 0.10 (RaymarchFeature.GradeA/GradeB/GradeWarm, tuned
+offline by `Logs/overnight/233/grade_tune.py`). Sky and grade scale with the day factor: night bit-identical by construction.
+Cost-split arms `startsun_off`, `startsunNN`, `skypale_off`, `grade_off`, `look233_off`, `sun233_only|sky233_only|grade233_only`;
+new capture options `-coststillarms a,b` (still-only arms) and `-costtimedpaths p,q` (only these paths run timed arms).
+Tests `Look233Tests` (start sun morning/noon, lighting luma kept, night unchanged, shader pins). Runner `Logs/overnight/233/run.sh`,
+sheets `sheets.py` -> `Screenshots/233/sheets/`, metrics `metrics.txt`. Result: HANDOFF 233.
+
+**Task 230 (performance tooling, owner Q-AO (b) 2026-11-16: milestone budget check, N = 5): `tools/overnight/run-budget-check.sh`.**
+Holds the Unity lock; build (`BUILD_ONLY=1 ./run-cost-split.sh`, play's player: `DEV_KERNELS=0` default, `BUILD_ARGS` passed
+through; both new env hooks in `run-cost-split.sh`, its default unchanged) unless `SKIP_BUILD=1`; warm-up; then three cost splits
+at play flags, High, 432 rows, `-shellwait 60`: DAY (walk_near at noon `-startsun 0`, arms = `PERF_BUDGET.json` steps' `off_arm`,
+`-costtimedpaths walk_near`), FOREST (`-costarms none`, forest_eye FULL, secondary) and NIGHT (`-costpaths torch -costarms
+tf_on,tl_none`: the torch scene's FULL is the old point lights, so night play = tf_on, flood step = tf_on - tl_none). `hididle`
+(`tools/overnight/hididle.c`, built to `Logs/budget/hididle`) logs input with the live path: input in DAY/NIGHT reruns that launch
+once, still dirty = `BUDGET NOT CLEAN`; forest_eye input is reported only. `tools/overnight/budget_compare.py` prints ONE table
+(ratchet rows vs baseline with `PERF_BUDGET.json` tolerances, WARN at half, noisy step FAIL -> WARN; shares / targets as distance;
+hard limits 3,000 MB and walk_near refusals 0) and `BUDGET PASS|WARN|FAIL|NOT CLEAN` (exit 0/0/1/3); `--rebaseline "<who>"`
+(refused when NOT CLEAN or a hard limit fails); `--compare DAY NIGHT [FOREST]` on old logs; `--stricter F --write-copy` (test
+copies). A full run sets `tools/overnight/BUDGET_COUNT` (PREAMBLE rule 13). Output `Logs/budget/<stamp>/check.txt`. First run
+(2026-11-17, 165 min with reruns): NOT CLEAN (owner input + pause), and the night launch peaks at ~6.0 GB on the tf_on flood build.
+
+**Task 236 (bug, memory; supervisor approval (a) of task 230's STOP): the night torch scene's 6 GB peak, and play's torch fill.**
+Cause: `TorchFloodPool.Upload` made one `GraphicsBuffer.SetData` per dirty data run; on Metal each call stages ~4 MB of GPU memory
+(IOAccelerator) until the GPU finishes the frame. The capture's synchronous `Rebuild` = 903 calls in one frame (+3.5 GB); play's `Tick`
+fill = up to 81 calls per frame (footprint 3.4-3.6 GB). Fix `-tfupload 1|0` (default 1; 0 = before 236): ONE SetData per buffer per Upload
+over the dirty span (`DirtySpan`), and Flush uploads once at its end. Night `-costpaths torch` peak 5,985 -> 2,538 MB, play fill 3,445 ->
+2,422 MB, upload calls 903 -> 3 (rebuild) / 1,607 -> 158 (fill), bytes up 34 -> 105 MB per 28-torch fill (span re-sends clean words).
+Same CPU union (hash), GPU == CPU (`VerifyGpu`). Diagnostics: `-tfmemmarks` (`[tfmem]` per-frame footprint jumps + Rebuild/Flush/Upload
+marks, MemWatch.Mark) and the capture arm `tf_tick` (flood ON from an empty pool, filled only by play's Tick). Tests
+`TorchFloodMemoryTests` (DirtySpan one span + clears; one flood's CPU transient < 64 MB). Logs `Logs/overnight/236/`.
+
+**Task 235 (performance tooling, owner 2026-11-17 "I want 1 for now": judge performance on WORST-CASE poses, not noon).**
+`tools/overnight/run-budget-check.sh` now runs four cost splits after the warm-up, read from `PERF_BUDGET.json` v2 "launches" / "poses":
+walk (walk_near at `-startsun 16`; arms skyfill0, sun_off, shells_off, ceiling, startsun_off = noon control), forest (forest_eye at 16 deg;
+skyfill0, sun_off, startsun_off), jungle (jungle_eye at noon, GPU pool full; skyfill0, sun_off), night (torch_camp; tf_on, tl_none, skyfill0, sun_off).
+`budget_compare.py` prints one pose x step table (FULL / sun / sky fill / flood / rest, p50 and % of 33.3 ms), the worst pose per step and the
+ratchet rows; the verdict counts only worst-case rows + hard limits (noon = control, info). Day flood is not timed (229: `flood skip` = 0).
+rest = FULL - sun - sky - flood. `--compare walk=W forest=F jungle=J night=N`. ~100 min: forest/jungle keep a streaming deficit, so every run
+there waits NearSettle's 180 s cap. First run (`Logs/budget/2026-11-17_235256/check.txt`, rebaselined): worst forest_eye at 16 deg 135.4 ms.
+
+**Task 170 (torch flood memory trim, owner Q106 1 (a); per-torch caches kept): one flood slot, exact-size growth, sliced snapshots.**
+`TorchFloodPool`: `MaxJobs` 2 -> 1 (one job scratch, ~13 MB, only while flooding), `MergeBatch` 4,096 -> 1,024, the box `Snapshot` runs as
+`SnapshotBegin` + `SnapshotPlanes` a few brick planes per Tick under `FrameBudgetMs` 0.5 counted from the snapshot phase's start (at least one
+plane per Tick; an edit / chunk change mid-snapshot re-floods the torch as during the job, so it converges exactly), `TrimIdle` drops burst slack
+when idle. `TorchFloodBuild`: union lists grow by `Reserve` to `GrowCap` = need + 1/4 rounded to 64 Ki words in ONE exact reallocation (not
+NativeList's power of two); per-torch cache lists `TrimExcess` on the worker; the GPU tables / data buffers are sized to the list capacity
+(`GrowGpu`, a grown buffer re-uploaded whole: a GPU-side copy was tried and its readback FAILED in player). Report line adds jobs, merge batch,
+snapshot yields, GPU grows, list growth ticks. Tests `TorchFloodL3Tests`: `Budgeted_EditsMidSnapshot_EqualsScratch` (budget 0, edits/removals
+mid-snapshot, == scratch), `Reserve_GrowsToGrowCapExactly_KeepsContents`; all earlier cases incl. `Fuzz_Long` exact. In-player
+(`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1"`, `Logs/costsplit_2026-11-19_090913.txt`, 28 torches): CPU allocated 31.0 -> 15.9 MB,
+GPU 20.0 -> 9.25 MB, scratch peak 26-27 -> 13.1 MB, fill 5.3 -> 14.4 s (one job), exact + GPU readback + twin probe PASS at every step;
+main-thread p99 NOT under 1 ms (fill 3.6, edits 2.6-6.1 ms): upload (236's one span per buffer re-sends ~4 MB per 1,024-brick merge) and merge apply.
+
+**Task 241 (plan only, owner 2026-11-19 "I'd rather have you autonomously do this"): per-system budgets per quality tier.** No code, no
+launch. `PERF_SLICE_BUDGETS.md`: three tiers (A = M1 Air 8 GB "low": 30 fps typical, dense forest at dawn/dusk capped at 50 ms, 3,000 MB;
+B = M-series Pro class; C = 60 fps), tier-A ms slices (8.17 sec. 3 shares) beside 235's measured worst-pose splits, MB per pool (CPU pool
+278, GPU bodies 124, flood 38, shells est. 388, ...; headroom 379 MB), GPU-class scaling (`Logs/overnight/241/scale.py`: forest 16 deg
+needs ~4.9x the M1 GPU for 30 fps at 432 rows, so hardware is not the forest fix), the feature admission rule (declare ms/MB per tier +
+slice; proposals for new `PERF_BUDGET.json` proxies, gates NOT edited), "Making the forest fit" (levers F1-F7: low-sun cap, bounce at low
+sun, solid crown cores, foliage early-out, dyn rows, coarser far leaves, density last) and architecture alternatives (no renderer
+replacement; a sun shadow map / foliage light proxy only on named evidence). Chart `Screenshots/241/budget_bars.png` (git-ignored; script
+`Logs/overnight/241/bars.py`). Owner decisions D1-D6 in its sec. 5.
+
+**Task 242 (owner 2026-11-19, answer (a) to 170): torch-flood SCATTER upload.** `TorchFloodPool.UploadScatter` (default; `-tfscatter 0` or
+capture arm `-costarms tfscatter_off` = 170's whole-span path): dirty 8-word units of the tables (new per-unit bitmask; a NEW table is
+marked whole) and data are packed by Burst (`ScanJob`/`PackJob`: n indices, then n x 8 words) into ONE staging send, and
+`TorchFloodProbe.compute` `CSFloodScatter` writes them, all in ONE CommandBuffer per Upload; grown buffers are sent whole. Two rules from
+the first in-player readback (one table word stale after D1, `Logs/costsplit_2026-11-19_153002.txt`): every incremental write to the
+tables/data goes through the dispatch (no span copies mixed in; a span only past `MaxScatterUnits` or with the test-only `AllowSpan`),
+and the staging is a ring of 3 buffers (released at idle, retired buffers freed 3 frames later). Tests: every test pool runs a C# mirror
+twin (`MirrorTwin`, grown arrays 0xDEADBEEF; `VerifyMirror`), `Scatter_TablesFreedAndReused_TwinEqualsCpu` (append / free / reuse
+tables; caught a removed new-table mark). In player (`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1 [-costarms tfscatter_off]"`,
+`Screenshots/242/tfl3_242.txt`): exact + GPU readback + twin probe PASS at every step; per edit upload 163-188 MB -> 2.4-2.7 MB, upload
+phase max 0.61-1.45 -> 0.23-0.32 ms, edit p99 1.01-1.40 ms (OFF 1.23-2.04); staging peak GPU 0.75 MB / CPU pack 0.25 MB while busy, 0 idle.
+
+**Task 40 (bug diagnosis, no code change): `ledge_view`'s black crescent is the vertical sky probe's zero ambient, not terrain.** `MODE=poses EXTRA="-poses ledge_view" ./run-tg2world.sh` (skyfill 0, the capture default) reproduces it at noon and golden hour: a pure-black wedge under the top overhang and a large black face under the ledge, both sun-shadowed with rock straight above the face cell (same mechanism as task 136's cliff2 black shape). Same pose with `-skyfill 2` (task 193; play's default since 194a): the faces are dark but drawn, geometry intact, no hole or seam. Band view is flat sky (voxels draw it, far band is not involved). Shots: `Screenshots/40/` (skyfill 0) and `Screenshots/40/skyfill2/`. Rigs/capture still default to skyfill 0 (owner call whether that changes).
+
+**Task 243 (lever F3 of `PERF_SLICE_BUDGETS.md` sec. 6, owner Q-AT D4): solid crown cores, behind `-crowncore 1|2`, DEFAULT OFF (a look change).**
+`TerrainGen/CrownCore.cs` fills a world-tree PROTOTYPE's crown interior with its own leaf ONCE at the library build (worker threads,
+bit-packed scratch; zero cost per chunk / frame / tree), leaving a 2-voxel ragged skin; only AIR becomes LEAF, only inside the leaf box,
+only voxels 6-connected to the grown crown (no floating leaves), and only inside bricks the prototype already has (`keepBricks`: a
+pure-interior brick is never drawn, so it is not stored). Rule, all from the crown's own voxels: hull = voxels enclosed along x, y and z by
+the crown (mode 1) or by its CLOSING with a box of the crown's own clump radius (mode 2, `TreeGallery.Sp.clumpR`: gaps narrower than ~2
+clumps count as crown); core = hull eroded by 2 (the leaf texture's 2-voxel hole cell). Placement is unchanged (`ProtoBuild.placeBricks`
+feeds the probabilities). `TerrainSpec.crownCore` (read by the library build only; map v4 only, so v3 is untouched); `CrownCoreArg()`,
+`SetCrownCore(byte)`, `Trees2Library.Acquire(core)` / `SetCoreMode` / `CoreMode` (one library per process, rebuilt on a mode change).
+FINDING: the approved crowns are small flat clumps with sky between them, nearly all skin -- mode 1 adds 852 voxels to an oak's 12 chunks,
+1 leaf brick of 13,036 in forest_eye's footprint; mode 2 is the one that closes a crown (oak v0 leaf 122,816 -> 359,358). Tests:
+`CrownCoreTests` (TerrainGen: `Adversarial_Shapes` tiny / all-skin slab / open bowl / hollow shell floating vs with a branch / 400 x 80 x
+400 porous lens with exact "why is this air still here" check; `Oracle_BruteForce` exact sets vs a brute-force reading, modes 1 and 2;
+`Closed_Mode_GapsByClumpRadius`; `Prototypes_OffIdentical_OnOnlyAirToLeaf` [Slow]: core 0 byte-identical, bricks unchanged),
+`CrownCoreWorldTests` (CoreEngine: `World_SamePlacement_OnlyAirBecomesLeaf` [Slow]; `Report_LeafBrickFill` REPORTS=1 ->
+`Logs/TerrainGen/trees243/histogram.txt`). Capture: `-wshours H` pins the world survey's sun (it forced noon and ignored `-tod`).
+KNOWN ISSUE: `-crowncore 2` (keepBricks) crashed the player 3 of 3 launches in the Burst `ShellFillJob` (KNOWN_ISSUES.md, task 243 entry); do not use it
+in play until fixed. Shots `Logs/overnight/243_shots.sh` / `_shots2.sh` / `_shots3.sh` / `_shots4.sh`, table `Logs/overnight/243_table.py` -> `Screenshots/243/table243.txt`,
+`python3 -I tools/trees243.py` -> 4x diffs, `sheet243.jpg`, `viewer.html`. Result: HANDOFF 243.
+
+**Task 244 (capture only; PERF_SLICE_BUDGETS sec. 4 / P5, prepares levers F4 and F6): ray-work counters, `-raystats 1` in the cost split.**
+`Raymarch.compute` RayStats (9.6 KB, allocated the first time a capture turns it on): per frame, PRIMARY / SUN / SKY rays and their steps
+(loop iterations: tier-0 DDA / leaps + shell iterations + far-band steps, counted once per ray), the tier-0 share, blocked and blocked-by-a-
+tier-0-LEAF counts, and a steps-per-ray histogram (exact < 64, then 16- / 64-step bins) for p50 / p95, by camera-distance band 0-10 / 10-40 /
+40-82 / 82 m+ (no hit = 82 m+). The writes live ONLY under `#ifdef VE_SHELL_DIAG`: the primary counts in `CSMainFarShadeDiag`, the sky-fill
+rays in the new `CSSkyFillTraceDiag` (same body as play's `CSSkyFillTrace`, `SkyFillTraceBody`); every play kernel folds `RAY_STATS_ON` to
+false. `RaymarchFeature.CollectRayStats` (default OFF) selects those Diag kernels (`ShellDiagKernels`, as `CollectShadowStats` does) and binds
+the buffer (a 1-element dummy otherwise); `ResetRayStats` / `RequestRayStats` (AsyncGPUReadback, no stall); `DebugFreezeTemporal` (capture
+only) stops the temporal sun / sky-fill frame counters so a still pose converges to one image. `RayStatsReport` (CPU) formats the
+`[raystats]` table. Cost split: `-raystats 1` [`-raystatsframes N`, default 32] counts at each path's FULL still (pose pos[0]) and prints
+the table; with `-coststillraw` also `_raw_rsoff / _raw_rsoff2 / _raw_rson / _raw_rsback` (temporal frozen, no upscaler), compare
+`python3 -I tools/rspair244.py <stills>` (all byte-identical = PASS; `-rsfreeze N` frozen frames first, default 300; a fifth still `_raw_rsdiag` = the *Diag kernel with the counters OFF,
+which splits the kernel's own difference from the counters'). Result: the counter writes change 0 px (rson = rsdiag at walk_near / walk_open noon); the *Diag
+kernel itself differs from play's diet-2 kernel by 7-12 px (1-2 of 255; 0 px at walk_near 16 deg). Day poses only: the Diag primary kernel has no torch-flood twin.
+BUG FIXED on the way: `CSMainFarShadeDiag` had 32 Metal buffer slots (cap 31) since task 193 and never loaded in a player (`[kernels] FAILED`, Logs/overnight/219, 221: every
+counter window read 0, far-shading debug views magenta); the *Diag twins now fold `_UseLODCascade` to 0 like task 206's flood twins (29 slots) and
+RaymarchFeature draws them only while the cascade is off (always with shells on).
+Needs a VE_ALL_KERNELS build (run-cost-split.sh's default). `CSSkyFillTraceDiag` is NOT in DevKernelStrip's list (that test needs the
+owner's approval), so play builds carry it unused. Tests `RayStatsReportTests` (bin / layout twin of the shader, quantiles incl. the open
+bin, the table's arithmetic, every counter site under VE_SHELL_DIAG, switches default OFF); `KernelHealth.RaymarchKernels` +1. Runner
+`Logs/overnight/244/run.sh`. Result: HANDOFF 244.
+
+**Task 245 (lever F4 of `PERF_SLICE_BUDGETS.md` sec. 6, owner Q-AT D4): foliage light early-out, `-foliageout 1`, DEFAULT OFF (a look change).**
+A sun ray (and a sky-fill sample's visibility leg; never the ground-bounce leg, whose hit point is used) carries a leaf TRANSMITTANCE:
+every air cell it steps through inside a dense brick multiplies it by (1 - f), f = that brick's leaf fill; below `_FoliageEps` it counts
+as blocked and stops. In `TraceShadowRay` (tier 0) and `ShellMarch` (shadow rays; ends as a HIT with mat 0). Far-shading kernels only
+(`FOLIAGE_ON`; +1 Metal buffer slot: CSMainFarShade 30 of 31, Diag 29, all kernels verified in the player). Data: `Mirror/FoliageDensity.cs`,
+a SIDE BUFFER (no Appendix A / ShellBrickPack layout change): one byte per GPU body = leaf voxel count (183-186, 216), (n + 1) >> 1, written
+by the CPU (Burst count of the very words being uploaded) in `TerrainClipmap.WriteBrickRunAt` and `ShellStore.Continue` (8 bytes per shell
+body: full, or one per compact sub-brick), one `FoliageDens` buffer (tier 0 then shells at `_FoliageShellBase`), dirty 4 KB blocks uploaded
+once a frame from RaymarchFeature. Cost: 254,400 B tier 0 + 5,323,776 B shells = 5.58 MB GPU + 5.58 MB CPU (only with `-foliageout 1`).
+Switches: `-foliageout 1` (side buffer + shader ON), `RaymarchFeature.FoliageOut`, `-foliageeps x` (default 1/8); cost-split arms
+`foliage_off` (shader off) and `foliage_eN` (eps 1/N), raystats windows for every foliage arm (`-rsnoident 1` skips 244's identity stills);
+RayStats [5] + table column `folstop`. Tests `FoliageDensityTests` (leaf set = GenToEngine's leaves; tier-0 oracle vs brute force with
+adversarial bodies; shell oracle through ShellBrickPack's real staging (full + compact); shader / binding shape; `Report_Calibration`
+REPORTS=1 -> `Logs/TerrainGen/trees245/calibration.txt`). NOT mirrored in the CPU twins (ShellRayReference / ShadowRayReference): OFF only.
+FINDING: the calibration on forest_eye's generated chunks finds NO floor where the early-out is right 19 times in 20 (a stopped ray would still
+reach the sun 27-58 % of the time: crowns are clumps with gaps, not a random medium); a brick-fill threshold (rule B) is no better (>= 50 %
+never fires). GPU counters (16 deg forest_eye): sun steps 9.32 M -> 8.62 M (eps 1/8) / 8.07 M (1/2) per frame, sun blocked 64 -> 67 / 70 %.
+Runner `Logs/overnight/245/run.sh`, pictures `python3 -I tools/foliage245.py <16 deg stills> <noon stills>` -> `Screenshots/245/`. Result: HANDOFF 245.
+
+**Task 246 (plan + capture counts only, owner 2026-11-20 "is the rest of the stuff we fill the world with only going to cause us more problems?"): `WORLD_FILL_BUDGET.md`.**
+No engine code. 8 cost-split launches (one dev-kernel build; `Screenshots/246/run.sh`): tree arms off (`-trees 0`) / pre-210 (`-trees2 0`) / sparse
+(`-trees2 1 -trees2dense 0`) / dense (default) x 16 deg / noon, `-raystats 1` at `-costfixed forest_eye` + `walk_open` (walk_open's pinned pose has no
+trees in view: a noise control, <= 0.8 %), `-quality high -renderrows 432`, nothing timed. FINDING: the dense forest does NOT add total ray steps (-3 % at
+16 deg, -7 % noon: trees hide the far valley) but moves them into fine 0.1 m tier-0 steps (+40 / +46 %) and doubles sky-fill steps (+115 / +106 %);
+porous content = +0.225-0.267 M tier-0 steps per 1 % of screen in leaves (est. ~1.3-1.8 ms at tier A, calibrated on PERF_SLICE_BUDGETS sec. 6's tree
+share); solid near content removes work (est. -0.15..-0.2 M per %). Memory shows as pool occupancy (dense: GPU bodies 153,364 -> 245,704 of 254,400;
+pre-210 trees full, 26-27 refused; CPU pool past the valve), not process peak (2,511-2,630 MB, noise). Doc: per-class render paths (solid props =
+voxels; porous foliage = voxels with a % of screen budget, solid-cored bushes; ground clutter = a separate near-camera instanced cube-mesh layer, an
+AMENDMENT (8.18 draft) because ARCHITECTURE_v8.6 sec. 6.2 limits meshes to Rigidbody entities; moving things = sec. 5.4/6.2 entities; lights = torch
+flood), shipped-game notes, a tier-A per-class budget, the placement admission rule, experiments E1-E4 (246a-d outlines), owner questions Q-246a-e.
+Parse/model scripts `Screenshots/246/parse.py`, `model.py` (reproduce `model.txt`), sheet `sheet.py` -> `sheet246.jpg`, `forest_eye_off_vs_dense_16.jpg`.
+Missing capture named: no primary-hit material split (wood coverage) -> E1. Result: HANDOFF 246.
+
+**Task 247 (PLAN ONLY, owner 2026-11-20 "change how sunlight is computed, keep the leaves"; PERF_SLICE_BUDGETS sec. 7b (a)): cached sun shadow,
+`AMENDMENT_8_18_CACHED_SUN_SHADOW.md` (DRAFT, NOT ADOPTED).** No code, no launches. Design: sun-space "run maps" -- one line per texel traced from
+the sun side through the tier-0 mirror, storing the first solid run (entry, exit-or-16-texel cap, 2 x 16 bit); lookup = §6.5's origin cell + an
+exact contact ray of <= 8 cells + 4 taps with the run rule (inside the first run = lit, so no bias, no acne, and 228's slope trap is closed for slopes
+> 3.6 deg off grazing). Maps N0-N3 512^2 at 0.05/0.1/0.2/0.4 m (to 102 m), far map F (1.6 m, = task 133's continuation), step 2 shell maps S4-S9
+(= task 80's ray); 3 slots + crossfade as the sun moves (periods 16-64 frames), CPU-marked demand tiles, dirty lines from mirror writes the same
+frame (~700 lines per edited brick). Est. memory +13.4 / +27.0 MB minus 8.0 MB sun history at 432 rows. Guess: forest 16 deg sun 54.7 -> 8-16 ms
+and -4..-10 ms off the bounce; walk_near 12.9 -> 6-11; night 0. Prototype outlines 247a (CPU twin + oracle, correctness kill test), 247b
+(`suncontact` timed kill arm), 247c (N maps + F, `-suncache 1`), 247d (shell maps). Result: HANDOFF 247.
+
+**Task 248 (capture only; WORLD_FILL_BUDGET sec. 5 E1): primary-hit material split in `-raystats 1`.** `Raymarch.compute`: `RayStatsMatClass(mat)`
+(1 wood = task 225's class 1: 147, 204-207, 215, 221; 2 ground = every other generator id 128-223 that is not leaf; 0 = leaf / other) and
+`RayStatsAdd(..., matCls)` writes the record's two spare slots [6] wood / [7] ground for the PRIMARY ray of a voxel hit only (sun / sky pass 0u).
+Leaf stays [4]; other (water, fluids, placed, engine ids) = hit - leaf - wood - ground on the CPU; no hit = sky or the far band's heightfield.
+No buffer growth (still 9.6 KB, same bindings, so the *Diag kernels keep their Metal slot count); still only under `VE_SHELL_DIAG`, play kernels
+unchanged. `RayStatsReport` prints a second table, "primary hit material, % of the SCREEN" per band: leaf / wood / ground / other / no hit,
+porous (leaf), solid (wood + ground + other) and solid-nogr (wood + other: content standing on the ground). Tests: `RayStatsReportTests`
+`MatClass_TwinsTheShader_WoodIsTask225sClass1`, `MatSplit_SumsToRays_PerBandAndAll_FormatPrintsScreenShares`. Runner `Screenshots/248/run.sh`
+(246's 4 tree arms at 16 deg), `python3 -I Screenshots/248/coverage.py` -> `coverage.txt`. Result: HANDOFF 248, WORLD_FILL_BUDGET sec. 1b.
+
+**Task 249 (8.18 step 247a: cached-sun CPU twin + oracle; DRAFT amendment, nothing in play changes).** `Assets/CoreEngine/Rendering/SunCacheReference.cs`
+(`VoxelEngine.Rendering`): mirror-box twin, run-map lines (entry/exit 16-bit, RUN_CAP 16 texels, sentinel/clear/blocked words), N0-N3 maps
+(512^2, `& 511` ring, 32^2 keyed tiles), the lookup (contact ray = `ShadowRayReference.Trace` capped at 8 cells, map by receiver distance + 10 %
+blend, bilinear run rule eps 0.5 voxel, fallback to coarser maps, F stubbed), slots prev/cur/next with crossfade, demand tiles, line budget, dirty
+boxes. `LINE_OFFSET_VOX` = 1/8 voxel (found here: N2/N3 line centres sat on voxel planes at axis-aligned sun azimuths). Tests
+`SunCacheOracleTests` (C1-C9 = the 9 cases, plus `LineAnswer_EqualsExactRayAtTapPoint_Canopy`, run-rule and line pins; C1-C8 Slow; C4 is
+`[Explicit]` because kill rule (4) fires). Report `Logs/overnight/249/oracle.txt` (copy `Screenshots/249/oracle.txt`), picture
+`Screenshots/249/dapples_gap1_sun60.png`. Result: HANDOFF 249 (STOP_FOR_OWNER: 1-voxel dapples in N0 37 % < 75 %).
+
+**Task 250 (WORLD_FILL_BUDGET sec. 5 E3: voxel grass fringe, COUNTS only; `-fringe 1`, DEFAULT OFF).** `TerrainSpec.fringeOn` / `Fringe`
+(map v4), `TerrainGenChunkSource.FringeArg()` / `SetFringe(bool)` / `OverlayFringe(...)` (`WorldGen/TerrainGenChunkSource.Fringe.cs`, Burst,
+called LAST in `VoxelJob` after the tree and building overlays; LOD-0 chunks only: shells, far band and point query do not have it). Rule
+(local only): host = Grass / JungleGrass (-> `GenMat.GrassFringe` 18, engine 146) or SavannaGrass (-> `GenMat.SavannaFringe` 9, engine 137)
+with AIR above; no solid among the 8 horizontal neighbours at host y + 2 (~63 deg); hash(world pos, seed) picks 3 columns in 8, 1 / 2 / 3 tall
+= 8 / 6 / 2 in 16. A stub voxel is written ONLY into an already-dense brick (a uniform brick refuses it: no new brick, no new GPU body; the
+dense-brick count before / after is the guard, `FringeStats[4]` must be 0, else `[fringe] ... NEW dense bricks` LogError). Launch log line
+`[fringe] -fringe 1: N chunks, stubs, voxels, refused, new bricks 0` (chunk 1, then every 256). Palette: `tools/palette_defs.py` 18 `7bb447`,
+9 `dcbc5c` (lit blade tips), `gen-tg2-materials.py --write`. Collision: `VoxelCollision.IsBlocking` returns false for 137 / 146 (one line;
+the ids exist only under `-fringe 1`). RayStats: class 3 = fringe in the PRIMARY record's slot [5] (always 0 there before: a primary ray never
+takes the foliage early-out; `RayStatsReport.FRINGE`, primary folstop no longer reads [5]); the material table gains a `fringe` column. Tests
+`FringeTests` (`Synthetic_NoNewBricks_OnlyAirAboveHosts`; Slow: `World_FringeOff_ByteIdentical` pinned FNV `0x019EEF889FB4C206` from the code
+before 250, `World_FringeOn_OnlyAirBecomesFringe_NoNewBodies`), `RayStatsReportTests` twin updated. Runner `Screenshots/250/run.sh` (forest_eye,
+savanna_eye, savanna_close x 16 deg / noon x fringe off / on), `python3 -I Screenshots/250/fringe.py` -> `Screenshots/250/fringe.txt`.
+Result: HANDOFF 250, WORLD_FILL_BUDGET sec. 1b.6 / 2 / 5.
+
+**Task 251 (8.18 sec. 1.3a: the near zone, owner Q-249 (b); DRAFT amendment, CPU twin only, nothing in play changes).** `SunCacheReference`
+gains `NearRule` (`Off` / `ExactAll` / `Partial` / `NotLit`; default `NotLit`), `NEAR_ZONE_VOX` 128 (12.8 m), `NEAR_BLEND` 0.25 (9.6-12.8 m),
+`NEAR_LEG_CAP` 128 cells, `NEAR_LEG_SLACK_VOX` 2, `NearRefine` and `NearBlendT`; `Lookup` applies the zone + blend; `SampleSlot` leaves
+`lastShadowSpanVox` (max over shadow taps of depth(Q) - entry); `ExactRay` takes an optional `maxT`. Rule: near face, cache vis < 1 -> exact
+DDA from Q for span + 2 voxels (<= 128): blocked 0, clear 1, capped = cache answer. `SunCacheOracleTests`: `Eval` adds rows 4.. = N0 + a
+near rule (default `NotLit`, shown as "N0+near" in C1-C6); new `C4b_NearZoneDapples_ExactLegKeepsThem` (Slow; asserts 1-voxel dapples
+>= 75 % in the zone at suns 45/60/80 and Lookup's blend = the oracle rows; compares the three rules; leg-cap sweep 16-256; suns 16/30 for
+cost); C4 is now `[Explicit]` report-only (far-zone softening); C8 prints the near rule under moving slots. Reports go to
+`Logs/overnight/251/` (was 249), picture `Screenshots/251/near_dapples_gap1_sun60.png`. Timed test rewritten as
+`tools/overnight/later/252b-suncache-kill-timing.md` (arms `suncontact`, `suncontactnear`; idle gate). Result: HANDOFF 251, amendment sec. 1.3a / 4a.

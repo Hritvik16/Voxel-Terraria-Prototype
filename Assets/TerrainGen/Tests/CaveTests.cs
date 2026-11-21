@@ -39,6 +39,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void StructuredCaves_ExistAndMatchTheirIntervals()
         {
             int cols = 0, tun0 = 0, tunDeep = 0, cav = 0, under = 0, lava = 0, checkedVoxels = 0;
@@ -73,7 +74,7 @@ namespace TerrainGen.Tests
                     if (col.height - y > DetailField.CARVE_MIN_DEPTH && !InPocket(x, y, z) && !col.stamp3D)
                     {
                         byte m = DetailField.Material(in _spec, in _o, in col, in cd, 0f, x, y, z);
-                        Assert.IsTrue(m == GenMat.Air || m < 10, $"tunnel centre at ({x},{y},{z}) holds material {m}");
+                        if (!(m == GenMat.Air || m < 10)) Assert.IsTrue(m == GenMat.Air || m < 10, $"tunnel centre at ({x},{y},{z}) holds material {m}");   // 184b: guarded, same check
                         checkedVoxels++;
                     }
                 }

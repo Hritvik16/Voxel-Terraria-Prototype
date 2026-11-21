@@ -224,6 +224,7 @@ public class TorchFloodPoolTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void OpenGround_AirBricksWithinTolerance()
     {
         // 3 x 3 x 3 chunks: stone below y 128 (a chunk and brick boundary, so the air above the

@@ -28,6 +28,7 @@ public static class Items
     {
         if (material == Materials.Air) return None;
         if (MaterialRules.IsFluidMaterial(material)) return None;   // P9
+        material = LatentOres.Resolve(material);   // task 181: a latent twin drops its host until unlocked
         if (material == Tg2(GrassCode)) return Tg2(LoamCode);
         if (material == Tg2(JungleGrassCode)) return Tg2(MudCode);
         if (material == Tg2(SavannaGrassCode)) return Tg2(RedEarthCode);
@@ -54,7 +55,7 @@ public static class Items
     /// Display name; "id N" for an id nothing names.
     public static string Name(byte item)
     {
-        string n = _names[item];
+        string n = _names[LatentOres.Resolve(item)];   // task 181: a twin is named as what it resolves to
         return n ?? $"id {item}";
     }
 
@@ -89,6 +90,8 @@ public static class Items
         T(70, "deepstone"); T(71, "cavern rock"); T(72, "ash"); T(73, "obsidian"); T(74, "magma crust"); T(75, "bedrock");
         T(80, "sinter"); T(81, "blue crystal"); T(82, "amber crystal"); T(83, "rose crystal"); T(84, "green crystal");
         T(85, "bone"); T(86, "meteor ore"); T(87, "bark"); T(88, "leaves"); T(89, "mushroom stem"); T(90, "mushroom cap");
+        T(55, "forest leaves"); T(56, "jungle leaves"); T(57, "savanna leaves"); T(58, "pine needles");   // task 180
+        T(76, "forest wood"); T(77, "jungle wood"); T(78, "acacia wood"); T(79, "pine wood"); T(93, "cactus"); T(19, "birch bark");   // 19: task 210
         T(91, "volcanic rock"); T(92, "standing stone");
         return n;
     }

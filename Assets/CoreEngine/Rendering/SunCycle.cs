@@ -156,6 +156,30 @@ public static class SunCycle
     public const float NoonHours = 12f;
     public const float MidnightHours = 0f;
 
+    /// TASK 233 (owner Q-AP (a), 2026-11-17; `-startsun DEG`): the sun elevation play STARTS at (Playground's start
+    /// view / resume) and the cost split's default hours (no -costsun). MORNING side: play runs a 20-minute day, so an
+    /// evening start would set the sun about a real minute later. The LOOK pick is 16 deg (StartSunLookDegrees): the day
+    /// factor saturate(4 sin el) is 1 from 14.5 deg (the frame is not dimmed, unlike 231's 12 deg), while the halo's
+    /// golden warmth (0.39) and the horizon rim (0.50) are still there; both are gone by 25-28 deg.
+    /// DEFAULT 0 = noon (as before): task 233's warm ABBA put the sun step at forest_eye at 18.2 ms (noon) -> 45.0 (16 deg)
+    /// / 35.9 (25 deg), noise 8.0 (Logs/overnight/233/costsplit_day.txt), so no low elevation stays within budget and
+    /// the task's rule keeps noon. `-startsun 16` gives the look. Clamped to 0..60.
+    public const float StartSunLookDegrees = 16f;
+    public const float StartSunDefaultDegrees = 0f;
+    public static float StartSunDegrees = ReadStartSun();
+    public static bool StartSunOn => StartSunDegrees > 0f;
+    /// The hours play starts at: noon when -startsun 0, else the morning hours of StartSunDegrees.
+    public static float PlayStartHours => StartSunOn ? HoursForElevation(StartSunDegrees, morning: true) : NoonHours;
+    private static float ReadStartSun()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        float v = StartSunDefaultDegrees;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-startsun" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                                      System.Globalization.CultureInfo.InvariantCulture, out float p)) v = p;
+        return math.clamp(v, 0f, 60f);
+    }
+
     // =====================================================================
     // Colour
     // =====================================================================
@@ -238,18 +262,46 @@ public static class SunCycle
     }
 
     /// The DAY sky colours, blended toward the grade's deeper sky by the grade.
+    /// Task 233 (-skypale): with the pale sky on, the colours that LIGHT (these: ambient, the far-shade sky term, sky
+    /// fill) take the pale sky's HUE at the old colour's luma, so shade changes hue, never brightness.
     private static float3 DayZenith(float hours)
     {
         var c = LightingConfig.Active;
-        return math.lerp(V(c.skyZenithR, c.skyZenithG, c.skyZenithB),
-                         V(c.cineZenithR, c.cineZenithG, c.cineZenithB), LookGradeAmountAt(hours));
+        float3 old = math.lerp(V(c.skyZenithR, c.skyZenithG, c.skyZenithB),
+                               V(c.cineZenithR, c.cineZenithG, c.cineZenithB), LookGradeAmountAt(hours));
+        return PaleSky ? PaleZenith * (Luma(old) / Luma(PaleZenith)) : old;
     }
 
     private static float3 DayHorizon(float hours)
     {
         var c = LightingConfig.Active;
-        return math.lerp(V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB),
-                         V(c.cineHorizonR, c.cineHorizonG, c.cineHorizonB), LookGradeAmountAt(hours));
+        float3 old = math.lerp(V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB),
+                               V(c.cineHorizonR, c.cineHorizonG, c.cineHorizonB), LookGradeAmountAt(hours));
+        return PaleSky ? PaleHorizon * (Luma(old) / Luma(PaleHorizon)) : old;
+    }
+
+    // TASK 233: THE PALE SKY (RaymarchFeature.SkyPale, `-skypale`). Display-space day colours of the sky the EYE sees
+    // (Raymarch.compute LookAtmosphere with _SkyLook bit 8: sky pixels and the haze target); 231's ablation recipe
+    // (factor b: zenith (0.50,0.66,0.86) / horizon (0.82,0.86,0.89) with 35 % of the engine's blue kept).
+    public static bool PaleSky;
+    public static readonly float3 PaleZenith = new float3(0.44f, 0.60f, 0.84f);
+    public static readonly float3 PaleHorizon = new float3(0.80f, 0.85f, 0.90f);
+    private static float Luma(float3 c) => math.max(math.dot(c, new float3(0.2126f, 0.7152f, 0.0722f)), 1e-4f);
+
+    /// The pale sky's zenith / horizon at this hour (night colours below the day factor, exactly as the old sky), w =
+    /// the day factor (the clouds' and the grade's weight: 0 at night, so night is bit-identical with either switch).
+    public static float4 PaleSkyZenithAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float d = LookDayFactorAt(hours);
+        return new float4(math.lerp(V(c.nightZenithR, c.nightZenithG, c.nightZenithB), PaleZenith, d), d);
+    }
+
+    public static float4 PaleSkyHorizonAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float d = LookDayFactorAt(hours);
+        return new float4(math.lerp(V(c.nightHorizonR, c.nightHorizonG, c.nightHorizonB), PaleHorizon, d), d);
     }
 
     public static float3 LookSkyZenithAt(float hours)

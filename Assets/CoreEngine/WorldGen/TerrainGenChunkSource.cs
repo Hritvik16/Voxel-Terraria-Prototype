@@ -71,6 +71,15 @@ namespace VoxelEngine.WorldGen
             var t = Spec; t.cavernCellCacheOff = on ? (byte)0 : (byte)1; Spec = t;
             _specStamp++;
         }
+        /// Tests (task 178c): off = the cliff layers without the per-brick rock mix
+        /// (spec.rockMixOff). Shell tests that run without the fill pass need it: the
+        /// fill flattens buried mixed bricks, without it the mix fills shell pools.
+        /// The map, the column pass and the far band do not read it. Same rules as above.
+        public void SetRockMix(bool on)
+        {
+            var t = Spec; t.rockMixOff = on ? (byte)0 : (byte)1; Spec = t;
+            _specStamp++;
+        }
         /// Bumped whenever Spec changes: a ShellChunk's kept column pass (task 93b2) is stale then.
         private int _specStamp;
         public readonly TerrainGen.Offsets O;
@@ -79,6 +88,8 @@ namespace VoxelEngine.WorldGen
         private NativeArray<byte> _cls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _flow; // v4 river flow bits (task 76; length 1 = none)
         private NativeArray<byte> _route; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
+        private NativeArray<byte> _landSig; // task 189: LandSig's weight plane (WorldMap.LandSigPlane; length 1 = none)
+        private NativeArray<ushort> _shore; // task 180b: GroundRules' shore field (WorldMap.ShoreField; length 1 = none)
         private NativeArray<byte> _ore;   // per map cell ore multiplier (gameplay step 3; zeros on v3)
         private NativeArray<byte> _toEngine;
 
@@ -154,6 +165,90 @@ namespace VoxelEngine.WorldGen
             return off;
         }
 
+        /// -rockmix 0 (task 178c): spec.rockMixOff = 1, the cliff layers without the
+        /// per-brick rock mix. Absent = on. Last match wins.
+        public static bool RockMixOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-rockmix" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
+        /// -rivershape 0 (task 179): spec.riverShapeOff = 1, the pre-179 rivers (the
+        /// straight D8 channel, water over the bed held by raised banks). Absent =
+        /// the version's default. Last match wins. Changes the map, not only columns.
+        /// -matrules 0 (task 180b; default flipped by task 186): spec.matRulesOff = 1,
+        /// the 177-179 cover + layered rock. Absent or 1 = the simple material rules
+        /// (TerrainGen.GroundRules), the default. Last match wins.
+        public static bool MatRulesArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-matrules" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
+        /// -sites 1 (task 187): spec.sitesOn = 1, the B7 site planner fills the
+        /// world record's SiteList (TerrainGen.Sites). No terrain change. Absent or
+        /// 0 = no sites. Last match wins.
+        /// -landsig 0 (task 189; default flipped by task 190b): spec.landSigOff = 1,
+        /// the pre-189 columns. Absent or 1 = landform signatures at walking scale
+        /// (TerrainGen.LandSig), the default. Last match wins.
+        public static bool LandSigArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-landsig" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
+        public static bool SitesArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-sites" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
+        /// -stampfit 0 (task 185; default flipped by task 187a): spec.stampFitOff = 1,
+        /// the pre-185 stamps. Absent or 1 = stamps that sit in the land
+        /// (TerrainGen.Stamps "TASK 185"), the default. Last match wins.
+        /// -matvariant 1 (task 188a; default flipped by task 190a): spec.matVariantOn
+        /// = 1, the material rules' random variant spray (the pre-190a look). Absent
+        /// or 0 = no spray, every column its slot's main entry, the default. Last
+        /// match wins.
+        public static bool MatVariantArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-matvariant" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
+        public static bool StampFitArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = true;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-stampfit" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
+        public static bool RiverShapeOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-rivershape" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -170,6 +265,22 @@ namespace VoxelEngine.WorldGen
             if (BiomeVaryOffArg()) spec.biomeVaryOff = 1;
             if (CoverSlotsOffArg()) spec.coverSlotsOff = 1;
             if (CliffsOffArg()) spec.cliffsOff = 1;
+            if (RockMixOffArg()) spec.rockMixOff = 1;
+            if (RiverShapeOffArg()) spec.riverShapeOff = 1;
+            if (TreesArg()) spec.treesOn = 1;   // task 180
+            spec.treeLeafFill = LeafFillArg();   // task 192
+            if (TreeStyle180Arg()) spec.treeStyle180 = 1;   // task 192 (diagnostic)
+            if (spec.treesOn != 0) spec.trees2On = Trees2Mode();   // task 210 / 214: ON unless -trees2 0; 213: -trees2dense 0 = 210's placement
+            if (spec.trees2On != 0) spec.crownCore = CrownCoreArg();   // task 243: solid crown cores, OFF unless -crowncore 1
+            if (!MatRulesArg()) spec.matRulesOff = 1;   // task 180b / 186: rules ON unless -matrules 0
+            if (OresArg()) spec.oresOn = 1;   // task 181 / 195: ON unless -ores 0
+            if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183 / 201: ON unless -fluidpockets 0
+            if (!StampFitArg()) spec.stampFitOff = 1;   // task 185 / 187a: fit ON unless -stampfit 0
+            if (MatVariantArg()) spec.matVariantOn = 1;   // task 188a / 190a: variant spray OFF unless -matvariant 1
+            if (SitesArg()) spec.sitesOn = 1;   // task 187
+            if (!LandSigArg()) spec.landSigOff = 1;   // task 189 / 190b: ON unless -landsig 0
+            if (TownsArg()) { spec.townsOn = 1; spec.sitesOn = 1; }   // task 190 (towns need the sites)
+            if (FringeArg()) spec.fringeOn = 1;   // task 250: voxel grass fringe, OFF unless -fringe 1 (LOD-0 chunks only)
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -179,7 +290,31 @@ namespace VoxelEngine.WorldGen
             _cls = new NativeArray<byte>(Map.WaterClass, Allocator.Persistent);
             _flow = new NativeArray<ushort>(Map.FlowDir ?? new ushort[1], Allocator.Persistent);
             _route = new NativeArray<byte>(Map.RouteMask ?? new byte[1], Allocator.Persistent);
+            if (Spec.MatRules) Map.EnsureShoreField();   // task 180b (without it the rules scan: same bytes, slower)
+            _shore = new NativeArray<ushort>(Map.ShoreField ?? new ushort[1], Allocator.Persistent);
+            if (Spec.LandSig) Map.EnsureLandSigPlane();   // task 189
+            _landSig = new NativeArray<byte>(Spec.LandSig && Map.LandSigPlane != null ? Map.LandSigPlane : new byte[1], Allocator.Persistent);
+            var townSw = System.Diagnostics.Stopwatch.StartNew();
+            _town = TownArray(Map);   // task 190 (length 1 = none while -towns is off); before the pockets and trees
+            if (Spec.Towns && Map.TownPlane != null)
+                UnityEngine.Debug.Log($"[Towns] plan + layout {townSw.ElapsedMilliseconds} ms: {Map.TownStats.Line()}; plane {Map.TownPlane.Length * 4} B");
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
+            var treeCells = TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells);
+            if (Spec.Towns) TerrainGen.Towns.ClearCells(treeCells, Spec.mapCells, Spec.mapCellVoxels, Map.TownPlane);   // task 190: no tree in a town
+            string gallery = TreeGalleryArg();   // task 200: -treegallery <layout> (examples only; default off)
+            if (gallery != null) BuildGallery(gallery, treeCells);
+            _treePlane = new NativeArray<byte>(treeCells, Allocator.Persistent);   // task 180
+            InitTrees2();   // task 210 (returns at once with -trees2 0 / -trees 0)
+            BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
+            BuildPocketPlane();   // task 183 (length 1 = none under -fluidpockets 0)
+            if (Spec.Sites && Map.Record != null)   // task 187: records only, no terrain change
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                Map.EnsureSites();
+                UnityEngine.Debug.Log($"[Sites] plan {sw.ElapsedMilliseconds} ms: {Map.Record.SiteList.Length} sites; {Map.SiteStats.Line()}");
+                foreach (var st in Map.Record.SiteList)
+                    UnityEngine.Debug.Log($"[Sites]   #{st.id} {TerrainGen.Site.KindName(st.kind)} at ({st.centre.x}, {st.centre.y}) r {st.radius} pad y {st.padLevelY} range {st.rangeVox} route {st.route} spur {st.joinDistance}");
+            }
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 
@@ -192,11 +327,12 @@ namespace VoxelEngine.WorldGen
             for (int i = 0; i < Map.Height.Length; i++) { maxMacro = math.max(maxMacro, Map.Height[i]); maxRough = math.max(maxRough, Map.Rough[i]); }
             float detailMax = 0f;
             for (int i = 0; i < TerrainGen.ShapeField.DETAIL_OCTAVES; i++) detailMax += TerrainGen.ShapeField.Amplitude(i);
-            MaxContentY = Spec.seaLevelY + (int)math.ceil(maxMacro + detailMax * maxRough) + STAMP_RISE_BOUND;
+            MaxContentY = Spec.seaLevelY + (int)math.ceil(maxMacro + detailMax * maxRough)
+                        + (Spec.trees2On != 0 ? math.max(STAMP_RISE_BOUND, TerrainGen.Trees2.MAX_HEIGHT + 8) : STAMP_RISE_BOUND);   // task 210: a redwood's crown
             TopLayerChunkY = MaxContentY >> 7;
         }
 
-        public const int STAMP_RISE_BOUND = 400;
+        public const int STAMP_RISE_BOUND = 400;   // also bounds a tree's crown (TerrainGen.Trees.MAX_HEIGHT 240; trees skip stamp columns)
         /// Upper bound on any non-air voxel's Y (see the constructor).
         public readonly int MaxContentY;
         public readonly int TopLayerChunkY;
@@ -209,8 +345,16 @@ namespace VoxelEngine.WorldGen
             if (_cls.IsCreated) _cls.Dispose();
             if (_flow.IsCreated) _flow.Dispose();
             if (_route.IsCreated) _route.Dispose();
+            if (_shore.IsCreated) _shore.Dispose();
+            if (_landSig.IsCreated) _landSig.Dispose();
             if (_ore.IsCreated) _ore.Dispose();
+            if (_treePlane.IsCreated) _treePlane.Dispose();
+            if (_oreCell.IsCreated) _oreCell.Dispose();
+            if (_pocket.IsCreated) _pocket.Dispose();
+            if (_town.IsCreated) _town.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
+            DisposeGallery();   // task 200
+            DisposeTrees2();   // task 210
             Map?.Dispose();
         }
 
@@ -264,6 +408,14 @@ namespace VoxelEngine.WorldGen
             internal NativeArray<float> colSt;
             internal NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             internal NativeArray<int> top;
+            internal TreeScratch trees;   // task 180
+            // Task 224: Generate's voxel-pass scratch (mats 128^3, brick uniform/material, skip stats; ~2.06 MB), made on
+            // the first chunk that needs a voxel pass and REUSED by every later one of this owner, instead of a malloc +
+            // free per chunk. Same single owner as the column arrays. See EnsureVoxelScratch for what is cleared per use.
+            internal NativeArray<byte> mats, brickMat;
+            internal NativeArray<bool> brickUniform;
+            internal NativeArray<int> voxStats;
+            private Allocator _alloc;
             internal bool valid;
             internal int cx, cz;
             /// ColumnJob runs into this pass (diagnostics).
@@ -276,7 +428,45 @@ namespace VoxelEngine.WorldGen
                 colSt = new NativeArray<float>(E * E, a, NativeArrayOptions.UninitializedMemory);
                 colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, a, NativeArrayOptions.UninitializedMemory);
                 top = new NativeArray<int>(1, a);
+                trees = new TreeScratch(ChunkMaxTrees, a);
+                _alloc = a;
             }
+
+            /// Task 224: makes the voxel-pass scratch on first use; on reuse, sets it to exactly what a fresh allocation
+            /// gave the old per-chunk code: brickMat / brickUniform / voxStats zero (they were ClearMemory), mats left as
+            /// it is (it was UninitializedMemory: VoxelJob writes every voxel of each brick it does not prove uniform, and
+            /// every overlay expands a uniform brick into mats before its first write, so no unwritten byte is ever read).
+            /// VoxelReuseIsExact_DenseThenUniform checks this against a fresh pass.
+            internal unsafe void EnsureVoxelScratch()
+            {
+                if (mats.IsCreated)
+                {
+                    UnsafeUtility.MemClear(brickMat.GetUnsafePtr(), brickMat.Length);
+                    UnsafeUtility.MemClear(brickUniform.GetUnsafePtr(), brickUniform.Length * UnsafeUtility.SizeOf<bool>());
+                    UnsafeUtility.MemClear(voxStats.GetUnsafePtr(), voxStats.Length * sizeof(int));
+                    return;
+                }
+                const int E = EngineConfig.CHUNK_EDGE_VOXELS;
+                mats = new NativeArray<byte>(E * E * E, _alloc, NativeArrayOptions.UninitializedMemory);
+                brickMat = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
+                brickUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, _alloc);
+                voxStats = new NativeArray<int>(VOXSTATS_LEN, _alloc);   // [0..3] SkipStats, [4..7] task 250 fringe (FS_*)
+            }
+
+            /// Tests (task 224): makes the voxel-pass scratch and fills all of it with `v`, a worst-case stale state.
+            public unsafe void Scribble(byte v)
+            {
+                EnsureVoxelScratch();
+                UnsafeUtility.MemSet(mats.GetUnsafePtr(), v, mats.Length);
+                UnsafeUtility.MemSet(brickMat.GetUnsafePtr(), v, brickMat.Length);
+                UnsafeUtility.MemSet(brickUniform.GetUnsafePtr(), (byte)(v & 1), brickUniform.Length);
+                UnsafeUtility.MemSet(voxStats.GetUnsafePtr(), v, voxStats.Length * sizeof(int));
+            }
+
+            /// Bytes of the voxel-pass scratch (held once the owner has built one non-air chunk).
+            public static long VoxelScratchBytes
+                => (long)EngineConfig.CHUNK_EDGE_VOXELS * EngineConfig.CHUNK_EDGE_VOXELS * EngineConfig.CHUNK_EDGE_VOXELS
+                   + EngineConfig.BRICKS_PER_CHUNK * (1 + UnsafeUtility.SizeOf<bool>()) + 4 * sizeof(int);
 
             public bool Holds(int3 coord) => valid && cx == coord.x && cz == coord.z;
 
@@ -287,7 +477,10 @@ namespace VoxelEngine.WorldGen
                 {
                     const int E = EngineConfig.CHUNK_EDGE_VOXELS;
                     return (long)E * E * (UnsafeUtility.SizeOf<TerrainGen.ColumnSample>() + sizeof(float)
-                                          + UnsafeUtility.SizeOf<TerrainGen.DetailField.ColumnDetail>()) + sizeof(int);
+                                          + UnsafeUtility.SizeOf<TerrainGen.DetailField.ColumnDetail>()) + sizeof(int)
+                         + (long)ChunkMaxTrees * (UnsafeUtility.SizeOf<TerrainGen.Tree>()
+                                                  + TerrainGen.Trees.MAX_PRIMS * UnsafeUtility.SizeOf<TerrainGen.TreePrim>()) + 2 * sizeof(int)
+                         + VoxelScratchBytes;   // task 224
                 }
             }
 
@@ -298,6 +491,11 @@ namespace VoxelEngine.WorldGen
                 if (colSt.IsCreated) colSt.Dispose();
                 if (colCd.IsCreated) colCd.Dispose();
                 if (top.IsCreated) top.Dispose();
+                trees?.Dispose();
+                if (mats.IsCreated) mats.Dispose();
+                if (brickMat.IsCreated) brickMat.Dispose();
+                if (brickUniform.IsCreated) brickUniform.Dispose();
+                if (voxStats.IsCreated) voxStats.Dispose();
             }
         }
 
@@ -335,20 +533,22 @@ namespace VoxelEngine.WorldGen
                 return;
             }
 
-            ColumnPass own = pass == null ? new ColumnPass(Allocator.TempJob) : null;
+            // Task 223: Persistent, not TempJob (a streaming worker holds it for a whole chunk build, > 4 frames).
+            // Task 224: the voxel-pass scratch lives in the pass (one per worker, reused per chunk; EnsureVoxelScratch);
+            // a null pass = a one-shot private pass, freed below, as before.
+            ColumnPass own = pass == null ? new ColumnPass(Allocator.Persistent) : null;
             var cp = pass ?? own;
-            NativeArray<byte> mats = default, uniform = default;
-            NativeArray<bool> isUniform = default;
-            NativeArray<int> stats = default;
             try
             {
                 if (!shared)
                 {
                     cp.valid = false;
+                    if (Spec.Trees2) cp.trees.Ensure(ChunkMaxTrees, ChunkMaxLibTrees);   // task 210: room for the library trees
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, ore = _ore, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, landSigPlane = _landSig, townPlane = _town, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
+                        treePlane = _treePlane, oreCellPlane = _oreCell, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
                     }.Run();
                     cp.cx = coord.x; cp.cz = coord.z; cp.valid = true; cp.Runs++;
                     System.Threading.Interlocked.Increment(ref _columnPasses);
@@ -372,18 +572,19 @@ namespace VoxelEngine.WorldGen
                 if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
                 else chunk.bricks = allocator.Alloc();
 
-                mats = new NativeArray<byte>(E * E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-                uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-                isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-                stats = new NativeArray<int>(4, Allocator.TempJob);
+                cp.EnsureVoxelScratch();
+                var mats = cp.mats; var uniform = cp.brickMat; var isUniform = cp.brickUniform; var stats = cp.voxStats;
                 new VoxelJob
                 {
                     toEngine = _toEngine, spec = Spec, o = O, origin = coord * E,
                     colS = colS, colSt = colSt, colCd = colCd,
                     mats = mats, brickMat = uniform, brickUniform = isUniform,
                     skip = BrickSkip, stats = stats,
+                    trees = cp.trees.trees, prims = cp.trees.prims, treeCount = cp.trees.counts[0],
+                    townPlane = _town,   // task 190 (length 1 while -towns is off)
                 }.Run();
                 AddSkipStats(stats, 0);
+                if (Spec.Fringe) AddFringeStats(stats);   // task 250
 
                 var raw = pool.RawData;
                 for (int by = 0; by < 16; by++)
@@ -406,10 +607,6 @@ namespace VoxelEngine.WorldGen
             finally
             {
                 own?.Dispose();
-                if (mats.IsCreated) mats.Dispose();
-                if (uniform.IsCreated) uniform.Dispose();
-                if (isUniform.IsCreated) isUniform.Dispose();
-                if (stats.IsCreated) stats.Dispose();
             }
         }
 
@@ -420,6 +617,10 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
+            [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
+            [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
+            [ReadOnly] public NativeArray<byte> landSigPlane;   // task 189: LandSig weight plane (length 1 = none)
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190: Towns plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -427,6 +628,11 @@ namespace VoxelEngine.WorldGen
             [WriteOnly] public NativeArray<float> colSt;
             [WriteOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             public NativeArray<int> top;   // [0] = max over columns of max(height, water, sea)
+            [ReadOnly] public NativeArray<byte> treePlane;   // task 180: TreeTable.DensityPlane
+            [ReadOnly] public NativeArray<uint> oreCellPlane;   // task 181: OreRulePlane.CellPlane (length 1 = none)
+            public NativeArray<TerrainGen.Tree> trees;       // task 180: the gathered trees (scratch)
+            public NativeArray<TerrainGen.TreePrim> prims;
+            public NativeArray<int> treeCounts;
 
             public unsafe void Execute()
             {
@@ -437,6 +643,13 @@ namespace VoxelEngine.WorldGen
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
+                    shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
+                    pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
+                    stream = pocketPlane.Length > 1 ? TerrainGen.PocketStreams.Section((int*)pocketPlane.GetUnsafeReadOnlyPtr(), pocketPlane.Length, spec.mapCells, spec.mapCellVoxels) : null,   // task 209b
+                    landSig = landSigPlane.Length > 1 ? (byte*)landSigPlane.GetUnsafeReadOnlyPtr() : null,   // task 189
+                    town = townPlane.Length > 1 ? (int*)townPlane.GetUnsafeReadOnlyPtr() : null,   // task 190
+                    trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
+                    oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 // S on a 130^2 grid (the chunk's columns plus a one-column
@@ -470,11 +683,15 @@ namespace VoxelEngine.WorldGen
                     colSt[ci] = m / 1f;
                     var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                     if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                    if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                     colCd[ci] = cd;
                     var c = colS[ci];
                     maxTop = math.max(maxTop, math.max(c.height, c.water));
                 }
                 hg.Dispose();
+                // task 180: the trees round this column; their crowns raise the top (air fast path)
+                GatherTrees(in spec, in map, in o, origin.x, origin.z, origin.x + E - 1, origin.z + E - 1, trees, prims, treeCounts, ref maxTop);
+                if (spec.Towns) maxTop = math.max(maxTop, TownTop(townPlane, origin.x, origin.z, origin.x + E - 1, origin.z + E - 1, 0));   // task 190
                 top[0] = maxTop;
             }
         }
@@ -488,11 +705,15 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<TerrainGen.ColumnSample> colS;
             [ReadOnly] public NativeArray<float> colSt;
             [ReadOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
-            [WriteOnly] public NativeArray<byte> mats;
+            public NativeArray<byte> mats;   // read back by the tree overlay (task 180)
             public NativeArray<byte> brickMat;
             public NativeArray<bool> brickUniform;
             public bool skip;
             public NativeArray<int> stats;   // task 82b: SkipStats' four counts for this chunk
+            [ReadOnly] public NativeArray<TerrainGen.Tree> trees;   // task 180
+            [ReadOnly] public NativeArray<TerrainGen.TreePrim> prims;
+            public int treeCount;
+            [ReadOnly] public NativeArray<int> townPlane;   // task 190 (length 1 = none)
 
             public void Execute()
             {
@@ -547,6 +768,9 @@ namespace VoxelEngine.WorldGen
                     brickMat[bi] = first;
                 }
                 bTop.Dispose(); bMinH.Dispose(); bMaxH.Dispose();
+                OverlayTrees(trees, prims, treeCount, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 180
+                if (spec.Towns) OverlayBuildings(townPlane, origin, 0, 0, toEngine, mats, brickMat, brickUniform);   // task 190 (after the trees)
+                if (spec.Fringe) OverlayFringe(spec.seed, origin, toEngine, mats, brickMat, brickUniform, stats);   // task 250 (last: reads the final ground)
             }
         }
 

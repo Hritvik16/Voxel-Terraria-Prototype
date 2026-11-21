@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Task 198: white dashes on steep faces</title>
+<style>body{margin:0;background:#111;color:#eee;font:15px -apple-system,Helvetica,sans-serif}
+#bar{padding:8px 12px;background:#222}#wrap{overflow:auto;height:calc(100vh - 90px)}
+img{display:block;image-rendering:pixelated}b{color:#ffcc55}#err{color:#f66}</style></head><body>
+<div id="bar"><b id="t"></b> <span id="err"></span><br><span id="c"></span><br>Keys: left/right = image, Z = zoom (fit width | 100 %)</div>
+<div id="wrap"><img id="im"></div>
+<script>
+const S=[
+{f:"198_178c_before_zoom.png",c:"Task 178c's BEFORE frame, the canyon wall at 163 m, zoomed 4x: the faint 1-px white dashes in horizontal rows on the grey face (the bug as reported)."},
+{f:"198_fixed_forest_breaks_full.png",c:"forest_breaks today (native 1080, noon, sun behind the camera). Magenta boxes = the 3 oracle windows. Dashes: the upper wall right of the waterfall and along the ledge lines; none on the lower-left wall."},
+{f:"198_forest_win_dashes.png",c:"Box at (1000,380). LEFT the frame, RIGHT the CPU oracle. White = sun-lit 1-voxel tread where FarSlopeNormal's cave/overhang test FAILS (predicted dash); cyan = sun-lit tread the filtered cube light averages away; red tint = test fails (face light). The white line at the bottom is the white line in the frame; the cyan treads show nothing."},
+{f:"198_forest_win_nodashes.png",c:"Box at (600,630): the CPU finds 3,786 sun-lit tread pixels (cyan), all where the slope test holds. The frame shows 0 dashes there: same voxels, filtered light."},
+{f:"198_snow_win.png",c:"cliff_snow at 131-137 m. White band (top) = predicted dashes = the white streaks in the frame; red band = the wall where the test fails (side faces, face light); lower part in sun shadow (blue = shadowed treads): no dashes."},
+{f:"198_cliff_snow_full.png",c:"cliff_snow full frame; the magenta box is the window above."}];
+let i=0,fit=true;const im=document.getElementById('im');
+im.onerror=()=>{document.getElementById('err').textContent=' MISSING FILE: '+im.getAttribute('src');};
+function show(){document.getElementById('err').textContent='';im.src=S[i].f;document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+S[i].f;
+document.getElementById('c').textContent=S[i].c;im.style.width=fit?'100%':'auto';}
+document.onkeydown=e=>{const k=e.key.toLowerCase();if(k=='arrowright')i=(i+1)%S.length;else if(k=='arrowleft')i=(i+S.length-1)%S.length;else if(k=='z')fit=!fit;show();};show();
+</script></body></html>

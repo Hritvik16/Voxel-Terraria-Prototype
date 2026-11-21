@@ -62,16 +62,18 @@ public static class Tools
 
     public static int ClampPick(int i) => i < 0 ? 0 : i >= Picks.Length ? Picks.Length - 1 : i;
 
-    public static byte Hardness(byte material) => _hardness[material];
-    public static byte RequiredTier(byte material) => _required[material];
+    // Task 181: a latent ore twin digs as its host rock until the world stage
+    // unlocks it, then as the ore (LatentOres.Resolve; identity for every other id).
+    public static byte Hardness(byte material) => _hardness[LatentOres.Resolve(material)];
+    public static byte RequiredTier(byte material) => _required[LatentOres.Resolve(material)];
 
-    public static bool TooHard(byte material, int tier) => tier < _required[material];
+    public static bool TooHard(byte material, int tier) => tier < _required[LatentOres.Resolve(material)];
 
     /// Work units one voxel costs with a pick of `tier`; 0 = too hard.
     public static int Cost(byte material, int tier)
     {
         if (TooHard(material, tier)) return 0;
-        int over = _hardness[material] - tier + 1;
+        int over = _hardness[LatentOres.Resolve(material)] - tier + 1;
         return 1 + (over > 0 ? over : 0);
     }
 
@@ -140,5 +142,8 @@ public static class Tools
         T(80, 1); T(81, 2); T(82, 2); T(83, 2); T(84, 2);      // sinter, crystals
         T(85, 1); T(87, 0); T(88, 0); T(89, 0); T(90, 0);      // bone, bark, leaves, mushroom
         T(91, 2); T(92, 2);                                    // volcanic rock, standing stone
+        // ---- tg2: generated trees (task 180): woods, leaves, cactus ----
+        T(55, 0); T(56, 0); T(57, 0); T(58, 0);
+        T(76, 0); T(77, 0); T(78, 0); T(79, 0); T(93, 0); T(19, 0);   // 19 birch bark (task 210)
     }
 }

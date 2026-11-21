@@ -184,7 +184,7 @@ namespace TerrainGen
             return macro + rough * LowDetail(in o, p, octaves);
         }
 
-        private static float LowDetail(in Offsets o, float2 p, int octaves)
+        internal static float LowDetail(in Offsets o, float2 p, int octaves)
         {
             float d = 0f;
             for (int i = 0; i < octaves; i++) d += ShapeField.Amplitude(i) * ShapeField.OctaveNoise(in o, p, i);

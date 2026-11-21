@@ -1,0 +1,28 @@
+fixed_cliff
+  beauty A vs B (native, raw no-upscaler): 0 px differ of 2073600 (0.000 %), mean |d| 0.000
+  B native vs B native_px (lean vs CSMainFarShade beauty): 0 px differ (0.000 %)
+  B native vs B tf1 (flood twin, no torches): 0 px differ (0.000 %)
+  A native_tf1 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv1 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv2 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv3 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_px  : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  B native_tf1 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  B native_dv1 : vs its launch native 100.00 % px differ (mean |d|  64.53); magenta   0.0 %
+  B native_dv2 : vs its launch native 100.00 % px differ (mean |d|  97.15); magenta   0.0 %
+  B native_dv3 : vs its launch native 100.00 % px differ (mean |d| 113.47); magenta   0.0 %
+  B native_px  : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+fixed_forest_breaks
+  beauty A vs B (native, raw no-upscaler): 2071662 px differ of 2073600 (99.907 %), mean |d| 54.342
+  B native vs B native_px (lean vs CSMainFarShade beauty): 3495 px differ (0.169 %)
+  B native vs B tf1 (flood twin, no torches): 3487 px differ (0.168 %)
+  A native_tf1 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv1 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv2 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_dv3 : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  A native_px  : vs its launch native   0.00 % px differ (mean |d|   0.00); magenta   0.0 %
+  B native_tf1 : vs its launch native   0.17 % px differ (mean |d|   0.01); magenta   0.0 %
+  B native_dv1 : vs its launch native 100.00 % px differ (mean |d|  77.61); magenta   0.0 %
+  B native_dv2 : vs its launch native 100.00 % px differ (mean |d|  85.26); magenta   0.0 %
+  B native_dv3 : vs its launch native 100.00 % px differ (mean |d|  80.44); magenta   0.0 %
+  B native_px  : vs its launch native   0.17 % px differ (mean |d|   0.01); magenta   0.0 %

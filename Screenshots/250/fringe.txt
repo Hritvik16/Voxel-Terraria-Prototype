@@ -1,0 +1,85 @@
+
+==== sun 16 deg
+pose           arm   t0 all M t0 prim M t0 sun M t0 sky M  fringe %  ground %  leaf %  none % prim steps M
+walk_near      off       3.64      1.62     1.43     0.59      0.0%    100.0%    0.0%    0.0%         1.62
+walk_near      on        3.64      1.62     1.44     0.59      0.0%    100.0%    0.0%    0.0%         1.62
+               d        +0.01     +0.00   fringe 0.0% of screen -> +nan k tier-0 steps per 1 % (leaf 305 k; ratio +nan); est. +nan..+nan ms per 1 %
+                    band 0-10 m   screen 100.0%  fringe   0.0%  ground 100.0% (off 100.0%)
+                    band 10-40 m  screen   0.0%  fringe   0.0%  ground   0.0% (off   0.0%)
+                    band 40-82 m  screen   0.0%  fringe   0.0%  ground   0.0% (off   0.0%)
+                    band 82 m+    screen   0.0%  fringe   0.0%  ground   0.0% (off   0.0%)
+forest_eye     off      22.87     16.00     4.90     1.97      0.0%     51.7%   28.1%    9.1%        21.62
+forest_eye     on       18.25     13.29     3.04     1.92     42.9%     11.2%   28.1%    6.7%        19.84
+               d        -4.62     -2.71   fringe 42.9% of screen -> -108 k tier-0 steps per 1 % (leaf 305 k; ratio -0.35); est. -0.61..-0.81 ms per 1 %
+                    band 0-10 m   screen  25.6%  fringe  23.9%  ground   1.7% (off  23.5%)
+                    band 10-40 m  screen  42.0%  fringe  10.1%  ground   0.9% (off  12.5%)
+                    band 40-82 m  screen   9.7%  fringe   4.2%  ground   0.2% (off   4.6%)
+                    band 82 m+    screen  22.8%  fringe   4.8%  ground   8.4% (off  11.0%)
+savanna_eye    off      12.89      9.21     2.68     1.00      0.0%     45.0%    2.0%   51.6%        24.89
+savanna_eye    on        9.42      6.89     1.60     0.94     36.0%     13.9%    2.0%   46.6%        25.51
+               d        -3.47     -2.32   fringe 36.0% of screen -> -96 k tier-0 steps per 1 % (leaf 305 k; ratio -0.32); est. -0.55..-0.72 ms per 1 %
+                    band 0-10 m   screen  23.9%  fringe  23.0%  ground   0.8% (off  22.2%)
+                    band 10-40 m  screen  10.6%  fringe  10.1%  ground   0.5% (off  11.8%)
+                    band 40-82 m  screen   6.0%  fringe   1.5%  ground   3.1% (off   4.8%)
+                    band 82 m+    screen  59.6%  fringe   1.4%  ground   9.5% (off   6.3%)
+savanna_close  off      17.81     12.37     4.21     1.22      0.0%     88.1%    2.2%    8.0%        24.26
+savanna_close  on       12.50      9.14     2.28     1.08     69.7%     18.9%    2.3%    7.5%        22.86
+               d        -5.30     -3.23   fringe 69.7% of screen -> -76 k tier-0 steps per 1 % (leaf 305 k; ratio -0.25); est. -0.43..-0.57 ms per 1 %
+                    band 0-10 m   screen  61.2%  fringe  56.5%  ground   4.7% (off  59.6%)
+                    band 10-40 m  screen  10.5%  fringe  10.0%  ground   0.5% (off  11.6%)
+                    band 40-82 m  screen   6.3%  fringe   1.5%  ground   3.2% (off   4.9%)
+                    band 82 m+    screen  22.0%  fringe   1.6%  ground  10.5% (off  11.9%)
+
+==== noon
+pose           arm   t0 all M t0 prim M t0 sun M t0 sky M  fringe %  ground %  leaf %  none % prim steps M
+walk_near      off      17.28     11.38     3.93     1.97      0.0%     83.8%    0.0%   16.2%        18.65
+walk_near      on       17.24     11.31     3.96     1.96      0.0%     83.0%    0.0%   17.0%        18.55
+               d        -0.04     -0.06   fringe 0.0% of screen -> +nan k tier-0 steps per 1 % (leaf 305 k; ratio +nan); est. +nan..+nan ms per 1 %
+                    band 0-10 m   screen  42.6%  fringe   0.0%  ground  42.6% (off  42.6%)
+                    band 10-40 m  screen   1.8%  fringe   0.0%  ground   1.8% (off   1.8%)
+                    band 40-82 m  screen   8.0%  fringe   0.0%  ground   8.0% (off   8.0%)
+                    band 82 m+    screen  47.5%  fringe   0.0%  ground  30.5% (off  31.3%)
+forest_eye     off      19.98     15.99     2.22     1.76      0.0%     53.2%   28.1%    7.5%        22.21
+forest_eye     on       17.28     13.40     1.98     1.91     42.9%      9.1%   28.1%    8.8%        19.14
+               d        -2.69     -2.60   fringe 42.9% of screen -> -63 k tier-0 steps per 1 % (leaf 305 k; ratio -0.21); est. -0.36..-0.47 ms per 1 %
+                    band 0-10 m   screen  25.6%  fringe  23.9%  ground   1.7% (off  23.5%)
+                    band 10-40 m  screen  42.0%  fringe  10.1%  ground   0.9% (off  12.5%)
+                    band 40-82 m  screen   9.7%  fringe   4.2%  ground   0.2% (off   4.6%)
+                    band 82 m+    screen  22.8%  fringe   4.8%  ground   6.3% (off  12.6%)
+savanna_eye    off      11.13      9.34     0.92     0.87      0.0%     44.8%    2.0%   51.8%        24.58
+savanna_eye    on        8.56      6.91     0.76     0.89     36.0%      8.2%    1.9%   52.5%        21.60
+               d        -2.57     -2.43   fringe 36.0% of screen -> -71 k tier-0 steps per 1 % (leaf 305 k; ratio -0.23); est. -0.41..-0.53 ms per 1 %
+                    band 0-10 m   screen  23.9%  fringe  23.0%  ground   0.8% (off  22.2%)
+                    band 10-40 m  screen  10.6%  fringe  10.1%  ground   0.5% (off  11.8%)
+                    band 40-82 m  screen   6.0%  fringe   1.5%  ground   3.1% (off   4.8%)
+                    band 82 m+    screen  59.6%  fringe   1.4%  ground   3.8% (off   6.0%)
+savanna_close  off      14.61     12.17     1.35     1.09      0.0%     87.1%    2.2%    9.0%        23.87
+savanna_close  on       11.36      9.16     1.16     1.04     69.7%     17.3%    2.2%    9.2%        20.36
+               d        -3.25     -3.01   fringe 69.7% of screen -> -47 k tier-0 steps per 1 % (leaf 305 k; ratio -0.15); est. -0.27..-0.35 ms per 1 %
+                    band 0-10 m   screen  61.2%  fringe  56.5%  ground   4.7% (off  59.6%)
+                    band 10-40 m  screen  10.5%  fringe  10.0%  ground   0.5% (off  11.6%)
+                    band 40-82 m  screen   6.3%  fringe   1.5%  ground   3.2% (off   4.9%)
+                    band 82 m+    screen  22.0%  fringe   1.6%  ground   8.9% (off  10.9%)
+
+==== memory per pose ([mem] line after each pose; peaks are cumulative over the launch's poses)
+sun   arm  pose            CPU peak  GPU peak refused GPU in use   sealed proc peak MB
+16    off  walk_near        170,836    92,643       0     92,643   12,864       2498.4
+16    off  forest_eye       494,647   245,704       0    245,704  100,415       2498.4
+16    off  savanna_eye      494,647   245,704       0    184,562   69,601       2498.4
+16    off  savanna_close    494,647   245,704       0    184,562   69,601       2498.4
+16    off  [valve] in-view evictions logged: 0;  (no [fringe] line)
+16    on   walk_near        180,401    95,849       0     92,643   12,864       2534.3
+16    on   forest_eye       494,820   245,654       0    245,654  100,465       2534.3
+16    on   savanna_eye      494,820   245,654       0    184,534   69,629       2534.3
+16    on   savanna_close    494,820   245,654       0    184,534   69,629       2534.3
+16    on   [valve] in-view evictions logged: 0;  [fringe] -fringe 1: 30,208 chunks, 21,529,150 stubs, 32,727,431 voxels, 1,583,283 stub voxels refused (uniform brick), new bricks 0 (must be 0)
+noon  off  walk_near        237,419   137,204       0    137,204   27,043       2523.0
+noon  off  forest_eye       493,054   245,704       0    245,704  100,415       2523.0
+noon  off  savanna_eye      493,054   245,704       0    184,562   69,601       2523.0
+noon  off  savanna_close    493,054   245,704       0    184,562   69,601       2523.0
+noon  off  [valve] in-view evictions logged: 0;  (no [fringe] line)
+noon  on   walk_near        237,419   137,204       0    137,204   27,043       2492.3
+noon  on   forest_eye       493,418   245,654       0    245,654  100,465       2492.3
+noon  on   savanna_eye      493,418   245,654       0    184,534   69,629       2492.3
+noon  on   savanna_close    493,418   245,654       0    184,534   69,629       2492.3
+noon  on   [valve] in-view evictions logged: 0;  [fringe] -fringe 1: 32,256 chunks, 22,255,737 stubs, 33,842,122 voxels, 1,628,995 stub voxels refused (uniform brick), new bricks 0 (must be 0)

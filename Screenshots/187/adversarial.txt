@@ -1,0 +1,5 @@
+Adversarial island (4 km, rough Climb land, four flat patches A-D): land 166209 cells; targets town 2 frontier 1 village+outpost 6; placed town 1 frontier 1 village 1 outpost 1; candidates town 196 frontier 4 village 18 outpost 306; hard cells 2500; ground check rejected 0 (step rule 0); town discs rejected: sea/feature gap 0, off map 0, sea 0, wet 0, blocked 0, not easy 704, band 0, range 0
+  #16 town (9480, 15880)
+  #17 frontier (30920, 16600)
+  #18 village (24760, 24680)
+  #19 outpost (16360, 26600)

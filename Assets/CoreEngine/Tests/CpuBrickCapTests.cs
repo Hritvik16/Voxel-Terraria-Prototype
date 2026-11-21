@@ -46,6 +46,7 @@ public class CpuBrickCapTests
     private const int LOAD_RADIUS = 6;   // 13 x 13 chunks: 144 outside the camera's 5x5
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ValveAtTheNewCap_EvictsColdestFirst_AndSavesEditsBeforeDropping()
     {
         int cap = EngineConfig.TG2_BRICK_POOL_CAP;

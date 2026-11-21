@@ -189,7 +189,7 @@ public static class ClipmapValidator
                 // Through the GPU body pool's table (task 93f; identity when it is off):
                 // a dense entry must carry the GPU slot the table gives its CPU slot.
                 uint cpuHandle = chunk.isUniform ? chunk.uniformMaterial : chunk.bricks[local].data;
-                uint expected = clipmap.GpuHandleOf(cpuHandle);
+                uint expected = clipmap.ExpectedGpuHandle(chunk.coord, localBrick, cpuHandle);   // task 201a: sealed -> uniform
                 uint actual = gpuClipmap[clipmap.GpuIndexOf(chunk.coord, localBrick)];
                 if (actual == expected) continue;
 

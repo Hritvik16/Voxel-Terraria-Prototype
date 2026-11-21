@@ -1,0 +1,57 @@
+== seed 42: 3282 trees in 102400 tree cells (1/16 of the world), scan 74 ms; max reach 63 vox, max height 205 vox
+  forest   land cells    5792  trees   1574  per land cell 0.272  per km2   6635  forms broad/conifer/palm/cactus 1498/76/0/0
+  desert   land cells    6302  trees     78  per land cell 0.012  per km2    302  forms broad/conifer/palm/cactus 0/0/0/78
+  snow     land cells    8158  trees    875  per land cell 0.107  per km2   2619  forms broad/conifer/palm/cactus 0/875/0/0
+  jungle   land cells    2201  trees    711  per land cell 0.323  per km2   7887  forms broad/conifer/palm/cactus 610/0/101/0
+  savanna  land cells    3291  trees     44  per land cell 0.013  per km2    326  forms broad/conifer/palm/cactus 44/0/0/0
+  badlands land cells    1890  trees      0  per land cell 0.000  per km2      0  forms broad/conifer/palm/cactus 0/0/0/0
+  root cover slot: flat 3140 steep 103 hollow 39 high 0 shore 0
+  sheet forest  : 30 trees, rejected 0, mean height 10.1 m, mean voxels 60161
+  sheet jungle  : 30 trees, rejected 0, mean height 11.9 m, mean voxels 42877
+  sheet savanna : 30 trees, rejected 0, mean height 7.4 m, mean voxels 31432
+  sheet snow    : 30 trees, rejected 0, mean height 13.0 m, mean voxels 40735
+  sheet desert  : 30 trees, rejected 0, mean height 4.4 m, mean voxels 3316
+  sheet steep   : 30 trees, rejected 0, mean height 10.9 m, mean voxels 32642
+== seed 7: 3573 trees in 102400 tree cells (1/16 of the world), scan 87 ms; max reach 61 vox, max height 205 vox
+  forest   land cells    6979  trees   1635  per land cell 0.234  per km2   5720  forms broad/conifer/palm/cactus 1559/76/0/0
+  desert   land cells    3243  trees     86  per land cell 0.027  per km2    647  forms broad/conifer/palm/cactus 0/0/0/86
+  snow     land cells    5758  trees    722  per land cell 0.125  per km2   3061  forms broad/conifer/palm/cactus 0/722/0/0
+  jungle   land cells    3318  trees    993  per land cell 0.299  per km2   7307  forms broad/conifer/palm/cactus 849/0/144/0
+  savanna  land cells    4257  trees    137  per land cell 0.032  per km2    786  forms broad/conifer/palm/cactus 137/0/0/0
+  badlands land cells    4047  trees      0  per land cell 0.000  per km2      0  forms broad/conifer/palm/cactus 0/0/0/0
+  root cover slot: flat 3430 steep 110 hollow 33 high 0 shore 0
+  sheet forest  : 30 trees, rejected 0, mean height 10.8 m, mean voxels 65029
+  sheet jungle  : 30 trees, rejected 0, mean height 12.7 m, mean voxels 48810
+  sheet savanna : 30 trees, rejected 0, mean height 7.0 m, mean voxels 26735
+  sheet snow    : 30 trees, rejected 0, mean height 13.8 m, mean voxels 45534
+  sheet desert  : 30 trees, rejected 0, mean height 4.7 m, mean voxels 3642
+  sheet steep   : 30 trees, rejected 0, mean height 10.5 m, mean voxels 40563
+== seed 2026: 3200 trees in 102400 tree cells (1/16 of the world), scan 77 ms; max reach 63 vox, max height 205 vox
+  forest   land cells    7274  trees   1962  per land cell 0.270  per km2   6585  forms broad/conifer/palm/cactus 1870/92/0/0
+  desert   land cells    3923  trees     77  per land cell 0.020  per km2    479  forms broad/conifer/palm/cactus 0/0/0/77
+  snow     land cells    7065  trees    445  per land cell 0.063  per km2   1538  forms broad/conifer/palm/cactus 0/445/0/0
+  jungle   land cells    4383  trees    610  per land cell 0.139  per km2   3398  forms broad/conifer/palm/cactus 498/0/112/0
+  savanna  land cells    2425  trees    106  per land cell 0.044  per km2   1067  forms broad/conifer/palm/cactus 106/0/0/0
+  badlands land cells    3900  trees      0  per land cell 0.000  per km2      0  forms broad/conifer/palm/cactus 0/0/0/0
+  root cover slot: flat 3051 steep 78 hollow 71 high 0 shore 0
+  sheet forest  : 30 trees, rejected 0, mean height 11.2 m, mean voxels 66880
+  sheet jungle  : 30 trees, rejected 0, mean height 13.6 m, mean voxels 49174
+  sheet savanna : 30 trees, rejected 0, mean height 7.4 m, mean voxels 26576
+  sheet snow    : 30 trees, rejected 0, mean height 13.9 m, mean voxels 46194
+  sheet desert  : 30 trees, rejected 0, mean height 5.1 m, mean voxels 3628
+  sheet steep   : 30 trees, rejected 0, mean height 10.4 m, mean voxels 31555
+== seed 31337: 3964 trees in 102400 tree cells (1/16 of the world), scan 85 ms; max reach 60 vox, max height 205 vox
+  forest   land cells    5220  trees   1499  per land cell 0.287  per km2   7011  forms broad/conifer/palm/cactus 1431/68/0/0
+  desert   land cells    2022  trees      1  per land cell 0.000  per km2     12  forms broad/conifer/palm/cactus 0/0/0/1
+  snow     land cells    6238  trees    317  per land cell 0.051  per km2   1241  forms broad/conifer/palm/cactus 0/317/0/0
+  jungle   land cells    5384  trees   2027  per land cell 0.376  per km2   9192  forms broad/conifer/palm/cactus 1758/0/269/0
+  savanna  land cells    3249  trees    120  per land cell 0.037  per km2    902  forms broad/conifer/palm/cactus 120/0/0/0
+  badlands land cells    6132  trees      0  per land cell 0.000  per km2      0  forms broad/conifer/palm/cactus 0/0/0/0
+  root cover slot: flat 3794 steep 153 hollow 17 high 0 shore 0
+  sheet forest  : 30 trees, rejected 0, mean height 11.0 m, mean voxels 67482
+  sheet jungle  : 30 trees, rejected 0, mean height 11.9 m, mean voxels 45116
+  sheet savanna : 30 trees, rejected 0, mean height 6.7 m, mean voxels 22718
+  sheet snow    : 30 trees, rejected 0, mean height 14.1 m, mean voxels 34746
+  sheet desert  : 1 trees, rejected 0, mean height 6.6 m, mean voxels 5268
+  sheet steep   : 30 trees, rejected 0, mean height 9.6 m, mean voxels 27135
+FAILS 0

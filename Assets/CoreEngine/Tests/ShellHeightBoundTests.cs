@@ -58,6 +58,7 @@ public class ShellHeightBoundTests
         public uint Dir(int k, int3 c) => St[k].ShadowDir[St[k].Slot(c)];   // the GPU reads the slot, no tag
         public uint Page(int k, int page, int lb) => St[k].ShadowPages[page * EngineConfig.BRICKS_PER_CHUNK + lb];
         public byte Voxel(int k, int body, int vIdx) => (byte)(St[k].ShadowBricks[body * 128 + (vIdx >> 2)] >> ((vIdx & 3) * 8));
+        public byte VoxelOf(int k, uint h, int vIdx) => ShellBrickPack.ShadowVoxel(St[k].ShadowBricks, h, vIdx);   // task 188
         public bool Tier0Missing(int3 voxel) => false;
         public bool Tier0Holds(int3 voxel) => false;
         public int ColumnHeight(int k, int3 c) => Lie ? int.MinValue : (int)St[k].ShadowHeights[St[k].HeightColumn(c.x, c.z)];
