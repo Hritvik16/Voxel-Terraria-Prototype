@@ -5,7 +5,6 @@ per-face contact ray (8 cells, exact) carry 1-voxel dapples near the camera and 
 design change in 8.18 sec. 1.3 written first; do not start 247b (the timed test) until this is answered.
 
 # 249-suncache-cpu-oracle (8.18 step 247a): DONE -- kill rule (4) fires; rules (1) and (5) pass
-
 ## What changed (commit be035ee)
 - `Assets/CoreEngine/Rendering/SunCacheReference.cs` (CPU twin of the DRAFT 8.18 cache: run-map lines, N0-N3 maps 512^2 with `& 511` ring,
   32^2 keyed tiles, contact ray = `ShadowRayReference.Trace` capped at 8 cells, bilinear run rule, prev/cur/next slots, dirty boxes).
@@ -15,7 +14,6 @@ design change in 8.18 sec. 1.3 written first; do not start 247b (the timed test)
 - Two twin fixes found on the way (already in the note): line centres sat on voxel planes in N2/N3 at axis-aligned sun azimuths ->
   1/8-voxel line offset; the staleness as written is 2 build periods (22 mrad = 75 % of the 30 mrad soft spread, target < 1/3) -> build
   each slot with the sun 2 periods ahead (mean 1.2 mrad, max 11.2 mrad).
-
 ## Evidence (CPU tests only; no player launch, no timing: rule 10)
 - Fast suite: PASS 1128 FAIL 0 SKIP 25 (`Logs/overnight/249/fast_after.out`). After that, only the test file changed (step-proxy print,
   `[Explicit]` on C4); filter run `SunCacheOracleTests` after it: 11 pass, 1 fail = C4 by design (the kill rule), 0 `error CS`
@@ -32,12 +30,10 @@ design change in 8.18 sec. 1.3 written first; do not start 247b (the timed test)
 - Step proxy (raw 0.1 m DDA cells, no leaps): exact ray 74.0 steps/face; contact ray 12.4; line build N0 59.3, N1 81.9, N2 125.9,
   N3 177.2 steps/line (`Logs/overnight/249/oracle_00_step_proxy.txt`).
 - Memory / pass card / slice (rules 11, 12, 14): none -- CPU test code only, nothing allocated in play, nothing drawn. HEAVY: no.
-
 ## Images looked at
 - `Screenshots/249/dapples_gap1_sun60.png` -- 5 panels left to right: exact sun ray, then cache N0, N1, N2, N3 (sun 60 deg, 1-voxel leaf
   gaps, brightness = sunlight). Compare the dots: sharp and bright in panel 1, dim (and some missing) in N0, faint in N1, few blurred
   spots in N2, gone in N3.
-
 ## Next
 - Owner answers Q-249. 247b (timed test) is on hold until then. If (b): a design task rewrites 8.18 sec. 1.3 (contact-ray carries
   sub-texel dapples) and re-runs C4 with that rule.
