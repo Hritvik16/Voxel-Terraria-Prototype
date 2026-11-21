@@ -1,36 +1,58 @@
-# Session handoff -- 2026-11-17 ~22:30 (supervisor; builds PAUSED until ~23:05; queue 236 -> 235 -> 234; no owner question open)
+# Session handoff -- 2026-11-20 ~17:20 (supervisor; queue 238 (timing, running) -> 250 -> 251 -> 252 -> 253; no owner question open)
 
 ## For the owner
-Why: this chat passed ~18 MB (every turn re-sends it), so the rules say to start a fresh, cheaper session.
-Covered in this chat (17 Nov 00:30 - 22:30):
-- Finished and reported in the doc: 226 (look polish: voxel colour, crevice, haze, bloom, all ON), 227 (shade light one ray per 4x4 block: walk_near 106.8 -> 72.3 ms), 228 (coarse far sun shadows: saved 2/6/0 ms, false shadows, kept OFF), 229 (torch light kernel only when torches near: 6-13 ms by day, nothing at night), 231 (why LotL looks cinematic: sky and low sun matter most; the five post factors close ~30 % of the gap), 232 (low-res sun shadows: exact, saves ~0 ms, OFF), 233 (pale sky + clouds ON, grade ON, low-sun start built but OFF: +27 ms at forest), 230 (budget check script works; first run NOT CLEAN because the Mac was in use; found night torch memory ~6 GB).
-- Answered: Q-AL (C6 a, C7 a), Q-AP (a: build sky/low sun/grade), Q-AQ (a: sky + grade ON, low sun OFF). You asked: why LotL looks better (answered by 231), and said the "performance features" (low sun at start, torches off) are not real gains if low sun and torches occur in play. Agreed: judge by worst-case poses. You chose that (point 1). I told you 30 fps is not reachable from the known cuts: walk_open ~31 ms, walk_near ~60-67, jungle ~66-70, forest ~96-100 (held-pose captures); sun shadows ~16-21 ms, sky fill ~6-12, shells ~6, flood +9 at night.
-- You said: push and merge to origin main once stable. Task 234 only CHECKS readiness (whole test suite, budget check, merge plan); NOTHING touches main or origin without your explicit go (ask first).
-- You said: pause builds for an hour (22:04). `tools/heavy.sh pause` + `tools/overnight/PAUSE` are set; a background timer in the OLD session resumes heavy and removes PAUSE at ~23:05. It does NOT restart the runner: the new supervisor must (see below).
-Running now: nothing (paused). Queued: 236 (bug: night torch memory 6 GB -> find and fix, I went ahead with option (a) of 230's question; "Going ahead unless you object" is in the doc), then 235 (worst-case poses in the budget check + clean rebaseline; needs an IDLE Mac, ~35-40 min), then 234 (merge readiness; no merge).
-Open for you: nothing. Going-ahead item: 236 (b = accept the night peak, if you object).
-Mac notes: the memory watchdog killed 3 builds on 17 Nov (swap > 10.2 GB; Firefox held ~7 GB) and left PAUSE. Budget checks and timing launches need the Mac idle (hididle watches input): tell the owner before 235 starts. Usage-limit waits stalled 232 for ~4 h.
-Close THIS window once the new one is up: `! tmux kill-session -t <the old window shown in tmux ls>` (list with `tmux ls`; the old supervisor is `voxel-sup-0018`).
+Why: this chat passed ~8 MB (every turn re-sends it), so the rules say to start a fresh, cheaper session.
+Covered in this chat (19-20 Nov):
+- Finished and reported in the doc (Task reports tab, newest first): 243 (solid crown cores: don't work, dropped), 244 (sun rays at the
+  forest take 2x the steps of noon), 245 (foliage light shortcut: small saving, often wrong, kept OFF), 246 (world-fill cost plan:
+  see-through things are expensive, solid things cheap; grass needs its own near-camera layer), 247 (cached sunlight design, amendment 8.18
+  DRAFT), 248 (what each pixel hits: leaves ~2 ms per 1 % of screen, trunks ~0), 249 (cached sunlight correctness: all fine except
+  1-voxel leaf holes come out 37 % bright, needs 75 %).
+- You chose cached sunlight over chunky leaf clumps ("2 doesn't account for the player messing with the leaves").
+- You asked whether filling the world will keep hurting performance: answered by 246/248 (solid props cheap; leaves/grass are the cost).
+- You said the Mac is in use all day: timing task 238 now waits in `later/` until 30 min without input (`release-when-idle.sh`,
+  tmux window `overnight:idlegate`); it started 16:43 when you stepped away. If you say you're going to sleep, a supervisor releases
+  timing tasks right away.
+- The doc was restructured (fresh Now / Questions for you / Task reports tabs; old ones under Archive and Answered) and is now updated on
+  every task end by a background watcher.
+- 20 Nov ~17:00 you said "go with recommended for all questions": Q-249 (b), Q-247 (a), Q-246 a yes / b yes / c wait / d yes / e yes,
+  Q-245 (a), Q-244 (a), Q-243 (a), Q-AS (a: merge + push). Recorded in the doc's Answered tab; tasks 251-253 queued for them.
+Running now: 238 (forest cost split, timed, needs the Mac left alone ~40 min). Queued: 250 voxel grass counts, 251 cached-sun near-zone
+rewrite (your Q-249 b), 252 merge to main + push (whole suite first; merge without checking out main), 253 solid props memory card.
+Open for you: nothing.
+Close THIS window once the new one is up: it is tmux session `0` -> `! tmux kill-session -t 0` (check `tmux ls` first; never kill `overnight`).
 
 ## Next supervisor
-- First: `date`; builds resume ~23:05 (check `cat /tmp/sup_resume.out` for RESUMED_AT; if missing after 23:10: `tools/heavy.sh resume; rm -f tools/overnight/PAUSE`). Then check `sysctl vm.swapusage` (< ~7 GB), and start the runner:
-  `tmux send-keys -t overnight "cd '<repo>' && IDLE_MIN=0 caffeinate -ims nice -n 10 tools/overnight/run-queue.sh" Enter` (macOS: `sed -i ''`).
-  `wc -l < Logs/overnight/runner.log > /tmp/sup_n`, then ONE background until-loop on runner.log (BLOCKED|done |queue runner end|FAILED|INCOMPLETE); re-arm after each event.
-- Queue order: 236 (Requires 233, done), 235 (Requires 236), 234 (Requires 235). After 234 the queue is EMPTY: never leave it idle. Candidates (need owner OK where noted): diet-2 torch kernel (-6 ms with torches near; changes performance: ask), a plan task "path to 33 ms at the worst poses" after 235's table (plain-words options with look trade-offs; owner decides), jungle second-bounce plan, 212's T2/T4.
-- 235 and every timing run: tell the owner to leave the Mac idle (no typing/mouse) for ~40 min.
-- After 234 says READY: ASK the owner for an explicit go before merging to `main` or pushing `origin` (https://github.com/Hritvik16/Voxel-Terraria-Prototype.git; `main` == `origin/main`, engine-phase is 223+ commits ahead). Tasks never push.
-- Housekeeping still owed (mine): archive Screenshots 209b-233 into Archive 2 (`tools/archive/README.md` volume 2 recipe), mark Q-AF to Q-AK, Q-AN, Q-AO headings ANSWERED and move to the Answered tab. Done tasks move to `tools/overnight/done/<stamp>_<name>.md`; 230 was moved there although its baseline is pending (235 does the clean rebaseline).
-- Doc (Queue decisions, https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq, container {kind:project,id:DrfR6aQJHYmhnQ2Syu33Hq}):
-  - Reports: "Task reports" (node d611dfba-5116); newest heading is 230 `mk2vq5dkmp6.202290`; insert new ones `before` it. Done rows: "Now" (node e04dd89d-c6f3, table `mk2vq5dkmp6.7022`, append `side:end`, `as:"blocks"`, content = array of `{type:"tableRow",content:[{type:"tableCell",content:[{type:"paragraph",content:[{type:"text",text}]}]}...]}`, 3 cells).
-  - Questions: node 08a1b590-58d9. Newest "Going ahead" heading `mk2vq5dkmp6.71188` (236); new questions/sections go BEFORE the newest heading. Q-AQ/Q-AP/Q-AL are marked ANSWERED.
-  - Docs recipes: update engine "prose" with `payload.ops`; insert `target {kind:blocks,ids:[full id]}`, `side`, `source {as:markdown, from:{kind:inline, content}}`; a replace of a whole block needs `ifHash` + `ifRev` (read first with `{"kind":"search","blocks":{"first":id,"last":id}}`). Images: Artifact publish {url: doc url, asset:true, file_path(s)} -> docs `create` object=blob engine=blob payload {asset:<id>} -> markdown `![alt](blob/<new id>)`. Look at every picture before captioning.
-- Owner rules (memory dir): plain words, look at every picture, questions in the doc tab, no paid-plan suggestions, max two Claude sessions, efficient by construction, answer the owner's questions in the doc and chat, explain performance changes in terms of the WORST case (low sun, torches), not noon.
-- Blocked and staying blocked: 178c, 180, 180b, 184, 184b, 208, 216.
-- NOT committed by me: `Assets/Scenes/Playground.unity` (regenerated), `Logs/TerrainGen/*`; `git status` shows Screenshots viewer files (git-ignored images).
-- auto mode blocks `tmux kill-session` and a Bash call that contains one is denied whole; give the owner a one-line `!` command.
+- First: `tmux ls`, `tail -5 Logs/overnight/runner.log`, `ls tools/overnight/queue`. Then arm the watcher with Bash `run_in_background`:
+  `tools/overnight/wait-task-end.sh` (exits on the next done / BLOCKED / runner end; re-arm after every event).
+- Runner: tmux `overnight:0`. Restart if ended: `tmux send-keys -t overnight:0 "IDLE_MIN=0 caffeinate -ims nice -n 10 tools/overnight/run-queue.sh" Enter`.
+- On each event: read the task's `## For the doc` (HANDOFF in `tools/overnight/HANDOFF.md` at the task's commit, or `blocked/<task>.HANDOFF.md`),
+  look at its image, insert a short report at the top of Task reports, rewrite the Now tab (table + intro time + "Waiting on you"),
+  put new questions at the top of Questions for you (each with picture + numbers + recommendation), keep ONE owner-independent task queued.
+- 238 result: compare against 247/248 estimates (2 ms per 1 % leaf, solid ~0). The idle gate is done (238 released); its window can stay.
+- 251 writes `tools/overnight/later/252b-suncache-kill-timing.md` (timed, idle Mac). When it exists: start
+  `tmux new-window -t overnight -n idlegate2 "tools/overnight/release-when-idle.sh later/252b-suncache-kill-timing.md 30"`.
+- 252 merges with `git commit-tree` + `update-ref` (never checks out main: the working tree is shared) and pushes. Owner approved
+  ("go with recommended for all", Q-AS (a)). If its push is blocked by permissions, give the owner the one-line `! git push origin main engine-phase`.
+- After 253: next candidates per `WORLD_FILL_BUDGET.md` sec. 5 order -- E2 clutter-layer amendment draft (approved in principle by Q-246a,
+  only if 250 shows voxel grass can't carry clutter; name it 8.19, 8.18 is the cached sun). 247c/247d (GPU cached sun) only after the
+  252b timed kill test passes.
+- Doc (Queue decisions, https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq, container {kind:"project",id:"DrfR6aQJHYmhnQ2Syu33Hq"}):
+  Now node 5b31b670-4acc (intro `mk2vq5dkmp6.4`, table `mk2vq5dkmp6.6339`, waiting `mk2vq5dkmp6.619`); Questions node e733c3c0-08fd
+  (single block `mk2vq5dkmp6.8523` "No open questions" -- insert new questions before it and remove it); Task reports node bf8cb8f4-1d14
+  (newest heading 249 `mk2vq5dkmp6.8987`, insert before); Answered node 4e4a30eb-dbfc (newest `mk2vq5dkmp6.4702`).
+  Recipes (memory `doc-update-after-every-task`): read `{kind:"view",sinceRev:0}` or `{kind:"search",text}`; insert
+  `{op:"insert",target:{kind:"blocks",ids:[full id]},side:"before"|"after",source:{as:"markdown",from:{kind:"inline",content}}}`;
+  replace `{op:"replace",ifHash,ifRev,target:{kind:"blocks",ids:[...]},with:{as:"markdown",from:{...}}}` (several ids: ifRev only).
+  Images: Artifact publish {url: doc url, asset:true, file_path} -> docs `create` object "blob", engine "blob", payload {asset:id} -> `![alt](blob/<id>)`.
+- Owner rules (memory dir): plain words, look at every picture first, questions in the doc tab, never leave the queue idle, timing only
+  when the Mac is idle, no paid-plan suggestions, max two Claude sessions, auto mode blocks `kill`/`tmux kill-session` (give a `!` line).
+- NOT committed by me: `Assets/Scenes/Playground.unity`, `Logs/TerrainGen/*`, untracked `ParallelEquivalenceTests.cs` / `TestPar.cs`
+  (origin unknown -- ask the owner before deleting or committing).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight queue. You do no engineering yourself.
-> Put every question for me in the "Queue decisions" doc's "Questions for you" tab, in plain words with pictures you have looked at
-> yourself, and answer any question I ask in my doc answers. After every finished task, update the doc right away with a report and
-> pictures. Start by telling me why this new session started and what the previous chat covered (SESSION_HANDOFF.md, "For the owner").
+> Arm tools/overnight/wait-task-end.sh in the background so each finished task wakes you. After every finished task, update the
+> "Queue decisions" doc right away (short report with pictures you looked at, rewrite the Now tab), keep one owner-independent task
+> queued, and put any question for me in the "Questions for you" tab in plain words. Start by telling me why this new session started
+> and what the previous chat covered (SESSION_HANDOFF.md, "For the owner").

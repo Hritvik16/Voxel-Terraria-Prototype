@@ -280,6 +280,9 @@ owner approves the amendment draft).
 | Q-246d | Moving creatures/NPCs cast **no real shadow** at first (blob/contact shadow only). | **Yes for now.** A real entity shadow is a later, separate decision. |
 | Q-246e | Queue E1 (counter) and E3 (voxel grass fringe counts) now; E4 after; E2 only after Q-246a. | **Yes.** |
 
+**Owner answers 2026-11-20 ("go with recommended for all questions"): a yes, b yes, c wait for the sun savings, d yes, e yes.** E1 done
+(248), E3 queued (250), E4 queued (253). E2 is now approved in principle; it still follows sec. 5's order (only if E3 cannot carry clutter).
+
 ## 7. Method notes and caveats
 
 - Counts are GPU-counted over 32 frames with the temporal counters frozen. They are not time. The ms per % figures are calibrated
