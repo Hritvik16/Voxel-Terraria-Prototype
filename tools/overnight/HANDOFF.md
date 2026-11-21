@@ -1,59 +1,52 @@
-STOP_FOR_OWNER -- Q-249: amendment 8.18's kill rule (4) FIRED. On the CPU, the cached sun keeps 1-voxel leaf gaps (dapples) at only
-37 % of their true brightness in the finest map (limit 75 %). Choose: (a) drop the 8.18 cached-sun direction; (b) keep it, but let the
-per-face contact ray (8 cells, exact) carry 1-voxel dapples near the camera and accept that the cache softens them further out;
-(c) keep it and accept softened 1-voxel dapples everywhere (in N0, 2-voxel gaps keep 49-73 % and 3-voxel gaps 68-83 %). Recommendation: (b) needs a
-design change in 8.18 sec. 1.3 written first; do not start 247b (the timed test) until this is answered.
-
-# 249-suncache-cpu-oracle (8.18 step 247a): DONE -- kill rule (4) fires; rules (1) and (5) pass
-## What changed (commit be035ee)
-- `Assets/CoreEngine/Rendering/SunCacheReference.cs` (CPU twin of the DRAFT 8.18 cache: run-map lines, N0-N3 maps 512^2 with `& 511` ring,
-  32^2 keyed tiles, contact ray = `ShadowRayReference.Trace` capped at 8 cells, bilinear run rule, prev/cur/next slots, dirty boxes).
-- `Assets/CoreEngine/Tests/SunCacheOracleTests.cs`: C1-C9 (the amendment's 9 cases) + line-vs-exact self check + run-rule/line pins.
-  C1-C8 `[Category("Slow")]`; C4 also `[Explicit]` (it is the kill rule that fires) so SUITE=all stays green.
-- `AMENDMENT_8_18_CACHED_SUN_SHADOW.md` 247a: result note (stays DRAFT). `TASKS.md` Task 249. `Screenshots/249/oracle.txt` (full report).
-- Two twin fixes found on the way (already in the note): line centres sat on voxel planes in N2/N3 at axis-aligned sun azimuths ->
-  1/8-voxel line offset; the staleness as written is 2 build periods (22 mrad = 75 % of the 30 mrad soft spread, target < 1/3) -> build
-  each slot with the sun 2 periods ahead (mean 1.2 mrad, max 11.2 mrad).
-## Evidence (CPU tests only; no player launch, no timing: rule 10)
-- Fast suite: PASS 1128 FAIL 0 SKIP 25 (`Logs/overnight/249/fast_after.out`). After that, only the test file changed (step-proxy print,
-  `[Explicit]` on C4); filter run `SunCacheOracleTests` after it: 11 pass, 1 fail = C4 by design (the kill rule), 0 `error CS`
-  (`Logs/overnight/249/filter7.out`).
-- Kill (1) slope sweep, 10-85 deg x suns 8/16/30/60 x 8 azimuths x 4 maps: 0 false shadows away from cast-shadow edges (limit 0.5 %).
-- Kill (2) flat ground, suns 2-90 deg: 0 acne. (3) pole/wall: 0 foot gaps; worst map 0.013 % mismatched faces away from cast-shadow edges.
-- Kill (4) 1-voxel dapples, N0, suns 45/60/80: 37.4 % strength over 1572 faces -> FIRES. Per sun: 80 deg 49 %, 60 deg 38 %, 45 deg 13 %.
-  N1 18-32 %, N2 1-12 %, N3 0-4 %. Cause: the 4 bilinear taps reach one texel from the face, and a 1-voxel gap in a leaf layer lets less than
-  a voxel's width of light through once the sun is off vertical. A continuous model agrees (N0 at most 66 %), so no 0.05 m map passes.
-- Kill (5) 5a deep room: 0 leaks. Residual: under rock thinner than the map's cap, N2/N3 leak (5b/5c, up to 116 of 600 faces at N3, 16 deg).
-- (6) 1-voxel crack deeper than the cap reads shadow at N3 (53 of 53 lit faces). (7) one-voxel edit: 0 lines changed outside the
-  dirty rectangle, 0 stale, matches a from-scratch cache; one 0.8 m brick at 16 deg dirties 650/225/100/49 lines (est. 500/130/35/10).
-- (8) moving camera + sun, 360 frames: 0 sentinel texels read, 0 fallbacks; (9) ring wrap 511->0: 0 answers changed, no aliased tile.
-- Step proxy (raw 0.1 m DDA cells, no leaps): exact ray 74.0 steps/face; contact ray 12.4; line build N0 59.3, N1 81.9, N2 125.9,
-  N3 177.2 steps/line (`Logs/overnight/249/oracle_00_step_proxy.txt`).
-- Memory / pass card / slice (rules 11, 12, 14): none -- CPU test code only, nothing allocated in play, nothing drawn. HEAVY: no.
+# 238-perf-split-rest-at-forest: DONE -- "rest" (~58 ms at forest_eye, 16 deg) is mostly CPU floor + shells + far band; row 2 applies (and row 4)
+Note: Q-249 (task 249's STOP_FOR_OWNER, the 8.18 cached-sun kill rule) is still open. This task did not touch it.
+## What changed (no code)
+- `Screenshots/238/report.md` (full report), `costsplit_A/B/D.txt`, `costsplit_C_trees2off_partial.txt`, `input_per_run.txt`,
+  `drive.sh`, `drive2.sh`, `perrun.py` (the drivers + the per-run input check). Commit: see git log "238:".
+## Evidence (warm steady state; warm-up `Logs/tg2world_20261120_172018.txt`; play's player DEV_KERNELS=0 built 16:51)
+Split of "rest" (p50 ms, 432 rows; FULL A 140.4, B 142.3, D 132.3; sun 54.7 / sky fill 25.5 from 235):
+- CPU + fixed floor `tiny_gate` **18.6** (walk_near 7.1) | shells **15.0** (walk 7.0) | far band **11.2** (D rerun; noise 5.4)
+- look 226 `lotl_off` **-3.1 (~0)** | 233 pale sky **2.6** | 233 grade **4.4** | FSR 3 pass ~5.6 (146, not re-measured)
+- remainder (tier-0 primary march + shading) **~4 ms, at most ~22** (if the CPU floor hides under the GPU frame)
+- trees: `-trees2 0` FULL 85.6 / 87.1 vs 140.4 = **-54 ms**. Sun step with old trees 33.0 vs 54.7.
+Sun levers AT 16 deg (B, FULL range 3.5): sunres4 **10.9**, clamp64 **8.9**, sunfar64 **10.3**, reuse16 **5.2** (all ~0 at noon).
+Biggest unknown: `ups_none` saves **59.3** ms, but the upscale pass is ~5.6. That arm also drops FSR 3's per-frame jitter.
+Hypothesis: the jitter defeats the keyed temporal sun reuse at a still pose (reuse16's small 5.2 fits). Test = a capture-only arm setting
+`RaymarchFeature.Fsr3ZeroJitter` (needs a code change, not done).
+Decision table: row 1 (tier-0 most of rest) NO. **Row 2 (floor/shells big at forest) YES.** Row 3 (look > 8 ms) NO, borderline at 7.0.
+**Row 4 (sun levers pay at 16 deg) YES.**
+Memory (no code change): CPU brick pool peak 495,923-498,923 (valve 484,500 engaged); GPU body pool 245,704 / 254,400, refused 0;
+process peak 2,493-2,731 MB. Nothing drawn changed (rule 14 slice n/a). HEAVY: no. No EditMode run: no code changed.
+## Owner input / deviations
+- `ioreg` HIDIdleTime is reset every ~10 s by a running player, so arms were judged by `Logs/budget/hididle` (real input only).
+- Try 1 (16:56) was aborted: the owner was active. Restarted after 20 min idle. far_off (A) had input in both timed windows -> rerun in D, clean.
+  Settle-only input in A FULL pass 5 and B sunres4 pass 2 (kept).
+- The 10-arm launch was split into A (6 arms) + B (4 sun levers), same flags. Forest runs wait the 180 s settle, so 10 arms in one launch is ~2 h.
+- C had no `-costarms`, so it fell back to the default 8 arms. I stopped it after FULL x2 / sun_off x2 / torch_off x2, so there is no `[mem]` for old trees.
+- D added `skypale_off` + `grade_off`: plan sec. 2's `look233_off` also switches the 16 deg start sun off (it read 30.6).
 ## Images looked at
-- `Screenshots/249/dapples_gap1_sun60.png` -- 5 panels left to right: exact sun ray, then cache N0, N1, N2, N3 (sun 60 deg, 1-voxel leaf
-  gaps, brightness = sunlight). Compare the dots: sharp and bright in panel 1, dim (and some missing) in N0, faint in N1, few blurred
-  spots in N2, gone in N3.
+- `Screenshots/238/A/forest_eye_full_clean.png`: FULL, dense trees. Porous leafy crowns fill the upper half at eye level, meadow below, mountains
+  and ~25 % sky behind. Nothing floating or missing.
+- `Screenshots/238/C/forest_eye_full_clean.png`: same pose, old trees. Big solid trunks cross the near frame and stop the rays early, which is why it is cheaper.
 ## Next
-- Owner answers Q-249. 247b (timed test) is on hold until then. If (b): a design task rewrites 8.18 sec. 1.3 (contact-ray carries
-  sub-texel dapples) and re-runs C4 with that rule.
+- Row 2: a forest streaming-floor / shell task (the 520-690-chunk deficit keeps the main thread busy). Row 4: queue S2 (sun-ray cap) behind it.
+- Ask the owner whether to approve the one-line capture arm `fsr3_j0` (Fsr3ZeroJitter) first: it is the only test of the biggest number (59 ms).
+- Fix in run-budget-check / plan: a FULL-only cost split needs an explicit arm list. No "none" exists, so add one or document it.
 
 ## For the doc
-Task 249 -- does the cached sun (amendment 8.18) give the same answer as today's exact sun ray? CPU-only check, 9 scenes.
-**Verdict:** mostly yes. Slopes, flat ground, poles/walls, deep caves, edits, moving sun and ring wrap all match. One real failure:
-**single-voxel holes in leaves (dapples) come out too dim** -- 37 % of their true brightness in the sharpest map, against the 75 % the
-amendment requires. Kill rule (4) fires, so the owner must decide before the timed test runs.
+Task 238: where the forest frame's "rest" goes (forest_eye, sun 16 deg, 432 rows, warm, p50).
 
-| check | result | limit |
+| piece | ms | walk_near |
 |---|---|---|
-| false shadows on slopes, away from cast-shadow edges | 0.000 % | 0.5 % |
-| acne on flat ground, sun 2-90 deg | 0 faces | 0 |
-| light leaks into deep caves | 0 | 0 |
-| 1-voxel dapple strength, N0 (0.05 m) | **37 %** (80 deg sun 49 %, 45 deg 13 %) | 75 % -> KILL |
-| 2-voxel / 3-voxel dapples, N0 | 49-73 % / 68-83 % | (not a rule) |
-| thin-roof caves at N3 (0.4 m) | up to 116 / 600 faces leak | residual |
-| cost proxy: exact ray vs contact ray | 74.0 vs 12.4 steps per face | -- |
+| CPU + fixed floor (tiny_gate) | 18.6 | 7.1 |
+| shells | 15.0 | 7.0 |
+| far band | 11.2 | 0-2.4 |
+| look passes (226 / 233 sky / 233 grade) | ~0 / 2.6 / 4.4 | -- |
+| tier-0 march + shading (what is left) | ~4 (at most 22) | ~15 |
+| trees (old vs dense, whole frame) | -54 | -- |
+| sun levers at 16 deg: sunres4 / clamp64 / sunfar64 / reuse16 | 10.9 / 8.9 / 10.3 / 5.2 | (noon ~0) |
 
-Image: `Screenshots/249/dapples_gap1_sun60.png` -- left panel is the exact sun through 1-voxel leaf gaps (bright dots); the next four are
-the cache's maps N0 to N3. Look at how the dots dim in N0 and vanish by N3: that loss is the failure.
-Report: `Screenshots/249/oracle.txt`.
+Next: the streaming-floor / shell task (row 2), then S2 (row 4). Open: turning off FSR 3 saves 59 ms here, not the expected ~6.
+Suspect: its jitter breaks the sun reuse. Report: `Screenshots/238/report.md`.
+Image: `Screenshots/238/A/forest_eye_full_clean.png`: the forest_eye frame. Look at the porous leaf crowns across the upper half at eye level:
+every ray through them runs long, which is why this pose costs 140 ms.
