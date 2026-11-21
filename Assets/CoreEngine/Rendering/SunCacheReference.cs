@@ -26,6 +26,13 @@
 //     (camera motion), then into next sliced over the period; dirty lines (an edited box's projection rectangle padded
 //     one texel) are rebuilt first, in every live slot.
 //
+//   - TASK 251, the near zone [1.3a] (owner Q-249 (b)): receivers nearer than NEAR_ZONE_VOX (12.8 m) whose four taps are
+//     not all lit continue the contact ray EXACTLY through the shadowing run (length = depth(Q) - the up-sun entry of the
+//     taps' runs + slack, read from the taps already fetched; capped at NEAR_LEG_CAP cells). Leg blocked -> shadow; leg clear
+//     past that entry -> lit (the tap lines are clear up-sun of their entry, by construction); capped -> the cache's answer.
+//     Blended into the plain cache answer over the zone's last 25 % (9.6-12.8 m). NearRule picks the variant (the tests
+//     compare ExactAll / Partial / NotLit; NotLit is the amendment's rule).
+//
 // Coordinates: integer voxel cells (bitwise: tile = texel >> 4, storage = (texel + offset) & 511). Float only appears in
 // sun space, relative to the slot's integer anchor (the camera's chunk), so no large floats enter addressing.
 // ==========================================
@@ -50,6 +57,16 @@ namespace VoxelEngine.Rendering
         public static readonly float[] MAP_OUTER_VOX = { 128f, 256f, 512f, 1024f };
         public static readonly int[] PERIOD = { 16, 32, 64, 64 };
         public const float BLEND_BAND = 0.1f;
+
+        // ---------------- task 251: the near zone (8.18 sec. 1.3a) ----------------
+        /// ExactAll = today's exact ray for every near face (no cache near you); Partial = the leg only where the taps disagree
+        /// (0 < vis < 1); NotLit = the leg wherever vis < 1 (the amendment's rule, sec. 1.3a).
+        public enum NearRule { Off, ExactAll, Partial, NotLit }
+        public const NearRule DEFAULT_NEAR_RULE = NearRule.NotLit;
+        public const float NEAR_ZONE_VOX = 128f;        // 12.8 m = N0's band
+        public const float NEAR_BLEND = 0.25f;          // blend near -> cache over 9.6-12.8 m
+        public const int NEAR_LEG_CAP = 128;            // cells (12.8 m along the sun)
+        public const float NEAR_LEG_SLACK_VOX = 2f;     // past the run's up-sun entry
         /// TASK 249 finding: line centres sit at (g + 0.5) x texel from an INTEGER anchor; for N2 / N3 (2 / 4 voxel texels)
         /// that is a whole voxel, so with the sun exactly on an axis in azimuth (U or V axis-aligned) a line runs exactly
         /// along a voxel face and the DDA picks the side by rounding (80 false shadows beside a wall at az 0, N2). Shifting
@@ -113,6 +130,12 @@ namespace VoxelEngine.Rendering
         public long linesBuilt, lineSteps, dirtyLinesQueued, dirtyLinesBuilt, tilesBuilt;
         public long lookups, contactOnlyLookups, fallbackReads;
         public readonly long[] mapReads = new long[MAPS];
+        public NearRule nearRule = DEFAULT_NEAR_RULE;
+        public int nearLegCap = NEAR_LEG_CAP;
+        public long nearLegs, nearLegSteps, nearLegCapped;
+        /// max over the taps that said shadow in the last SampleCascade of (depth(Q) - entry), voxels: how far up-sun the
+        /// shadowing run starts. Read by NearRefine; no extra taps.
+        public float lastShadowSpanVox;
 
         /// The texel words the last lookup actually WEIGHTED (both slots, all maps it blended): a test re-reads them to
         /// prove no sentinel ever entered a visibility.
@@ -278,6 +301,7 @@ namespace VoxelEngine.Rendering
             public int mapRead;            // the map actually read (>= map after fallbacks)
             public float3 Q;               // contact ray end, voxel units
             public int contactSteps;
+            public int legSteps;           // task 251: the near zone's exact leg (0 = not taken)
         }
 
         public static int PickMap(float receiverCamDistVox)
@@ -306,13 +330,52 @@ namespace VoxelEngine.Rendering
             if (c.skipped) { res.vis = 0f; res.contactBlocked = true; return res; }
             if (c.occluded) { res.vis = 0f; res.contactBlocked = true; res.mapRead = res.map; return res; }
             res.vis = SampleCascade(res.Q, res.map, forceMap < 0 ? receiverCamDistVox : -1f, out res.mapRead, out res.contactOnly);
+            if (nearRule != NearRule.Off && !res.contactOnly && receiverCamDistVox >= 0f && receiverCamDistVox < NEAR_ZONE_VOX)
+            {
+                float vn = NearRefine(res.Q, sunNow, res.vis, nearRule, out res.legSteps);
+                res.vis = math.lerp(vn, res.vis, NearBlendT(receiverCamDistVox));
+            }
             return res;
+        }
+
+        /// 0 = the near answer, 1 = the plain cache answer; ramps over the zone's last NEAR_BLEND.
+        public static float NearBlendT(float receiverCamDistVox)
+        {
+            float start = NEAR_ZONE_VOX * (1f - NEAR_BLEND);
+            return math.saturate((receiverCamDistVox - start) / (NEAR_ZONE_VOX * NEAR_BLEND));
+        }
+
+        /// TASK 251 (8.18 sec. 1.3a): the near zone's answer for a face whose cache answer is cacheVis (taps just read by
+        /// SampleCascade, which left lastShadowSpanVox). Exact DDA from Q (the contact end) over the mirror.
+        public float NearRefine(float3 Q, float3 sunNow, float cacheVis, NearRule rule, out int legSteps)
+        {
+            legSteps = 0;
+            float3 s = math.normalize(sunNow);
+            switch (rule)
+            {
+                case NearRule.Off: return cacheVis;
+                case NearRule.ExactAll:
+                {
+                    bool h = ExactRay(mirror, Q, s, out legSteps);
+                    nearLegs++; nearLegSteps += legSteps;
+                    return h ? 0f : 1f;
+                }
+                case NearRule.Partial: if (!(cacheVis > 0f && cacheVis < 1f)) return cacheVis; break;
+                case NearRule.NotLit: if (cacheVis >= 1f) return cacheVis; break;
+            }
+            float need = lastShadowSpanVox + NEAR_LEG_SLACK_VOX;
+            bool capped = need > nearLegCap;
+            bool hit = ExactRay(mirror, Q, s, out legSteps, maxT: capped ? nearLegCap : need);
+            nearLegs++; nearLegSteps += legSteps; if (capped) nearLegCapped++;
+            if (hit) return 0f;
+            return capped ? cacheVis : 1f;
         }
 
         /// Map k (falling back to coarser maps), with the 10 % blend into k + 1 near k's outer edge. distVox < 0 = no blend.
         public float SampleCascade(float3 Q, int k, float distVox, out int mapRead, out bool contactOnly)
         {
             contactOnly = false;
+            lastShadowSpanVox = 0f;
             int m = k;
             float v = 0f;
             for (; m < MAPS; m++)
@@ -378,7 +441,9 @@ namespace VoxelEngine.Rendering
                 }
                 lastTaps.Add(word);
                 float wt = (i == 0 ? 1f - w.x : w.x) * (j == 0 ? 1f - w.y : w.y);
-                acc += wt * (RunLit(word, dq) ? 1f : 0f);
+                bool lit = RunLit(word, dq);
+                if (!lit) lastShadowSpanVox = math.max(lastShadowSpanVox, dq - EntryVox(word));
+                acc += wt * (lit ? 1f : 0f);
             }
             vis = acc;
             return true;
@@ -567,7 +632,7 @@ namespace VoxelEngine.Rendering
         /// True = blocked. `steps` = cells visited inside the box. Used for edge bands and the step proxy.
         /// `skipStartRun`: a point that starts inside solid first walks out of it (it stands on that surface, the edge-band
         /// question "would a point one texel over, on this surface, see the sun"); the solid it starts in does not block.
-        public static bool ExactRay(MirrorBox m, float3 p, float3 dir, out int steps, bool skipStartRun = false)
+        public static bool ExactRay(MirrorBox m, float3 p, float3 dir, out int steps, bool skipStartRun = false, float maxT = float.PositiveInfinity)
         {
             bool skipping = skipStartRun;
             steps = 0;
@@ -593,7 +658,7 @@ namespace VoxelEngine.Rendering
                 float tNext;
                 if (tm.x < tm.y) { if (tm.x < tm.z) { c.x += st.x; tNext = tm.x; tm.x += tDelta.x; } else { c.z += st.z; tNext = tm.z; tm.z += tDelta.z; } }
                 else { if (tm.y < tm.z) { c.y += st.y; tNext = tm.y; tm.y += tDelta.y; } else { c.z += st.z; tNext = tm.z; tm.z += tDelta.z; } }
-                if (tNext >= t1) return false;
+                if (tNext >= t1 || tNext >= maxT) return false;
             }
             return false;
         }

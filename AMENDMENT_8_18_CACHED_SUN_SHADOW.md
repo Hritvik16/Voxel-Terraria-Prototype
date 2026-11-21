@@ -5,6 +5,12 @@ sunlight is computed, keep the leaves" (`PERF_SLICE_BUDGETS.md` sec. 7b alternat
 reason: "1 looks better than 2 as 2 doesnt account for the player messing with the leaves potentially" -- so an edit must update the
 cached shadow at once (sec. 2.4).
 
+**Revised by task 251, 2026-11-21 (owner Q-249 (b), "go with recommended"):** task 249's CPU twin fired kill rule (4) -- the cache
+alone keeps 1-voxel leaf dapples at 37 % strength. The fix is a **near zone** (sec. 1.3a): within 12.8 m of the camera, a face the
+cache does not call fully lit continues its contact ray EXACTLY through the shadowing run, so 1-voxel dapples are exact near you
+(100 % in the twin), and further out the cache softens them. Sections touched: 0, 1.3, 1.3a (new), 2.4, 3.1-3.3, 4, 5, 6, 7, 8.
+Still DRAFT, NOT ADOPTED until the timed kill test (now `tools/overnight/later/252b-suncache-kill-timing.md`) answers.
+
 Labels: **est.** = arithmetic on a measured number (source named). **guess** = judgement, no measurement. Nothing here was timed.
 
 Main sources: `ARCHITECTURE_v8.6.md` §6.1-6.5 and C.10; 8.2's camera-distance LOD rule (inside §6.5); `AMENDMENT_8_12_PHASE7_GATE.md`;
@@ -27,16 +33,21 @@ rays creep through leaf crowns 0.1 m at a time and then on through the shells: 5
 The cache turns this around. A few times a second, the GPU traces lines FROM the sun side across the 0.1 m window, one line per
 texel of a set of sun-facing maps, and stores where each line first meets solid voxels and where it comes out again. A pixel then
 needs only (1) a short exact ray of at most 8 voxels from its face toward the sun, so small detail still shadows itself crisply, and
-(2) four reads of the map. The map is derived GPU state, written from the CPU-written mirror exactly like the mirror itself.
+(2) four reads of the map; (3) within 12.8 m of the camera, if those reads do not say "fully lit", the exact ray goes on through the
+shadowing leaves (sec. 1.3a), so one-voxel leaf dapples near you are exact. The map is derived GPU state, written from the CPU-written mirror exactly like the mirror itself.
 
 - **Edits** (cutting leaves, digging, building) re-trace only the lines through the edited bricks, in the same frame, before the
   frame is lit (sec. 2.4). ~700 lines per changed brick, est. 0.1-0.4 ms (guess).
 - **Look:** shadows stay per-voxel-face (§6.1). Edges are placed to within one map texel: 0.05 m near the player, 0.4 m at the
-  window's edge (about 1.6-3 render pixels everywhere). Leaf dapples of one voxel survive at full strength within ~13 m, at about half
-  strength to ~26 m. Long dawn/dusk shadows are KEPT at full length (no ray cap).
-- **Saving (guess):** forest 16 deg sun 54.7 -> 8-16 ms plus 4-10 ms off the sky fill's bounce; walk_near 12.9 -> 6-11 ms (little).
-  Night: nothing (no sun rays at night today). Memory est. +13.4 MB (step 1) to +27.0 MB (with the shell maps), minus 8.0 MB of sun
-  history it makes unnecessary at 432 rows.
+  window's edge (about 1.6-3 render pixels everywhere). **Leaf dapples of one voxel are exact within 9.6 m** (the near zone, task 251:
+  100 % strength in the CPU twin), fade to the cache's answer over 9.6-12.8 m, and beyond 12.8 m the cache softens them (1-voxel
+  gaps at 4-32 % in N1, 1-12 % in N2; 2-voxel gaps 36-62 % in N1; the spot is then 1-3 render pixels). Long dawn/dusk shadows are KEPT at
+  full length (no ray cap).
+- **Saving (guess):** forest 16 deg sun 54.7 -> 8-16 ms (task 247's guess) plus 4-10 ms off the sky fill's bounce; the near zone
+  raises the cached sun's step count by x1.1 (legs reused 1 in 4, the recommended form) to x1.5 (legs every frame), est. from the
+  step proxy (sec. 4), so roughly **9-23 ms** if ms followed steps (est.; nothing timed). walk_near 12.9 -> 6-11 ms (little; every
+  receiver there is in the near zone). Night: nothing (no sun rays at night today). Memory est. +13.4 MB (step 1) to +27.0 MB (with the
+  shell maps); the 8.0 MB sun history is KEPT for the near legs in the recommended form (task 247 had hoped to free it).
 - **It does not finish the forest.** Est. forest 16 deg after the cache: ~79-93 ms; the unsplit "rest" (55 ms) and the sky rays
   remain. It removes the need for two owner give-ups: capping long low-sun shadows (F1/S2) and capping the bounce sun ray (F2/S5).
 - **Kill test first** (sec. 7): a CPU twin against `ShadowRayReference` on adversarial slopes, poles and canopies (EditMode, no idle
@@ -55,6 +66,8 @@ needs only (1) a short exact ray of at most 8 voxels from its face toward the su
                           F                  Q beyond a texel's exit  -> that texel says "shadow"
                                              Q before / inside the run -> "lit" (Q is on the receiver's own surface)
                                           3. bilinear weight of the 4 answers = sunVis (edge soft by <= 1 texel)
+                                          4. NEAR ZONE (F < 12.8 m from the camera) and sunVis < 1: go on from Q exactly, up-sun past
+                                             the taps' run entry (<= 128 cells): blocked -> shadow, clear -> lit (sec. 1.3a)
    FAR: lines that reach the window edge unblocked ask the far map: is anything in the shells / far band up-sun? (sec. 1.3)
 ```
 
@@ -126,14 +139,75 @@ bitwise, CLAUDE.md invariant; the anchor is an integer voxel coordinate at the c
   16 deg, a third of the sun steps; 244). Built by ShellMarch with the current camera. Until step 2, shell-hit pixels keep today's ray.
 - **Slots:** each refresh period builds a NEW slot with the sun direction of that moment while the two previous slots are displayed
   in a crossfade (sec. 2.2). S5-S9 use two slots and swap without a fade (their staleness is far inside their penumbra).
-- **Resolution near the camera (the owner's dapples).** Shadows stay one value per voxel face (the lookup starts from the face's origin
-  cell, §6.5), so the map only has to say which faces are lit. One-voxel (0.1 m) gaps in a crown: N0 (0.05 m) always has a whole texel
-  inside the gap -> **full-strength dapple to 12.8 m**; N1 (0.1 m) catches it partly -> **~25-100 %, about half on average, 12.8-25.6 m**;
-  N2 -> ~25 % at 25.6-51 m (a 0.1 m spot there is 1-4 render pixels). Two-voxel gaps are full strength to 25.6 m, three-voxel to 51 m.
+- **Resolution near the camera (the owner's dapples) -- REVISED by task 251.** Shadows stay one value per voxel face (the lookup
+  starts from the face's origin cell, §6.5), so the map only has to say which faces are lit. Task 247 claimed N0 (0.05 m) "always has a
+  whole texel inside a 1-voxel gap"; task 249's twin disproved it: the 4 bilinear taps reach one texel from Q, and a 1-voxel hole in a
+  1-voxel leaf layer passes light only through a sliver narrower than a voxel once the sun is off vertical, which texel-centred lines
+  miss. Measured cache-only strength of 1-voxel dapples (sun 80/60/45, 8 azimuths, `Logs/overnight/251/oracle_4b_near_dapples.txt`):
+  N0 49/38/13 %, N1 32/18/4 %, N2 1-12 %, N3 0-4 %; 2-voxel gaps N0 49-73 %, N1 36-62 %; 3-voxel N0 68-83 %, N1 58-74 %. A continuous
+  model agrees, so no texel map at 0.05 m reaches 75 %. **So the near zone (1.3a) carries the 1-voxel dapples, and the maps carry
+  everything else.** Beyond 12.8 m the softening above is accepted (owner Q-249 (b)); a 0.1 m spot there is 1-3 render pixels.
 - **Edge softening by distance** (cast-shadow edge position error, at most one texel, shown as a bilinear ramp):
   0.05 m to 12.8 m, 0.1 m to 25.6 m, 0.2 m to 51 m, 0.4 m to 102 m; far-band occluders 1.6 m (inside their own penumbra). Within
-  0.8 m of the receiver (the contact ray) there is no error at all. On ground lit at 16 deg a texel stretches 1 / sin 16 = 3.6x along
+  0.8 m of the receiver (the contact ray) there is no error at all, nor on near-zone faces whose leg ran (sec. 1.3a). On ground lit at 16 deg a texel stretches 1 / sin 16 = 3.6x along
   the sun azimuth, exactly as the voxel faces' shadows do today.
+
+### 1.3a The near zone: the exact ray carries the dapples near you (task 251, owner Q-249 (b))
+
+**Rule (`SunCacheReference.NearRefine`, rule `NotLit`).** For a face whose receiver is < `NEAR_ZONE` = 12.8 m from the camera (8.2's
+receiver distance, the quantity that already picks the map) and whose cache answer (steps 1-4 of sec. 3.2) is **not fully lit**
+(sunVis < 1, i.e. at least one tap said shadow):
+1. `span` = max over the taps that said shadow of (depth(Q) - entry): how far up-sun the shadowing run STARTS. It comes from the 4 taps
+   already read (no extra taps, no extra memory).
+2. Continue the contact ray exactly (today's tier-0 DDA, `ShadowRayReference.Trace` semantics) from Q for `span + 2` voxels, capped at
+   `NEAR_LEG_CAP` = 128 cells (12.8 m along the sun). Early-out on the first solid, as today.
+3. Leg blocked -> 0 (shadow). Leg clear past the run's entry -> 1 (lit): by construction each tap's line is clear up-sun of its entry
+   to the window edge, so the sun is open there (times (1 - F), as for any lookup). Leg capped before the entry -> the cache's answer.
+4. Faces the cache calls fully lit take no leg (open ground, the sunny side of a trunk): the cost stays the contact ray there.
+5. **Blend:** answer = lerp(near, cache, t), t = 0 below 9.6 m rising to 1 at 12.8 m (the zone's last 25 %). It is continuous in the
+   receiver distance, so there is no line on the ground; dapples fade from exact to the cache's strength over 3.2 m. N0 is still read
+   everywhere in the zone (it decides "fully lit" and is the blend target).
+
+**Why this rule (data, `Logs/overnight/251/oracle_4b_near_dapples.txt`; 3 m canopy, 1-voxel gaps, suns 45/60/80 x 8 azimuths, 1,572
+dapple faces).** Three candidates, steps = the 249 proxy (raw 0.1 m DDA cells per face, contact ray included):
+
+| near rule | 1-voxel dapple strength (kill set) | steps/face, all canopy cases (exact 82.7) | legs on |
+|---|---|---|---|
+| ExactAll: today's exact ray for every near face | 100 % | 83.3 (x1.01) | 100 % |
+| Partial: leg only where the taps disagree (0 < vis < 1) | **74.7 %** (sun 45: 18.6 %) -> FAILS 75 % | 16.4 (x0.20) | 6 % |
+| **NotLit: leg wherever vis < 1 (chosen)** | **100 %** | 68.7 (x0.83) | 88 % |
+
+Partial is cheap but misses dapples where all 4 taps say shadow (the sliver between texel centres, the same cause as 249's failure).
+NotLit is the cheapest rule that passes. It saves against ExactAll where the cache says lit (open ground: contact ray only) and where
+a leg comes out clear (it stops at the run's entry instead of the window edge, and skips the shell continuation). It saves NOTHING on a
+face in deep shade: that leg stops at the first leaf, exactly as today's ray does. Under a full canopy at a high sun NotLit costs
+about what today's ray costs (canopy 45-80 deg: 37-71 steps/face vs exact 38-75); at a 16 deg sun on the same scene (48 % shaded)
+85 vs 149. Over every oracle scene: 58.9 vs 80.8 steps/face (x0.73).
+
+**Leg cap.** Sweep (gap 1, NotLit): cap 16 keeps 13-38 %, cap 32 fails at 45 deg (13 %), cap 64 passes 45-80 deg, cap 128 also covers
+the 16 deg case; 256 changes nothing here. A crown top is crossed while (cap + 8) x sin(sun) x 0.1 m >= its height above the face:
+cap 128 crosses 9.6 m of crown at a 45 deg sun, 6.8 m at 30 deg, 3.7 m at 16 deg. Above that the leg is capped and the face takes the
+cache's (softer) answer -- at a low sun, dapples from high crowns are softened even near you (accepted; reported, not hidden).
+
+**Zone size.** 12.8 m = N0's band. A 0.1 m dapple is 3.2 render pixels at 12.8 m (432 rows, 2.42 mrad/px) and 1.6 at 25.6 m, so the
+exact spot matters most inside 12.8 m. The leg work scales with the screen share inside the zone (sec. 4); a 6.4 m zone would cut it
+roughly in proportion to its smaller share (guess) and is the lever if 252b says the legs are too dear.
+
+**Legs every frame, or reused (recommended: reused).** On the cache path every face is looked up every frame (no temporal reuse,
+sec. 3.1). The legs are the one per-face part that is still a long-ish ray, so the recommended form keeps today's `-tshadow` reuse
+(task 56's `ShadowOriginKey` history, 1 in 4) FOR THE LEG RESULT ONLY: a near face whose turn it is not reads its keyed history
+instead of running the leg; the contact ray and the 4 taps still run every frame. Cost: x1.1 instead of x1.5 on the cached sun's
+steps (sec. 4); memory: the 8.0 MB sun history (432 rows) is kept, not freed. **Same-frame edits (sec. 2.4) still hold:** today's
+history has NO edit invalidation (TASKS.md, `-shadowreuse`), so the near zone adds one: a frame whose dirty boxes come within
+12.8 m + 12.8 m (zone + leg cap) of the camera runs every near leg that frame (no history read), a bounded spike of one frame at the
+no-reuse cost. 247c builds both forms behind a switch; 252b times the per-frame form (the upper bound).
+
+**Correctness (CPU twin, all 9 cases re-run, `Logs/overnight/251/oracle.txt`):** the N0+near rows never regress the cache rows:
+slopes 0 false shadows out of band (all 7 slopes, 4 suns, 8 azimuths); flat ground 0 acne at suns 2-90 deg; pole/wall 0 foot gaps
+and FEWER edge mismatches than N0 alone (11 false shadows / 15 false lit vs 35 / 75 of 86,154 faces); deep room 0 leaks (5a) and
+the thin-roof rooms 5b/5c 0 leaks in the zone (as N0 alone; 249's 5b/5c leaks are at N2/N3, outside it); moving camera + sun with crossfading slots: near-zone strength
+97-98 %, 1 false shadow and 0-2 false lit in 2,382 sampled faces, 0 sentinel reads. The Lookup path's zone + blend matches the oracle
+rows on 6,400 faces (asserted).
 
 ---
 
@@ -192,7 +266,8 @@ maps at once is ~4 frames of today's sun work (guess) and is never done in one f
   One changed 0.8 m brick at a 16 deg sun: N0 ~23 x 22 = ~500 lines, N1 ~130, N2 ~35, N3 ~10: **~700 lines** (est., geometry). Every
   live slot (prev, cur, next) gets them, or the crossfade would blend in the stale shadow.
 - **When.** Frame order: CPU edit -> `UploadDirty` (mirror) -> `CSSunCacheBuild` (dirty lines first, then the period slice) -> primary
-  kernels (lookup) -> `CSSkyFillTrace` (lookup). So **a cut leaf's sun patch appears on the floor in the same frame**. Budget: dirty
+  kernels (lookup) -> `CSSkyFillTrace` (lookup). So **a cut leaf's sun patch appears on the floor in the same frame**. In the near
+  zone the leg reads the mirror directly (already updated), and a near edit turns the leg's history off for that frame (sec. 1.3a). Budget: dirty
   lines first, capped at 8 k lines per frame (guess); a 2 m blast (~30-60 bricks, ~5-15 k overlapping lines) finishes in 1-2 frames,
   centre first.
 - **Cost per edit (guess):** ~700 lines x ~100 steps = 0.07 M coherent steps -> 0.1-0.4 ms (today's divergent sun rays cost ~5.9 ms
@@ -225,9 +300,9 @@ over seconds (KNOWN_ISSUES streaming entries), so this is inside an existing fil
 
 | today | with the cache |
 |---|---|
-| `SunTraceFace` tier-0 branch: `TraceShadowRay` (full length, soft C.10) + task 133's shell continuation | contact ray (<= 8 cells, exact, soft C.10 on those cells) + near-map lookup x far map F |
+| `SunTraceFace` tier-0 branch: `TraceShadowRay` (full length, soft C.10) + task 133's shell continuation | contact ray (<= 8 cells, exact, soft C.10 on those cells) + near-map lookup x far map F; in the near zone (< 12.8 m) and not fully lit: + the exact leg through the shadowing run (<= 128 cells, sec. 1.3a) |
 | task 80's shell-hit sun ray (`ShellMarch` from the face, every frame) | step 1: unchanged; step 2: contact-free lookup in S4-S9 |
-| temporal reuse (`-tshadow`, 1 in 4) and task 232's low-res sun records | not used on the cache path (no history read, no `SunRec`): task 56's "shadow dots" class cannot occur, and 8.0 MB of history is freed at 432 rows |
+| temporal reuse (`-tshadow`, 1 in 4) and task 232's low-res sun records | not used for the lookup; KEPT (recommended form, sec. 1.3a) only for the near zone's leg result, keyed by `ShadowOriginKey` as task 56 fixed it, plus an edit invalidation; the 8.0 MB history at 432 rows stays (the per-frame form frees it) |
 | sky fill mode 2 bounce leg: `TraceShadowRay` from the ground hit's entry face (l. 4811) | near-map lookup x F at that face, no contact ray (one of 16 averaged samples; exactness is not visible there) |
 | sky fill's sky-direction rays | unchanged (they go up the hemisphere, not toward the sun) |
 
@@ -237,13 +312,16 @@ over seconds (KNOWN_ISSUES streaming entries), so this is inside an existing fil
 2. **Contact ray:** today's DDA toward the sun for at most `L_c` = 8 cells (0.8 m; one brick), soft term tracked as C.10 does. Blocked
    -> done (exact, as today). Small detail (a pebble, a step, a leaf right above a leaf) self-shadows crisply at every distance.
 3. Q = the contact ray's end. Map k = by the RECEIVER's camera distance (the 8.2 rule's quantity), with a 10 % blend band at each
-   map's outer edge. If Q's texels are the sentinel, use map k + 1.
+   map's outer edge. If Q's texels are the sentinel, use map k + 1 (and no near leg: a face with no built map is contact-only, 2.5).
 4. Read the 4 texels around Q (in `cur`, and `prev` while fading: 8 taps), answer per texel with the run rule (1.2), eps = 1/2 voxel;
    weight bilinearly. Multiply by (1 - F at Q) (bilinear, 4 taps).
+4a. **Near zone** (receiver < 12.8 m, sunVis < 1): the exact leg of sec. 1.3a from Q, length span + 2 voxels (<= 128 cells); blocked
+   -> 0, clear past the entry -> 1, capped -> keep step 4's answer; blend near -> cache over 9.6-12.8 m.
 5. Soft term: the blocker distance b = depth(Q) - exit (texels that said shadow) + L_c. If kSoft > 0, widen the footprint to
    r = clamp(kSoft x b / texel, 1, 3) texels with 4 rotated taps (PCSS-lite), reproducing C.10's "penumbra grows with clearance
    ratio" look. Hard-shadow mode (§6.5 rung 2) = step 4 only.
-6. Bounded cost: <= 8 DDA steps + 8-16 taps per face, no loop whose length depends on the scene. The slowest lane is bounded.
+6. Bounded cost: <= 8 DDA steps + 8-16 taps per face, plus <= 128 leg cells for near faces the cache does not call lit; no loop whose
+   length depends on the scene beyond that cap. The slowest lane is bounded (8 + 128 cells, as against today's p95 of 160-175 steps).
 
 ### 3.3 Precision traps and how each is handled
 
@@ -258,6 +336,8 @@ over seconds (KNOWN_ISSUES streaming entries), so this is inside an existing fil
 | **Sun moving between slices** | slots of different suns | 3 slots + crossfade (2.2); every dirty line goes into every live slot | staleness test: error vs exact <= 1/3 soft spread |
 | **Teleport** | every slot invalid | 2.5 | teleport twin test |
 | **Ghost shadows (8.2)** | shadow geometry at a different LOD than drawn | N maps read the single tier-0 LOD; F and S maps build with ShellMarch(camera) = the drawn shells; rebuilt on shell uploads | 8.2's mountain-silhouette check in the step-2 pictures |
+| **Seam at the near zone's edge** (task 251) | exact dapples inside, softened outside | distance blend 9.6-12.8 m, continuous in the receiver distance; no hard switch | C4b asserts Lookup's blend = the oracle rows; `Screenshots/251/near_dapples_gap1_sun60.png` |
+| **Residual: leg capped** (crown top higher than (128 + 8) x sin(sun) x 0.1 m above the face: 3.7 m at 16 deg) | the leg cap | that face takes the cache's softer answer: low-sun dapples from high crowns are softened near you too | C4b's cap sweep (reported) |
 | **Toroidal aliasing (§6.2 phantom terrain)** | non-power-of-two rings | 512 and 32 tiles, `& 511`, integer anchors | the ring test every new ring gets |
 
 ---
@@ -269,19 +349,38 @@ Today's numbers: 235 (`Logs/budget/2026-11-17_235256/check.txt`), 233 (forest no
 
 | pose | sun today ms | sun steps today (244) | cache: lines/frame + per-face | cache steps (guess) | **sun with cache, ms (guess)** | sky fill bounce leg | tier-A slice "sun shadows" 5.0 ms |
 |---|---|---|---|---|---|---|---|
-| forest_eye 16 deg | **54.7** | 9.26 M (153.6 k rays, 60/ray, 47 % in shells) | ~15 k lines x ~100 + ~0.2 M faces x <= 8 | ~1.5 M coherent + ~1 M bounded | **8-16** (step 1 ~12-22: shell-hit ray stays) | 25.5 ms total sky fill today; bounce sun leg share unknown -> **-4..-10** | over (forest cap 50 ms applies) |
+| forest_eye 16 deg | **54.7** | 9.26 M (153.6 k rays, 60/ray, 47 % in shells) | ~15 k lines x ~100 + ~0.2 M faces x <= 8 + near legs (sec. 4a) | ~1.5 M coherent + ~1 M bounded + **0.25-1.2 M legs** (est., 4a) | **8-16** (247's guess, no legs); **x1.1-1.5 on steps with the near zone** (step 1 ~12-22: shell-hit ray stays) | 25.5 ms total sky fill today; bounce sun leg share unknown -> **-4..-10** | over (forest cap 50 ms applies) |
 | forest_eye noon | 18.2 (233) | 4.42 M (155.0 k rays, 28.5/ray; `costsplit_noon.txt`) | same, shorter lines | ~1 M + ~1 M | **5-9** | small | about at slice |
-| walk_near 16 deg | 12.9 | 2.36 M (83 k rays, 28/ray) | N0 mostly; lines skim open ground from the window edge (long) | ~1-1.5 M + ~0.5-1 M | **6-11** (little gain: short rays today) | ~0 (sky fill ~0 here, 235) | about at / over slice |
+| walk_near 16 deg | 12.9 | 2.36 M (83 k rays, 28/ray) | N0 mostly; lines skim open ground from the window edge (long); all receivers in the near zone | ~1-1.5 M + ~0.5-1 M + legs only on shaded faces (open meadow: few) | **6-11** (little gain: short rays today; the near zone adds legs only where the cache says shade) | ~0 (sky fill ~0 here, 235) | about at / over slice |
 | jungle_eye noon | 15.5 | not counted | like forest noon | -- | **5-9** | unknown | about at slice |
 | torch night | 0 | 0 | idle | 0 | **0** | 0 | n/a (flood slice 1.0) |
+
+**4a. The near zone's cost (task 251; est. from the 249/251 step proxy, no timing).** Proxy = raw 0.1 m DDA cells per face: today's
+exact ray 74.0 (249's scenes), contact ray 12.4; the NotLit rule costs x0.73 of the exact ray over all oracle scenes (58.9 vs 80.8,
+`Logs/overnight/251/oracle_00_step_proxy.txt`) -> ~54 per near face; x0.57 on a 16 deg canopy with half the faces shaded; up to ~x1.0
+under full shade at a high sun. Near share of the faces = screen share inside 12.8 m (248's coverage, `Screenshots/248/coverage.txt`:
+0-10 m band + a guessed 10-20 % of the 10-40 m band) over the hit pixels:
+
+| forest_eye 16 deg | near share of faces | steps/face, legs every frame | legs reused 1 in 4 (recommended) | 247 (contact only) | today (exact) |
+|---|---|---|---|---|---|
+| current trees (248 dense: 0-10 m 23.5 %, 10-40 m 43.6 % with 22.9 % leaf) | 0.30-0.35 | 24.8-26.7 | 15.5-16.0 | 12.4 | 74.0 |
+| old trees (248 today: 0-10 m 41.5 %, wood 19 %) | 0.51-0.56 | 33.7-35.6 | 17.7-18.2 | 12.4 | 74.0 |
+
+Frame-level (est.): scale 247's ~1 M per-face steps by those ratios and keep its ~1.5 M of line build. Current trees: 3.5-3.7 M per
+frame with legs every frame (**x1.40-1.46 of 247's 2.5 M**; 0.38-0.40 of today's 9.26 M) or 2.75-2.8 M reused (**x1.10-1.12**; 0.30).
+Old trees: 4.2-4.4 M (x1.69-1.75) or 2.9-3.0 M (x1.17-1.19). **Of 247's step cut (9.26 -> 2.5 M), 83-85 % survives with legs every
+frame and 96 % with reused legs (current trees); 72-75 % / 93-94 % on old trees.** If ms followed steps, 247's 8-16 ms guess becomes
+~9-18 ms (reused) to ~11-23 ms (every frame), est. only. Sensitivity: if every near face were in deep shade (NotLit = x1.0 of exact),
+the per-frame form reaches 30.9 steps/face (current trees, x1.6 of 247's total).
 
 - **Steady cost while the sun moves** = the rows above (the period slices are in them). **Clock stopped:** build ~0 (dirty + new tiles
   only): lookup ~2-5 ms at forest (guess).
 - **Per edit:** one brick 0.1-0.4 ms; a 2 m blast 0.5-2 ms in one or two frames (guess, 2.4).
 - **Teleport:** 4-8 frames at a doubled line budget, inside the window refill (2.5).
 - **GPU memory (est., arithmetic):** step 1 (N0-N3 x 3 slots 12 MiB + F 0.75 MiB) = **13.4 MB**; step 2 adds S4 3 MiB + S5-S9 10 MiB
-  = **27.0 MB total**. Freed: the sun history (`SunRec` 12 B x 2 x 331,776 px) **8.0 MB at 432 rows, 12.4 MB at 540**. Net **+5.4 MB**
-  (step 1) / **+19.0 MB** (step 2) at 432 rows. CPU: tile tables < 0.1 MB. Rule 11 default (+50 MB): inside.
+  = **27.0 MB total**. The sun history (`SunRec` 12 B x 2 x 331,776 px, **8.0 MB at 432 rows, 12.4 MB at 540**) is KEPT in the
+  recommended form (it holds the near legs, sec. 1.3a): net **+13.4 MB** (step 1) / **+27.0 MB** (step 2); with legs every frame it is
+  freed: net +5.4 / +19.0 MB at 432 rows. CPU: tile tables < 0.1 MB. Rule 11 default (+50 MB): inside either way.
 - **Tier-A slices (rule 14, `PERF_SLICE_BUDGETS.md` sec. 2):** frame -- fits the "sun shadows 5.0 ms" slice on typical poses at the
   optimistic end, over it at the pessimistic end (walk 6-11); takes nothing from other slices (the build is inside 8.17's S2 step;
   the bounce lookup lowers the sky slice). Memory -- a new line "sun cache 13-27 MB" from the 379 MB headroom, less the freed history.
@@ -289,11 +388,13 @@ Today's numbers: 235 (`Logs/budget/2026-11-17_235256/check.txt`), 233 (forest no
   (1/16-1/64 of demanded tiles + dirty lines); ~15-25 k lines/frame, step cap per line = the mirror box diagonal (2,048) + RUN_CAP;
   0 texture taps (reads mirror, air mips, occupancy); GPU bytes +13.4 / +27.0 MB; 8.17 step **S2**, share 5.0 ms shared with the
   lookup. **Lookup change** (in the far-shading primary kernels and `CSSkyFillTrace`): per face <= 8 DDA steps + 8-16 taps, replacing
-  a ray of 28-60 steps average (p95 160-175 at forest). No new pass at OUTPUT resolution; no new per-pixel ray march (the per-pixel
-  march gets SHORTER). The new pass is what this amendment asks approval for (rule 12).
+  a ray of 28-60 steps average (p95 160-175 at forest); near faces the cache does not call lit add the leg (<= 128 cells; sec. 4a).
+  No new pass at OUTPUT resolution; no new per-pixel ray march (the per-pixel march gets SHORTER: the leg is today's ray, cut at the
+  shadowing run's entry and limited to the near zone). The new pass is what this amendment asks approval for (rule 12).
 - **Why this differs from sec. 7b (a)'s "3-8 ms" guess:** the build is not free -- at a low sun the lines skim open ground across the
   whole window, and the maps must refresh every 0.5-2 s. The honest range is 8-16 at forest 16 deg.
-- **Forest 16 deg frame after the cache (guess):** 135.4 - (54.7 - 8..16) - (4..10) = **~79-93 ms**. The forest still needs sec. 6's
+- **Forest 16 deg frame after the cache (guess):** 135.4 - (54.7 - 8..16) - (4..10) = **~79-93 ms** (247); with the near zone's
+  legs (x1.1-1.5 on the cached sun's steps, 4a) **~80-100 ms** (guess). The forest still needs sec. 6's
   other levers (F3 solid cores, F5 rows) and the "rest" split; the cache replaces only F1 and F2.
 
 ---
@@ -302,7 +403,7 @@ Today's numbers: 235 (`Logs/budget/2026-11-17_235256/check.txt`), 233 (forest no
 
 | pose | change you could see | change you should not see |
 |---|---|---|
-| forest_eye 16 deg | dapples farther than ~13 m a little dimmer (1-voxel gaps half strength at 13-26 m); crown-shadow edges 26-102 m off by up to 0.2-0.4 m (soft spread there is already 0.5-2 m) | long low-sun shadows across the valley: KEPT, full length; shade under crowns |
+| forest_eye 16 deg | 1-voxel dapples exact within 9.6 m (near zone; except under crowns higher than ~3.7 m above the face at this sun: leg capped), fading to the cache over 9.6-12.8 m; beyond 12.8 m dimmer (1-voxel gaps 4-32 % at 13-26 m, mostly gone past 26 m; 2-voxel 36-62 %); crown-shadow edges 26-102 m off by up to 0.2-0.4 m (soft spread there is already 0.5-2 m) | long low-sun shadows across the valley: KEPT, full length; shade under crowns |
 | forest_eye noon | same as above, shorter shadows | -- |
 | walk_near 16 deg | nothing expected (all receivers < 13 m: N0 + contact ray); the grazing-staircase residual (sec. 3.3) is the thing to look for | -- |
 | jungle_eye | as forest | -- |
@@ -331,7 +432,8 @@ at 5/20/40 m (dapple strength per map); (5) a ridge thicker than RUN_CAP with a 
 (report); (7) edit: remove one leaf voxel -> only its lines change -> match the reference after the dirty pass; (8) moving camera and
 moving sun -> never a sentinel read as lit; staleness bound; (9) toroidal wrap at 511/0. Report a per-map error table
 (`Logs/overnight/247a/oracle.txt`). **Kill/stop if:** false shadows > 0.5 % of reference-lit faces outside 1-texel edge bands on any
-slope > 3.6 deg off grazing, or 1-voxel dapples in N0 below 75 % strength, or any leak behind case (5). Also reports the build's
+slope > 3.6 deg off grazing, or 1-voxel dapples ~~in N0~~ **inside the near zone (sec. 1.3a, task 251; was "in N0")** below 75 %
+strength, or any leak behind case (5). Also reports the build's
 steps per line vs the reference's steps per face on the same scenes (a step-count proxy, no timing). No memory/pass card (no drawing).
 
 > **Task 249 result (2026-11-20; `Screenshots/249/oracle.txt`):** kill rule (4) FIRES -- 1-voxel dapples in N0 reach 37 % strength (80 deg
@@ -346,20 +448,32 @@ steps per line vs the reference's steps per face on the same scenes (a step-coun
 > Step proxy (raw 0.1 m DDA cells, no leaps, the oracle's scenes): reference 74.0 steps/face, contact ray 12.4 steps/face; line build N0 59.3,
 > N1 81.9, N2 125.9, N3 177.2 steps/line.
 
-**247b -- the one timed kill test (performance task, idle Mac, overnight). Model: opus.**
-Capture-only arm `-costarms suncontact`: the far-shading kernels cap the tier-0 sun ray at 8 cells and skip task 133's continuation
-(the per-face part of the cache, without the map), plus 8 dummy taps of a constant texture. Warm-up launch, then ABBA cost split
-(`sun_off`, `suncontact`, today) at forest_eye 16 deg and walk_near 16 deg, 432 rows. **Kill if** forest `suncontact - sun_off`
-> 15 ms (the per-face part alone would eat the saving: then the kernel itself, not the ray length, is the cost -- 124/232's warning).
-**Go if** < 8 ms. Between: owner call. ~45 min of an idle Mac.
+> **Task 251 result (2026-11-21; owner Q-249 (b); `Logs/overnight/251/oracle.txt`):** kill rule (4) REWRITTEN for the near zone (sec.
+> 1.3a): "1-voxel dapples INSIDE the near zone (< 12.8 m), suns 45/60/80, >= 75 % strength" -- test C4b, **100 %** over 1,572 dapple
+> faces (rule NotLit, leg cap 128). The cache-only rows stay as C4, now `[Explicit]` and report-only (the far-zone softening: N0 37 %,
+> N1 18-32 %, ...). C1-C9 re-run with an extra "N0+near" row: none regressed (sec. 1.3a, Correctness). Step proxy: NotLit 58.9 vs
+> exact 80.8 steps/face over all oracle scenes; Partial 74.7 % fails the rule; ExactAll x1.01.
+
+**247b -- the one timed kill test (performance task, idle Mac, overnight). Model: opus. REWRITTEN by task 251 as
+`tools/overnight/later/252b-suncache-kill-timing.md`** (released by the idle gate, not queued directly). Two capture-only arms, both
+with sun reuse off for the arm (the cache path looks up every face every frame): `suncontact` (247b's: tier-0 sun ray capped at 8
+cells, no task 133 continuation, 8 dummy taps) = the per-face LOWER bound; `suncontactnear` = the same, but faces < 12.8 m cap at
+8 + 128 cells = an UPPER bound of the near zone (the real rule runs legs only where the cache says not lit, and stops them at the
+run's entry). Warm-up launch, then ABBA cost split (`sun_off`, `suncontact`, `suncontactnear`, today) at forest_eye 16 deg and
+walk_near 16 deg, 432 rows, HID idle logged around every arm. **Kill if** forest `suncontact - sun_off` > 15 ms (even without the
+near zone the per-face part eats the saving: the kernel, not the ray length, is the cost -- 124/232's warning). **Go if**
+`suncontactnear - sun_off` < 8 ms. Between: owner call, with task 251's step ratio beside the numbers. ~45 min of an idle Mac.
 
 **247c -- GPU step 1: N0-N3 + F, `-suncache 1` (OFF by default). Model: opus. Requires 247a, 247b (go).**
 `CSSunCacheBuild` + `SunCache` (C#: slots, anchors, demand tiles, dirty boxes from `TerrainClipmap`, line budget), lookup in the
-far-shading primary kernels (uniform branch; the old path stays the OFF twin) and in `CSSkyFillTrace`'s bounce leg; sun history not
-allocated when ON. Shader pins + twin test against `SunCacheReference`. Proof (one launch, <= 10 min, rule 3): pictures OFF / ON /
+far-shading primary kernels (uniform branch; the old path stays the OFF twin) and in `CSSkyFillTrace`'s bounce leg (no near leg
+there). The near zone of sec. 1.3a in the primary kernels (`-suncachenear 0|1`, default 1 under `-suncache 1`; `-suncachenearreuse
+1|4`, default 4 = legs on the keyed `-tshadow` history + the near-edit invalidation; the history is allocated only when the reuse is
+on). Twin test: C4b's rows against the shader's answers. Shader pins + twin test against `SunCacheReference`. Proof (one launch, <= 10 min, rule 3): pictures OFF / ON /
 diff at forest_eye 16 deg + noon, walk_near 16 deg, jungle_eye noon, cliff1, walk_far_hill (228's pose); an edit demo (cut 3 leaf
 voxels in view: stills at frame +0 / +1 / +8); memory per rule 11 (process peak, GPU body pool peak + refusals, CPU pool + valve,
-ON vs OFF); pass card (rule 12); `-raystats` sun steps ON vs OFF (rule 12 P5) plus new build-line counters; capture-only
+ON vs OFF); pass card (rule 12); `-raystats` sun steps ON vs OFF (rule 12 P5) plus new build-line counters and near-leg counters
+(legs/frame, steps/leg, capped share); a near-dapple close-up (forest floor < 10 m, sun 45-60 deg) ON vs OFF; capture-only
 `-costarms suncache_off`. HEAVY: yes (a new pass) -> the supervisor runs the budget check next.
 
 **247d -- GPU step 2: shell maps S4-S9 replace task 80's shell-hit ray; shell uploads mark F / S dirty. Model: opus. Requires 247c.**
@@ -368,7 +482,7 @@ Pictures at summit_view / peak_from_2km_ground (8.2's distant-mountain silhouett
 **The one timed check that confirms the saving (idle Mac, after 247c; a performance milestone task):** one warm-up launch (discarded),
 then ABBA cost split `-suncache 0 / 1` at forest_eye 16 deg + noon, walk_near 16 deg, jungle_eye noon, torch_camp night, 432 rows,
 play flags. Report the sun step, the sky-fill step and the frame p50 / p95. **Default ON proposal to the owner if** forest 16 deg sun
-step <= 16 ms and walk_near is not slower than OFF; **stop** if the forest sun step stays > 25 ms.
+step <= 16 ms (near zone included; task 251's estimate is ~9-23 ms) and walk_near is not slower than OFF; **stop** if the forest sun step stays > 25 ms.
 
 ---
 
@@ -377,6 +491,7 @@ step <= 16 ms and walk_near is not slower than OFF; **stop** if the forest sun s
 | risk | why it might happen | cheapest early test |
 |---|---|---|
 | **The per-face part stays expensive** | 124: halving traced sun rays saved 0 ms; 232: moving rays out of the big kernel saved nothing. If the cost is the kernel's register pressure / occupancy rather than ray length, a short contact ray + taps may not save much | **247b's `suncontact` arm** (one timed capture). This is the cheapest test that can kill the idea, and it needs no cache at all |
+| **The near zone's legs cost more than estimated** (task 251) | in deep shade a leg costs what today's ray costs; old trees put half the faces in the zone | 252b's `suncontactnear` arm (upper bound); levers in order: legs reused 1 in 4 (default), a 6.4 m zone, a 64-cell cap (passes 45-80 deg) |
 | False shadows / leaks the run rule misses | the 3.6 deg residual, sub-texel cracks, runs over tile seams | **247a's oracle sweep** (EditMode, no idle Mac) -- the cheapest correctness kill test |
 | Build cost at a low sun on open ground | lines skim the whole window; walk_near may gain little or lose | 247a's steps-per-line proxy; 247c's build-line counters |
 | Streaming churn | the forest keeps a 573-chunk deficit (235): many chunk arrivals = many dirty lines | dirty lines at low priority, budgeted; 247c reports dirty lines/frame |
@@ -390,13 +505,13 @@ step <= 16 ms and walk_near is not slower than OFF; **stop** if the forest sun s
 
 | # | status | change | section |
 |---|---|---|---|
-| 1 | CHANGED | §6.5 "no shadow maps": the sun leg past the first 8 cells may come from the run maps of this amendment; §6.5's origin rule, C.10's soft term and 8.2's LOD rule stay | §6.5 |
+| 1 | CHANGED | §6.5 "no shadow maps": the sun leg past the first 8 cells may come from the run maps of this amendment, except that within 12.8 m of the camera a face the maps do not call lit keeps the exact ray through its shadowing run (sec. 1.3a); §6.5's origin rule, C.10's soft term and 8.2's LOD rule stay | §6.5 |
 | 2 | NEW | derived GPU state "sun cache" (run maps N0-N3, F, S4-S9): written only by `CSSunCacheBuild` from the mirror and shells, never read by the CPU | §3.7 (beside the mirror) |
 | 3 | CHANGED | §6.5's shadow ladder gets a rung 0 "cached sun" above rung 1; rungs 1-3 unchanged | §6.5 |
 | 4 | CHANGED | 8.17's S2 sun step = contact ray + lookup + the build pass; its 5.0 ms share now covers both | 8.17 sec. 3-4 |
 | 5 | UNCHANGED | CPU sole terrain writer; mirror layout (clipmap, air mips, occupancy, shell bricks); the 1-byte voxel; frozen APIs (`IWorldQuery.GetVoxel`, `IEditService.SetVoxel`, D.1, §4.4); FSR 3 inputs; the fluid sim | -- |
-| 6 | RETIRED (when ON) | temporal sun reuse (`-tshadow`), 232's low-res sun, 228's `-sunfar`: not used on the cache path; kept for the OFF twin | 56 / 124 / 228 / 232 |
+| 6 | RETIRED (when ON) | 232's low-res sun, 228's `-sunfar`: not used on the cache path; kept for the OFF twin. Temporal sun reuse (`-tshadow`) is kept only for the near zone's legs (recommended form, sec. 1.3a), with an edit invalidation it does not have today | 56 / 124 / 228 / 232 |
 
 **Question for the owner:** adopt amendment 8.18 and build the prototype (247a, then 247b, then 247c/247d)? **Recommendation: yes, as
-a staged trial.** 247a and 247b are cheap and decide it before any GPU code: 247a needs no idle Mac; 247b is one ~45 min overnight
-capture. If 247b's contact-only arm does not save, stop there and spend the effort on F3 (solid crown cores) and the "rest" split.
+a staged trial.** 247a and 247b are cheap and decide it before any GPU code: 247a needs no idle Mac (done: 249, then 251 for the
+near zone); 247b (now 252b) is one ~45 min overnight capture. If 247b's contact-only arm does not save, stop there and spend the effort on F3 (solid crown cores) and the "rest" split.

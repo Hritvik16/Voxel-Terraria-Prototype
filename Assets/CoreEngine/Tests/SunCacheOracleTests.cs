@@ -128,8 +128,12 @@ public class SunCacheOracleTests
         public long faces, refLit, refShadow, falseShadow, falseLit, fsOut, flOut, litOut, shadowOut, band, incons;
         public double visOnRefLit;
         public long lines, lineSteps;
+        public long legs, legSteps, legCapped, contactSteps;     // task 251: near-rule rows only
+        public long refSteps;                                     // the exact reference's steps over these faces
         public void Add(Stat o)
         {
+            refSteps += o.refSteps;
+            legs += o.legs; legSteps += o.legSteps; legCapped += o.legCapped; contactSteps += o.contactSteps;
             faces += o.faces; refLit += o.refLit; refShadow += o.refShadow; falseShadow += o.falseShadow; falseLit += o.falseLit;
             fsOut += o.fsOut; flOut += o.flOut; litOut += o.litOut; shadowOut += o.shadowOut; band += o.band; incons += o.incons;
             visOnRefLit += o.visOnRefLit; lines += o.lines; lineSteps += o.lineSteps;
@@ -137,21 +141,38 @@ public class SunCacheOracleTests
         public double FsOutPct => litOut > 0 ? 100.0 * fsOut / litOut : 0;
         public double FlOutPct => shadowOut > 0 ? 100.0 * flOut / shadowOut : 0;
         public double Strength => refLit > 0 ? visOnRefLit / refLit : double.NaN;
+        /// steps per face of the near rule: contact + exact legs (the leg-free faces count too)
+        public double NearStepsPerFace => faces > 0 ? (double)(contactSteps + legSteps) / faces : 0;
     }
+
+    // ---------------- task 251: near-rule rows ----------------
+    // Eval returns rows 0-3 = the forced maps N0-N3 (cache only, as in 249) and rows 4.. = N0 + a near rule (8.18 sec. 1.3a),
+    // one per entry of nearRules (default: the amendment's rule). NM = rows with the default rule set.
+    const int NEAR_ROW = 4, NM = 5;
+    static readonly SunCacheReference.NearRule[] DefaultNear = { SunCacheReference.DEFAULT_NEAR_RULE };
+    static readonly SunCacheReference.NearRule[] AllNear = { SunCacheReference.NearRule.ExactAll, SunCacheReference.NearRule.Partial, SunCacheReference.NearRule.NotLit };
+    static T[][] Rows<T>(int n, int rows = NM) { var a = new T[rows][]; for (int r = 0; r < rows; r++) a[r] = new T[n]; return a; }
+    static readonly Dictionary<SunCacheReference.NearRule, long> s_nearFaces = new Dictionary<SunCacheReference.NearRule, long>();
+    static readonly Dictionary<SunCacheReference.NearRule, long> s_nearSteps = new Dictionary<SunCacheReference.NearRule, long>();
+    static readonly Dictionary<SunCacheReference.NearRule, long> s_nearLegs = new Dictionary<SunCacheReference.NearRule, long>();
 
     // class codes for pictures
     const byte C_LIT = 1, C_SHADOW = 2, C_FS_OUT = 3, C_FS_BAND = 4, C_FL_OUT = 5, C_FL_BAND = 6;
 
     static long s_refSteps, s_refFaces, s_contactSteps;
+    static int s_legCap = SunCacheReference.NEAR_LEG_CAP;     // C4b's cap sweep sets it, then restores it
     static readonly long[] s_lineSteps = new long[4], s_lines = new long[4];
 
     /// Evaluate faces under sun s for each map in `mapsToRun` (forced map, no blend). classes[k][i] / vis[k][i] optional.
-    static Stat[] Eval(Scene sc, List<Recv> faces, float3 s, int[] mapsToRun, byte[][] classes = null, float[][] visOut = null, bool bandsForAll = true)
+    static Stat[] Eval(Scene sc, List<Recv> faces, float3 s, int[] mapsToRun, byte[][] classes = null, float[][] visOut = null, bool bandsForAll = true,
+                       SunCacheReference.NearRule[] nearRules = null)
     {
+        nearRules = nearRules ?? DefaultNear;
         s = math.normalize(s);
-        var cache = new SunCacheReference(sc.mirror);
+        var cache = new SunCacheReference(sc.mirror) { nearLegCap = s_legCap };
         cache.BuildStatic(s, int3.zero);
         int n = faces.Count;
+        var cSteps = new int[n]; long refStepsLocal = 0;
         var refLit = new bool[n]; var cBlocked = new bool[n]; var Qs = new float3[n]; var centre = new bool[n]; var tie = new bool[n];
         long incons = 0;
         for (int i = 0; i < n; i++)
@@ -160,17 +181,21 @@ public class SunCacheOracleTests
             float3 originM = ShadowRayReference.ShadowOriginWorld(f.hit, f.n);
             var r = ShadowRayReference.Trace(sc.store, f.hit, f.n, s, originM, 0f, BoxExitM(sc, originM * 10f, s));
             refLit[i] = !r.occluded;
-            s_refSteps += r.steps; s_refFaces++;
+            s_refSteps += r.steps; s_refFaces++; refStepsLocal += r.steps;
             var c = SunCacheReference.Contact(sc.store, f.hit, f.n, s, out Qs[i]);
-            s_contactSteps += c.steps;
+            s_contactSteps += c.steps; cSteps[i] = c.steps;
             cBlocked[i] = c.occluded;
             if (!c.occluded) centre[i] = SunCacheReference.ExactRay(sc.mirror, Qs[i], s, out _);
             if (refLit[i] != (!cBlocked[i] && !centre[i])) { incons++; tie[i] = true; }
         }
-        var stats = new Stat[4];
-        foreach (int k in mapsToRun)
+        var stats = new Stat[NEAR_ROW + nearRules.Length];
+        var rows = new List<int>(mapsToRun);
+        for (int j = 0; j < nearRules.Length; j++) rows.Add(NEAR_ROW + j);
+        foreach (int row in rows)
         {
-            var st = new Stat { faces = n, incons = incons };
+            int k = row < NEAR_ROW ? row : 0;
+            var rule = row < NEAR_ROW ? SunCacheReference.NearRule.Off : nearRules[row - NEAR_ROW];
+            var st = new Stat { faces = n, incons = incons, refSteps = refStepsLocal };
             long l0 = cache.linesBuilt, s0 = cache.lineSteps;
             var sl = cache.maps[k].cur;
             float tx = SunCacheReference.TEXEL_VOX[k];
@@ -182,6 +207,12 @@ public class SunCacheOracleTests
                 {
                     vis = cache.SampleCascade(Qs[i], k, -1f, out int mr, out bool co);
                     Assert.AreEqual(k, mr, "lazy oracle mode must read the forced map");
+                    if (rule != SunCacheReference.NearRule.Off)
+                    {
+                        long cap0 = cache.nearLegCapped, lg0 = cache.nearLegs;
+                        vis = cache.NearRefine(Qs[i], s, vis, rule, out int ls);
+                        st.legSteps += ls; st.legs += cache.nearLegs - lg0; st.legCapped += cache.nearLegCapped - cap0;
+                    }
                     bool needBand = bandsForAll || ((vis >= 0.5f) != refLit[i]);
                     // a face whose own exact answer depends on the starting point (Trace from the origin vs the exact ray from Q
                     // disagree: a corner tie in the reference itself) sits ON an edge: band by definition
@@ -204,12 +235,19 @@ public class SunCacheOracleTests
                     if (cacheLit) { st.falseLit++; if (!band) st.flOut++; cls = band ? C_FL_BAND : C_FL_OUT; }
                     else cls = C_SHADOW;
                 }
-                if (classes != null) classes[k][i] = cls;
-                if (visOut != null) visOut[k][i] = vis;
+                if (rule != SunCacheReference.NearRule.Off) st.contactSteps += cSteps[i];
+                if (classes != null && row < classes.Length) classes[row][i] = cls;
+                if (visOut != null && row < visOut.Length) visOut[row][i] = vis;
             }
             st.lines = cache.linesBuilt - l0; st.lineSteps = cache.lineSteps - s0;
             s_lines[k] += st.lines; s_lineSteps[k] += st.lineSteps;
-            stats[k] = st;
+            if (rule != SunCacheReference.NearRule.Off)
+            {
+                s_nearFaces.TryGetValue(rule, out long a); s_nearFaces[rule] = a + n;
+                s_nearSteps.TryGetValue(rule, out long b); s_nearSteps[rule] = b + st.contactSteps + st.legSteps;
+                s_nearLegs.TryGetValue(rule, out long c2); s_nearLegs[rule] = c2 + st.legs;
+            }
+            stats[row] = st;
         }
         return stats;
     }
@@ -232,15 +270,17 @@ public class SunCacheOracleTests
     }
 
     static readonly int[] AllMaps = { 0, 1, 2, 3 };
-    static string MapName(int k) => "N" + k + " (" + (SunCacheReference.TEXEL_VOX[k] * 0.1f).ToString("0.00") + " m)";
+    static string MapName(int k) => k >= NEAR_ROW ? "N0+near" : "N" + k + " (" + (SunCacheReference.TEXEL_VOX[k] * 0.1f).ToString("0.00") + " m)";
+    static string RuleName(SunCacheReference.NearRule r) => "N0+" + r;
 
     static string Row(string label, Stat st) =>
         $"{label,-34} faces {st.faces,6}  refLit {st.refLit,6}  litOut {st.litOut,6}  FS {st.falseShadow,5} (out {st.fsOut,4} = {st.FsOutPct,6:0.000} %)  " +
         $"FL {st.falseLit,5} (out {st.flOut,4} = {st.FlOutPct,6:0.000} %)  band {st.band,5}  incons {st.incons}";
 
     // ---------------- report files ----------------
-    static string LogDir => Path.Combine(Directory.GetCurrentDirectory(), "Logs", "overnight", "249");
-    static string ShotDir => Path.Combine(Directory.GetCurrentDirectory(), "Screenshots", "249");
+    // task 251 re-runs every case with the near rule: its reports go to 251 (249's stay as they were)
+    static string LogDir => Path.Combine(Directory.GetCurrentDirectory(), "Logs", "overnight", "251");
+    static string ShotDir => Path.Combine(Directory.GetCurrentDirectory(), "Screenshots", "251");
     static void Section(string name, StringBuilder sb)
     {
         Directory.CreateDirectory(LogDir);
@@ -253,7 +293,8 @@ public class SunCacheOracleTests
     {
         if (!Directory.Exists(LogDir)) return;
         var sb = new StringBuilder();
-        sb.AppendLine("TASK 249 -- SunCacheReference vs ShadowRayReference.Trace (AMENDMENT 8.18 sec. 6, 247a). DRAFT amendment, CPU only.");
+        sb.AppendLine("TASK 249 + 251 -- SunCacheReference vs ShadowRayReference.Trace (AMENDMENT 8.18 sec. 6, 247a; 251 = the near zone, sec. 1.3a). DRAFT amendment, CPU only.");
+        sb.AppendLine("Rows 'N0+near' / 'N0+<rule>' = N0's cache answer refined by the near-zone rule (receivers < 12.8 m); N0-N3 rows = cache only.");
         sb.AppendLine("Sections are written by SunCacheOracleTests (one file each, joined here); a section older than this run is marked by its own date.");
         sb.AppendLine("Written " + DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
         sb.AppendLine();
@@ -265,6 +306,8 @@ public class SunCacheOracleTests
             px.AppendLine($"contact ray (<= 8 cells):                                   {(double)s_contactSteps / s_refFaces:0.0} steps/face");
             for (int k = 0; k < 4; k++)
                 if (s_lines[k] > 0) px.AppendLine($"{MapName(k)} line build: {s_lines[k]} lines, {(double)s_lineSteps[k] / s_lines[k]:0.0} steps/line");
+            foreach (var kv in s_nearFaces)
+                if (kv.Value > 0) px.AppendLine($"near rule {kv.Key,-8} (task 251; contact + exact legs): {kv.Value} faces, {(double)s_nearSteps[kv.Key] / kv.Value:0.0} steps/face, legs on {100.0 * s_nearLegs[kv.Key] / kv.Value:0.0} % of faces");
             File.WriteAllText(Path.Combine(LogDir, "oracle_00_step_proxy.txt"), px.ToString());   // persists: a later run without the Slow cases keeps it
         }
         var files = new List<string>(Directory.GetFiles(LogDir, "oracle_*.txt"));
@@ -348,9 +391,9 @@ public class SunCacheOracleTests
     {
         int[] slopes = { 10, 20, 30, 45, 60, 75, 85 };
         float[] suns = { 8, 16, 30, 60 };
-        var agg = new Stat[4, slopes.Length];
-        var aggGraze = new Stat[4];
-        var worstPct = new double[4]; var worstCfg = new string[4];
+        var agg = new Stat[NM, slopes.Length];
+        var aggGraze = new Stat[NM];
+        var worstPct = new double[NM]; var worstCfg = new string[NM];
         double killWorst = 0; string killWhere = "";
         int worstSlope = -1; float worstE = 0, worstAz = 0; int worstMap = 0; double worstVal = -1;
         var sb = new StringBuilder();
@@ -370,7 +413,7 @@ public class SunCacheOracleTests
                     var faces = Facing(all, s, 256, 1000 * si + 10 * (int)e + a);
                     if (faces.Count == 0) continue;
                     var st = Eval(sc, faces, s, AllMaps);
-                    for (int k = 0; k < 4; k++)
+                    for (int k = 0; k < NM; k++)
                     {
                         if (math.abs(beta) > 3.6f)
                         {
@@ -385,7 +428,7 @@ public class SunCacheOracleTests
                 }
             }
         }
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < NM; k++)
         {
             sb.AppendLine($"-- {MapName(k)} --");
             for (int si = 0; si < slopes.Length; si++)
@@ -425,7 +468,7 @@ public class SunCacheOracleTests
                 float3 s = SunDir(e, 37f);
                 var faces = Facing(all, s, 400, (int)e);
                 var st = Eval(sc, faces, s, AllMaps);
-                for (int k = 0; k < 4; k++)
+                for (int k = 0; k < NM; k++)
                 {
                     sb.AppendLine(Row($"sun {e,2} deg {MapName(k)}", st[k]));
                     fsAll += st[k].falseShadow;
@@ -448,7 +491,7 @@ public class SunCacheOracleTests
         var sb = new StringBuilder();
         sb.AppendLine("== (3) 1x1 pole (4 m) and a 1-thick wall (2.4 m tall, 4 m long) on a floor; 6 suns ==");
         sb.AppendLine("foot gap = a floor face touching the caster's base that the reference shades and the cache lights (peter-panning).");
-        var sums = new Stat[4]; long footGaps = 0;
+        var sums = new Stat[NM]; long footGaps = 0;
         using (var sc = new Scene(new int3(SW, 96, SW)))
         {
             sc.Fill(int3.zero, new int3(SW, 32, SW), Materials.Stone);
@@ -460,9 +503,9 @@ public class SunCacheOracleTests
             {
                 float3 s = SunDir(e, az);
                 var faces = Facing(all, s, 0, 0);
-                var cls = new byte[4][]; for (int k = 0; k < 4; k++) cls[k] = new byte[faces.Count];
+                var cls = Rows<byte>(faces.Count);
                 var st = Eval(sc, faces, s, AllMaps, cls);
-                for (int k = 0; k < 4; k++)
+                for (int k = 0; k < NM; k++)
                 {
                     sb.AppendLine(Row($"sun {e} az {az} {MapName(k)}", st[k]));
                     sums[k].Add(st[k]);
@@ -478,7 +521,7 @@ public class SunCacheOracleTests
             }
         }
         long outOfBand = 0; double worstRate = 0;
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < NM; k++)
         {
             sb.AppendLine(Row("ALL " + MapName(k), sums[k]));
             outOfBand += sums[k].fsOut + sums[k].flOut;
@@ -510,10 +553,10 @@ public class SunCacheOracleTests
         return sc;
     }
 
-    /// TASK 249: THIS KILL RULE FIRES (37 % vs 75 %, Logs/overnight/249/oracle.txt). Explicit so the suites stay green while
-    /// the owner decides (STOP_FOR_OWNER in that task's HANDOFF); run it by name to reproduce. Do not loosen the limit here:
-    /// the 75 % is the amendment's own kill rule.
-    [Test, Category("Slow"), Explicit("8.18 kill rule (4) fires: 1-voxel N0 dapples 37 % < 75 % (task 249); owner decision")]
+    /// TASK 249 fired kill rule (4) here (cache-only N0 1-voxel dapples 37 % < 75 %). Owner Q-249 (b), task 251: the near zone
+    /// (< 12.8 m) now carries 1-voxel dapples with the exact leg (C4b asserts it); this case is the FAR-ZONE report: how much
+    /// the plain cache softens dapples in each map. Report only (no assert); Explicit as task 251's file asks.
+    [Test, Category("Slow"), Explicit("8.18 far-zone dapple report (cache only; task 249's kill rule moved to C4b's near zone, task 251)")]
     public void C4_CanopyDapples_StrengthPerMap()
     {
         var sb = new StringBuilder();
@@ -556,11 +599,144 @@ public class SunCacheOracleTests
             }
         }
         double n0 = n0Gap1N > 0 ? n0Gap1Sum / n0Gap1N : 1.0;
-        bool kill = n0 < 0.75;
-        sb.AppendLine($"KILL CHECK (4): 1-voxel dapples in N0, all suns: strength {n0 * 100:0.0} % over {n0Gap1N} dapple faces -> {(kill ? "KILL FIRES" : "pass")} (limit 75 %)");
-        sb.AppendLine("picture: Screenshots/249/dapples_gap1_sun60.png (sun 60 az 30; 5 panels: reference, then cache N0 N1 N2 N3; brightness = visibility)");
+        sb.AppendLine($"FAR-ZONE REPORT (task 251; was 249's kill check 4): 1-voxel dapples, cache only, N0, all suns: strength {n0 * 100:0.0} % over {n0Gap1N} dapple faces " +
+                      "(N0 is read only inside the near zone, where C4b's leg overrides it; beyond 12.8 m the N1-N3 rows above are what you see)");
+        sb.AppendLine("picture: " + ShotDir + "/dapples_gap1_sun60.png (sun 60 az 30; 5 panels: reference, then cache N0 N1 N2 N3; brightness = visibility)");
         Section("4_canopy_dapples", sb);
-        Assert.IsFalse(kill, "8.18 KILL RULE (4): 1-voxel dapples in N0 at " + (n0 * 100).ToString("0.0") + " %");
+    }
+
+    /// TASK 251 (8.18 sec. 1.3a, kill rule 4 as rewritten): 1-voxel dapples INSIDE the near zone, suns 45/60/80 x 8 azimuths,
+    /// must keep >= 75 % strength with the amendment's near rule. Also compares the three candidate rules (ExactAll = the exact
+    /// ray for every near face, Partial = the leg only where the taps disagree, NotLit = the leg wherever vis < 1) on strength
+    /// and steps per face, sweeps the leg cap, reports low suns (16 / 30 deg, cost only) and checks the Lookup path's blend.
+    [Test, Category("Slow")]
+    public void C4b_NearZoneDapples_ExactLegKeepsThem()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("== (4b) Near zone (< 12.8 m, 8.18 sec. 1.3a): the canopy of (4); rows N0+<rule> = N0's cache answer refined by the near rule ==");
+        sb.AppendLine("strength / seen as in (4). steps/face = contact ray + exact legs (raw DDA cells, the 249 proxy), every face counted; exact = the reference ray.");
+        sb.AppendLine($"leg cap {SunCacheReference.NEAR_LEG_CAP} cells, slack {SunCacheReference.NEAR_LEG_SLACK_VOX} vox; zone {SunCacheReference.NEAR_ZONE_VOX / 10f} m, blend over the last {SunCacheReference.NEAR_BLEND * 100} %.");
+        float[] elevs = { 80f, 60f, 45f, 30f, 16f };
+        int R = NEAR_ROW + AllNear.Length;
+        var killSum = new double[AllNear.Length]; var killN = new long[AllNear.Length];
+        var tot = new Stat[R];
+        for (int gap = 1; gap <= 3; gap++)
+        using (var sc = BuildCanopy(gap, 77 + gap))
+        {
+            var all = ExposedFaces(sc, new int3(48, 31, 48), new int3(128, 32, 128));
+            foreach (float e in elevs)
+            {
+                var sum = new Stat[R]; var seen = new long[R];
+                for (int a = 0; a < 8; a++)
+                {
+                    float3 s = SunDir(e, 30f + 45f * a);
+                    var faces = Facing(all, s, 0, 0);
+                    var vis = Rows<float>(faces.Count, R); var cls = Rows<byte>(faces.Count, R);
+                    var st = Eval(sc, faces, s, AllMaps, cls, vis, bandsForAll: false, nearRules: AllNear);
+                    for (int r = 0; r < R; r++)
+                    {
+                        sum[r].Add(st[r]);
+                        for (int i = 0; i < faces.Count; i++) if (cls[r][i] == C_LIT) seen[r]++;
+                    }
+                    if (gap == 1 && e == 60f && a == 0) DrawNearDapples(faces, cls, vis);
+                }
+                for (int r = 0; r < R; r++)
+                {
+                    if (r != 0 && r != 1 && r < NEAR_ROW) continue;
+                    string name = r < NEAR_ROW ? MapName(r) + " cache" : RuleName(AllNear[r - NEAR_ROW]);
+                    string cost = r < NEAR_ROW ? "" : $"  steps/face {sum[r].NearStepsPerFace,6:0.0} (exact {(double)sum[r].refSteps / math.max(1, sum[r].faces),6:0.0})  legs {100.0 * sum[r].legs / math.max(1, sum[r].faces),5:0.0} %  capped {sum[r].legCapped}";
+                    sb.AppendLine($"gap {gap} sun {e,2} {name,-15}: dapple faces {sum[r].refLit,5}  strength {sum[r].Strength * 100,6:0.0} %  seen {(sum[r].refLit > 0 ? 100.0 * seen[r] / sum[r].refLit : 0),6:0.0} %  FL {sum[r].falseLit,4} (out {sum[r].flOut,3})  FS {sum[r].falseShadow,4}{cost}");
+                    if (gap == 1 && e >= 45f && r >= NEAR_ROW) { killSum[r - NEAR_ROW] += sum[r].visOnRefLit; killN[r - NEAR_ROW] += sum[r].refLit; }
+                    if (r >= NEAR_ROW) tot[r].Add(sum[r]);
+                }
+            }
+        }
+        sb.AppendLine("-- rule summary (all gaps, all suns incl. 16/30): steps per face, exact-ray work --");
+        for (int j = 0; j < AllNear.Length; j++)
+        {
+            var t = tot[NEAR_ROW + j];
+            sb.AppendLine($"{RuleName(AllNear[j]),-15}: kill-set strength (gap 1, suns 45-80) {100.0 * killSum[j] / math.max(1, killN[j]),5:0.0} %  | steps/face {t.NearStepsPerFace,6:0.0} vs exact {(double)t.refSteps / math.max(1, t.faces),6:0.0} " +
+                          $"(ratio {t.NearStepsPerFace / math.max(1e-9, (double)t.refSteps / math.max(1, t.faces)),5:0.00})  legs on {100.0 * t.legs / math.max(1, t.faces),5:0.0} % of faces, mean leg {(double)t.legSteps / math.max(1, t.legs),5:0.0} steps, capped {t.legCapped}");
+        }
+
+        // leg cap sweep (gap 1, NotLit): how high a canopy the cap still crosses
+        sb.AppendLine("-- leg cap sweep (gap 1, rule NotLit): strength per sun; a crown top is crossed while (cap + 8) x sin(sun) x 0.1 m >= its height (3 m here) --");
+        var notLit = new[] { SunCacheReference.NearRule.NotLit };
+        using (var sc = BuildCanopy(1, 78))
+        {
+            var all = ExposedFaces(sc, new int3(48, 31, 48), new int3(128, 32, 128));
+            foreach (int cap in new[] { 16, 32, 64, 128, 256 })
+            {
+                s_legCap = cap;
+                var line = new StringBuilder($"cap {cap,3}:");
+                foreach (float e in elevs)
+                {
+                    var agg = new Stat();
+                    for (int a = 0; a < 8; a += 2)
+                    {
+                        float3 s = SunDir(e, 30f + 45f * a);
+                        agg.Add(Eval(sc, Facing(all, s, 0, 0), s, new int[0], bandsForAll: false, nearRules: notLit)[NEAR_ROW]);
+                    }
+                    line.Append($"  sun {e,2}: {agg.Strength * 100,5:0.0} % ({agg.NearStepsPerFace,5:0.0} st/f, capped {100.0 * agg.legCapped / math.max(1, agg.faces):0} %)");
+                }
+                sb.AppendLine(line.ToString());
+            }
+            s_legCap = SunCacheReference.NEAR_LEG_CAP;
+
+            // the Lookup path: zone + blend (5 m = near answer, 11.2 m = half near / half N0, 20 m = N1 cache), gap 1, sun 60 az 30
+            float3 s60 = SunDir(60f, 30f);
+            var faces = Facing(all, s60, 0, 0);
+            var vis = Rows<float>(faces.Count, NM);
+            Eval(sc, faces, s60, AllMaps, null, vis, bandsForAll: false);
+            var cache = new SunCacheReference(sc.mirror);
+            cache.BuildStatic(s60, int3.zero);
+            int mism = 0;
+            for (int i = 0; i < faces.Count; i++)
+            {
+                float v5 = cache.Lookup(sc.store, faces[i].hit, faces[i].n, s60, 50f).vis;
+                float v11 = cache.Lookup(sc.store, faces[i].hit, faces[i].n, s60, 112f).vis;
+                float v20 = cache.Lookup(sc.store, faces[i].hit, faces[i].n, s60, 200f).vis;
+                if (math.abs(v5 - vis[NEAR_ROW][i]) > 1e-5f || math.abs(v11 - 0.5f * (vis[NEAR_ROW][i] + vis[0][i])) > 1e-5f || math.abs(v20 - vis[1][i]) > 1e-5f) mism++;
+            }
+            Assert.AreEqual(0.5f, SunCacheReference.NearBlendT(112f), 1e-6f);
+            Assert.AreEqual(0f, SunCacheReference.NearBlendT(96f), 1e-6f);
+            Assert.AreEqual(1f, SunCacheReference.NearBlendT(128f), 1e-6f);
+            sb.AppendLine($"Lookup path (gap 1, sun 60): {faces.Count} faces at 5 / 11.2 / 20 m vs near row / blend / N1 row: {mism} mismatches (asserted 0)");
+            Assert.AreEqual(0, mism, "Lookup's near zone / blend does not match the oracle rows");
+        }
+
+        int pick = Array.IndexOf(AllNear, SunCacheReference.DEFAULT_NEAR_RULE);
+        double nearStrength = killN[pick] > 0 ? killSum[pick] / killN[pick] : 1.0;
+        bool kill = nearStrength < 0.75;
+        sb.AppendLine($"KILL CHECK (4, near zone): 1-voxel dapples, rule {SunCacheReference.DEFAULT_NEAR_RULE}, suns 45/60/80: strength {nearStrength * 100:0.0} % over {killN[pick]} dapple faces -> {(kill ? "KILL FIRES" : "pass")} (limit 75 %)");
+        sb.AppendLine("picture: " + ShotDir + "/near_dapples_gap1_sun60.png (sun 60 az 30; 5 panels: exact | near rule (< 9.6 m) | blend middle (11.2 m) | far N1 (12.8-25.6 m) | far N2 (25.6-51 m))");
+        Section("4b_near_dapples", sb);
+        Assert.IsFalse(kill, "8.18 KILL RULE (4, near zone): 1-voxel dapples at " + (nearStrength * 100).ToString("0.0") + " %");
+    }
+
+    /// 5 panels: exact | near rule | blend middle | N1 | N2 (task 251). Rows: 0-3 = N0-N3 cache, NEAR_ROW + 2 = NotLit.
+    static void DrawNearDapples(List<Recv> faces, byte[][] cls, float[][] vis)
+    {
+        const int o = 48, w = 80, P = 4, GAP = 8;
+        int W = 5 * w * P + 4 * GAP, H = w * P;
+        int nr = NEAR_ROW + Array.IndexOf(AllNear, SunCacheReference.DEFAULT_NEAR_RULE);
+        var px = new Color32[W * H];
+        for (int i = 0; i < px.Length; i++) px[i] = new Color32(255, 255, 255, 255);
+        for (int i = 0; i < faces.Count; i++)
+        {
+            int x = faces[i].hit.x - o, z = faces[i].hit.z - o;
+            if ((uint)x >= w || (uint)z >= w) continue;
+            bool refLit = cls[0][i] == C_LIT || cls[0][i] == C_FS_OUT || cls[0][i] == C_FS_BAND;
+            for (int p = 0; p < 5; p++)
+            {
+                float v = p == 0 ? (refLit ? 1f : 0f) : p == 1 ? vis[nr][i] : p == 2 ? 0.5f * (vis[nr][i] + vis[0][i]) : vis[p - 2][i];
+                byte g = (byte)(40 + 205 * v);
+                var c = new Color32(g, g, (byte)(g * 0.85f), 255);
+                for (int dy = 0; dy < P; dy++) for (int dx = 0; dx < P; dx++)
+                    px[(z * P + dy) * W + p * (w * P + GAP) + x * P + dx] = c;
+            }
+        }
+        WritePng("near_dapples_gap1_sun60.png", W, H, px);
     }
 
     static void DrawDapples(Scene sc, List<Recv> faces, float3 s, byte[][] cls, float[][] vis)
@@ -615,10 +791,9 @@ public class SunCacheOracleTests
             {
                 float3 s = SunDir(e, 180f + az);    // x < 0: the sun is on the -x side
                 var faces = Facing(all, s, 600, 5);
-                var vis = new float[4][]; var cls = new byte[4][];
-                for (int k = 0; k < 4; k++) { vis[k] = new float[faces.Count]; cls[k] = new byte[faces.Count]; }
+                var vis = Rows<float>(faces.Count); var cls = Rows<byte>(faces.Count);
                 var st = Eval(sc, faces, s, AllMaps, cls, vis);
-                for (int k = 0; k < 4; k++)
+                for (int k = 0; k < NM; k++)
                 {
                     long leak = 0, part = 0;
                     for (int i = 0; i < faces.Count; i++)
@@ -660,7 +835,7 @@ public class SunCacheOracleTests
                 float3 s = math.normalize(new float3(math.cos(e) * math.sin(t), math.sin(e), -math.cos(e) * math.cos(t)));
                 var faces = Facing(all, s, 0, 0);
                 var st = Eval(sc, faces, s, AllMaps);
-                for (int k = 0; k < 4; k++)
+                for (int k = 0; k < NM; k++)
                     sb.AppendLine($"depth {120 - floorY,3} vox, sun 60 tilt {tilt,2}: {MapName(k)} floor faces {st[k].faces,3} refLit {st[k].refLit,3} | false shadow {st[k].falseShadow,3}  false lit {st[k].falseLit,3}");
             }
         }
@@ -792,6 +967,7 @@ public class SunCacheOracleTests
             var maxLag = new float[4]; var sumLag = new double[4]; int lagN = 0;
             long lookups = 0, contactOnly = 0, linesTotal = 0; int linesMax = 0;
             var err = new Stat[4]; long errFrames = 0;
+            var nearErr = new Stat();     // task 251: the near rule (blended) on receivers < 12.8 m, with moving slots
             var Q = new float3[faces.Count]; var cb = new bool[faces.Count];
             for (int f = 0; f < 360; f++)
             {
@@ -824,6 +1000,15 @@ public class SunCacheOracleTests
                     lookups++; if (co) contactOnly++;
                     foreach (uint w in cache.lastTaps) if (w == SunCacheReference.SENTINEL) sentinelInVis++;
                     if (!sample || co) continue;
+                    if (dist < SunCacheReference.NEAR_ZONE_VOX)
+                    {
+                        float vn = cache.NearRefine(Q[i], sNow, vis, SunCacheReference.DEFAULT_NEAR_RULE, out _);
+                        float vb = math.lerp(vn, vis, SunCacheReference.NearBlendT(dist));
+                        bool clN = vb >= 0.5f;
+                        nearErr.faces++;
+                        if (refLitNow[i]) { nearErr.refLit++; nearErr.visOnRefLit += vb; if (!clN) nearErr.falseShadow++; }
+                        else { nearErr.refShadow++; if (clN) nearErr.falseLit++; }
+                    }
                     int k = SunCacheReference.PickMap(dist);
                     var sl = cache.maps[k].cur;
                     float tx = SunCacheReference.TEXEL_VOX[k];
@@ -849,6 +1034,8 @@ public class SunCacheOracleTests
             }
             string mode = predict ? "predicted" : "as written";
             sb.AppendLine($"-- {mode}: lookups {lookups}, contact-only fallbacks {contactOnly}, lines/frame mean {linesTotal / 360.0:0} max {linesMax}");
+            sb.AppendLine($"   near rule {SunCacheReference.DEFAULT_NEAR_RULE} (task 251, receivers < 12.8 m, blended, crossfading slots): faces {nearErr.faces}  refLit {nearErr.refLit}  " +
+                          $"strength {nearErr.Strength * 100:0.0} %  false shadow {nearErr.falseShadow}  false lit {nearErr.falseLit} (all, edge bands included)");
             for (int k = 0; k < 4; k++)
                 sb.AppendLine($"   {MapName(k)} period {SunCacheReference.PERIOD[k],2}: staleness mean {sumLag[k] / math.max(1, lagN),5:0.0} mrad max {maxLag[k],5:0.0} mrad ({maxLag[k] / 30f * 100f:0} % of the soft spread) | " +
                               $"vs exact (frames 64+, every 8th): faces {err[k].faces,5} FS out {err[k].fsOut,4}/{err[k].litOut,-5} FL out {err[k].flOut,4}/{err[k].shadowOut}");

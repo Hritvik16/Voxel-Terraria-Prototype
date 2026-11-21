@@ -2267,3 +2267,14 @@ takes the foliage early-out; `RayStatsReport.FRINGE`, primary folstop no longer 
 before 250, `World_FringeOn_OnlyAirBecomesFringe_NoNewBodies`), `RayStatsReportTests` twin updated. Runner `Screenshots/250/run.sh` (forest_eye,
 savanna_eye, savanna_close x 16 deg / noon x fringe off / on), `python3 -I Screenshots/250/fringe.py` -> `Screenshots/250/fringe.txt`.
 Result: HANDOFF 250, WORLD_FILL_BUDGET sec. 1b.6 / 2 / 5.
+
+**Task 251 (8.18 sec. 1.3a: the near zone, owner Q-249 (b); DRAFT amendment, CPU twin only, nothing in play changes).** `SunCacheReference`
+gains `NearRule` (`Off` / `ExactAll` / `Partial` / `NotLit`; default `NotLit`), `NEAR_ZONE_VOX` 128 (12.8 m), `NEAR_BLEND` 0.25 (9.6-12.8 m),
+`NEAR_LEG_CAP` 128 cells, `NEAR_LEG_SLACK_VOX` 2, `NearRefine` and `NearBlendT`; `Lookup` applies the zone + blend; `SampleSlot` leaves
+`lastShadowSpanVox` (max over shadow taps of depth(Q) - entry); `ExactRay` takes an optional `maxT`. Rule: near face, cache vis < 1 -> exact
+DDA from Q for span + 2 voxels (<= 128): blocked 0, clear 1, capped = cache answer. `SunCacheOracleTests`: `Eval` adds rows 4.. = N0 + a
+near rule (default `NotLit`, shown as "N0+near" in C1-C6); new `C4b_NearZoneDapples_ExactLegKeepsThem` (Slow; asserts 1-voxel dapples
+>= 75 % in the zone at suns 45/60/80 and Lookup's blend = the oracle rows; compares the three rules; leg-cap sweep 16-256; suns 16/30 for
+cost); C4 is now `[Explicit]` report-only (far-zone softening); C8 prints the near rule under moving slots. Reports go to
+`Logs/overnight/251/` (was 249), picture `Screenshots/251/near_dapples_gap1_sun60.png`. Timed test rewritten as
+`tools/overnight/later/252b-suncache-kill-timing.md` (arms `suncontact`, `suncontactnear`; idle gate). Result: HANDOFF 251, amendment sec. 1.3a / 4a.
