@@ -334,6 +334,18 @@ moving sun -> never a sentinel read as lit; staleness bound; (9) toroidal wrap a
 slope > 3.6 deg off grazing, or 1-voxel dapples in N0 below 75 % strength, or any leak behind case (5). Also reports the build's
 steps per line vs the reference's steps per face on the same scenes (a step-count proxy, no timing). No memory/pass card (no drawing).
 
+> **Task 249 result (2026-11-20; `Screenshots/249/oracle.txt`):** kill rule (4) FIRES -- 1-voxel dapples in N0 reach 37 % strength (80 deg
+> sun 49 %, 60 deg 38 %, 45 deg 13 %; 8 azimuths each), not the 75 % limit; N1 18-32 %, N2 1-12 %. Sec. 1.3's "N0 always has a whole texel
+> inside the gap" misses two things: the bilinear taps reach one texel from Q, and a gap in a leaf layer passes less than a voxel of light at any
+> sun off vertical. A continuous model agrees (N0 bilinear 66/47/8 %, nearest-texel 74/58/12 %), so no N0 texel-map variant at 0.05 m reaches
+> 75 %. Rules (1) and (5) pass: 0 false shadows out of band on 49 non-grazing slope/sun groups x 4 maps; 0 acne down to a 4 deg sun; 0 leaks
+> behind 5a. Found and fixed in the twin: line centres on voxel planes (N2/N3, axis-aligned azimuth) -> 1/8-voxel line offset; staleness
+> as written is 2 periods (22 mrad = 75 % of the soft spread at 64 frames, not < 1/3) -> build each slot with the sun 2 periods ahead (<= 1.2
+> mrad mean). Reported residuals: caves under rock thinner than the cap leak at N2/N3 (5b/5c: up to 116 of 600 faces at N3, 16 deg); a 1-voxel
+> crack deeper than the cap reads shadow at N2/N3. Dirty rect of one 0.8 m brick at 16 deg: 650/225/100/49 lines (est. 500/130/35/10).
+> Step proxy (raw 0.1 m DDA cells, no leaps, the oracle's scenes): reference 74.0 steps/face, contact ray 12.4 steps/face; line build N0 59.3,
+> N1 81.9, N2 125.9, N3 177.2 steps/line.
+
 **247b -- the one timed kill test (performance task, idle Mac, overnight). Model: opus.**
 Capture-only arm `-costarms suncontact`: the far-shading kernels cap the tier-0 sun ray at 8 cells and skip task 133's continuation
 (the per-face part of the cache, without the map), plus 8 dummy taps of a constant texture. Warm-up launch, then ABBA cost split

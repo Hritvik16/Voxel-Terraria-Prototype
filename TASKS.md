@@ -2242,3 +2242,12 @@ unchanged. `RayStatsReport` prints a second table, "primary hit material, % of t
 porous (leaf), solid (wood + ground + other) and solid-nogr (wood + other: content standing on the ground). Tests: `RayStatsReportTests`
 `MatClass_TwinsTheShader_WoodIsTask225sClass1`, `MatSplit_SumsToRays_PerBandAndAll_FormatPrintsScreenShares`. Runner `Screenshots/248/run.sh`
 (246's 4 tree arms at 16 deg), `python3 -I Screenshots/248/coverage.py` -> `coverage.txt`. Result: HANDOFF 248, WORLD_FILL_BUDGET sec. 1b.
+
+**Task 249 (8.18 step 247a: cached-sun CPU twin + oracle; DRAFT amendment, nothing in play changes).** `Assets/CoreEngine/Rendering/SunCacheReference.cs`
+(`VoxelEngine.Rendering`): mirror-box twin, run-map lines (entry/exit 16-bit, RUN_CAP 16 texels, sentinel/clear/blocked words), N0-N3 maps
+(512^2, `& 511` ring, 32^2 keyed tiles), the lookup (contact ray = `ShadowRayReference.Trace` capped at 8 cells, map by receiver distance + 10 %
+blend, bilinear run rule eps 0.5 voxel, fallback to coarser maps, F stubbed), slots prev/cur/next with crossfade, demand tiles, line budget, dirty
+boxes. `LINE_OFFSET_VOX` = 1/8 voxel (found here: N2/N3 line centres sat on voxel planes at axis-aligned sun azimuths). Tests
+`SunCacheOracleTests` (C1-C9 = the 9 cases, plus `LineAnswer_EqualsExactRayAtTapPoint_Canopy`, run-rule and line pins; C1-C8 Slow; C4 is
+`[Explicit]` because kill rule (4) fires). Report `Logs/overnight/249/oracle.txt` (copy `Screenshots/249/oracle.txt`), picture
+`Screenshots/249/dapples_gap1_sun60.png`. Result: HANDOFF 249 (STOP_FOR_OWNER: 1-voxel dapples in N0 37 % < 75 %).
